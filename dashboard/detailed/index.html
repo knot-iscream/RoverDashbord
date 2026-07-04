@@ -6,12 +6,11 @@
   <title>Detailed View | Rover Digital Twin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../style.css">
 </head>
-<body style="background:#000">
+<body style="background:#050505">
   <div class="app-wrap">
-
     <header class="header" id="site-header">
       <div class="header-bg"></div>
       <div class="header-glow-left"></div>
@@ -29,16 +28,17 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="search-icon">
               <circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/>
             </svg>
-            <span class="search-placeholder">Search dashboard...</span>
-            <div class="search-kbd"><span>Ctrl K</span></div>
+            <span class="search-text">Search dashboard...</span>
+            <div class="search-kbd">
+              <kbd>Ctrl</kbd>
+              <kbd>K</kbd>
+            </div>
           </div>
         </div>
         <div class="header-actions">
         </div>
       </div>
     </header>
-
-    <!-- ===== DOCK EDGE STRIP ===== -->
     <div class="dock-edge" id="dock-edge">
       <button class="dock-edge-btn dock-edge-chevron" id="dock-edge-toggle" title="Toggle dock">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
@@ -50,9 +50,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
       </a>
     </div>
-
-    <!-- ===== NAV DOCK ===== -->
-    <aside class="nav-dock" id="nav-dock">
+    <aside class="nav-dock dock-hidden" id="nav-dock">
       <div class="dock-inner">
         <div class="dock-indicator" id="dock-indicator"><div class="dock-accent"></div></div>
         <button class="dock-item" data-href="/dashboard/" title="Home">
@@ -70,30 +68,26 @@
         <div class="dock-sep"></div>
       </div>
     </aside>
-
     <div class="body-wrap">
       <main class="main-content">
         <div class="content-wrap">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
-            <h1 class="page-h1">Detailed View</h1>
+          <div class="page-header">
+            <div>
+              <h1 class="page-h1">Detailed View</h1>
+              <p class="page-sub">Per-motor telemetry &amp; analytics</p>
+            </div>
             <div class="live-badge">
               <span class="status-dot dot-green pulse"></span>
               <span id="update-time">Updated just now</span>
             </div>
           </div>
-
-          <!-- Motor selector tabs -->
           <div class="detail-motor-tabs" id="motor-tabs">
             <button class="detail-motor-tab active" data-motor="1">FL Motor</button>
             <button class="detail-motor-tab" data-motor="2">FR Motor</button>
             <button class="detail-motor-tab" data-motor="3">RL Motor</button>
             <button class="detail-motor-tab" data-motor="4">RR Motor</button>
           </div>
-
-          <!-- Current exact values -->
           <div class="detail-values-grid" id="value-cards" style="margin-bottom:24px;"></div>
-
-          <!-- Charts -->
           <div class="detail-chart-grid" id="chart-grid">
             <div class="chart-card">
               <div class="chart-title">Temperature <span style="color:var(--gray-600);font-weight:400;">(°C)</span></div>
@@ -115,7 +109,6 @@
         </div>
       </main>
     </div>
-
     <nav class="mobile-nav">
       <div class="mobile-nav-inner">
         <button class="mobile-nav-btn" data-href="/dashboard/">
@@ -153,7 +146,6 @@
       </div>
     </nav>
   </div>
-
   <script src="../script.js"></script>
   <script src="script.js"></script>
 </body>

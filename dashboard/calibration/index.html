@@ -6,13 +6,11 @@
   <title>Calibration | Rover Digital Twin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../style.css">
 </head>
-<body style="background:#000">
+<body style="background:#050505">
   <div class="app-wrap">
-
-    <!-- ===== HEADER ===== -->
     <header class="header" id="site-header">
       <div class="header-bg"></div>
       <div class="header-glow-left"></div>
@@ -30,16 +28,17 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="search-icon">
               <circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/>
             </svg>
-            <span class="search-placeholder">Search dashboard...</span>
-            <div class="search-kbd"><span>Ctrl K</span></div>
+            <span class="search-text">Search dashboard...</span>
+            <div class="search-kbd">
+              <kbd>Ctrl</kbd>
+              <kbd>K</kbd>
+            </div>
           </div>
         </div>
         <div class="header-actions">
         </div>
       </div>
     </header>
-
-    <!-- ===== DOCK EDGE STRIP ===== -->
     <div class="dock-edge" id="dock-edge">
       <button class="dock-edge-btn dock-edge-chevron" id="dock-edge-toggle" title="Toggle dock">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
@@ -51,9 +50,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
       </a>
     </div>
-
-    <!-- ===== NAV DOCK ===== -->
-    <aside class="nav-dock" id="nav-dock">
+    <aside class="nav-dock dock-hidden" id="nav-dock">
       <div class="dock-inner">
         <div class="dock-indicator" id="dock-indicator"><div class="dock-accent"></div></div>
         <button class="dock-item" data-href="/dashboard/" title="Home">
@@ -71,22 +68,23 @@
         <div class="dock-sep"></div>
       </div>
     </aside>
-
     <div class="body-wrap">
       <main class="main-content">
         <div class="content-wrap">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
-            <h1 class="page-h1">Calibration</h1>
+          <div class="page-header">
+            <div>
+              <h1 class="page-h1">Calibration</h1>
+              <p class="page-sub">12-hour baseline data collection</p>
+            </div>
             <div class="live-badge">
               <span class="status-dot dot-green pulse" id="cal-status-dot"></span>
               <span id="cal-status-label">Ready</span>
             </div>
           </div>
 
-          <!-- Progress + controls -->
-          <div class="panel" style="margin-bottom:24px;">
+          <div class="panel panel-pad" style="margin-bottom:24px;">
             <div class="panel-head">
-              <h2 class="panel-title">12-Hour Baseline Collection</h2>
+              <h2 class="panel-title-muted">12-Hour Baseline Collection</h2>
               <div style="display:flex;gap:8px;">
                 <button class="btn-primary" id="cal-start-btn" style="padding:6px 16px;">
                   <span class="btn-corner-tl"></span>
@@ -112,28 +110,26 @@
               </div>
               <span class="cal-progress-text" id="cal-progress-text">0 / 12 hours</span>
             </div>
-            <div style="display:flex;gap:16px;flex-wrap:wrap;">
-              <div style="display:flex;align-items:center;gap:6px;">
-                <span class="status-dot dot-green" style="background:var(--primary);"></span>
-                <span style="font-size:11px;color:var(--gray-500);">Collecting motor telemetry</span>
+            <div class="cal-info-chips">
+              <div class="cal-info-chip">
+                <span class="chip-dot" style="background:var(--primary);"></span>
+                <span>Collecting motor telemetry</span>
               </div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <span class="status-dot dot-yellow"></span>
-                <span style="font-size:11px;color:var(--gray-500);">Analyzing vibration patterns</span>
+              <div class="cal-info-chip">
+                <span class="chip-dot" style="background:var(--dot-yellow);"></span>
+                <span>Analyzing vibration patterns</span>
               </div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <span class="status-dot dot-green"></span>
-                <span style="font-size:11px;color:var(--gray-500);">Establishing temp baseline</span>
+              <div class="cal-info-chip">
+                <span class="chip-dot" style="background:var(--dot-green);"></span>
+                <span>Establishing temp baseline</span>
               </div>
             </div>
           </div>
 
-          <!-- Per-motor calibration cards -->
           <div class="cal-motor-grid" id="cal-motor-grid"></div>
         </div>
       </main>
     </div>
-
     <nav class="mobile-nav">
       <div class="mobile-nav-inner">
         <button class="mobile-nav-btn" data-href="/dashboard/">
@@ -171,7 +167,6 @@
       </div>
     </nav>
   </div>
-
   <script src="../script.js"></script>
   <script src="script.js"></script>
 </body>

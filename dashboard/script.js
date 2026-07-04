@@ -120,6 +120,8 @@
       dockItems.forEach(function(n) { n.classList.remove('active'); });
       this.classList.add('active');
       updateIndicator();
+      var href = this.getAttribute('data-href');
+      if (href) window.location.href = href;
     });
   });
 
@@ -140,6 +142,8 @@
     btn.addEventListener('click', function() {
       mobileBtns.forEach(function(b) { b.classList.remove('active'); });
       this.classList.add('active');
+      var href = this.getAttribute('data-href');
+      if (href) window.location.href = href;
     });
   });
   mobileBtns.forEach(function(btn) {
