@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+venv/
+.env
+calibration_baseline.json
+.DS_Store
+Thumbs.db
+poc/
+Inspiration/

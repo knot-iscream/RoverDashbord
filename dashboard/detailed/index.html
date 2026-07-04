@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Detailed View | Rover Digital Twin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body style="background:#000">
+  <div class="app-wrap">
+
+    <header class="header" id="site-header">
+      <div class="header-bg"></div>
+      <div class="header-glow-left"></div>
+      <div class="header-glow-right"></div>
+      <div class="header-inner">
+        <div style="display:flex;align-items:center;gap:16px;">
+          <a href="/dashboard/" class="logo-link">
+            <svg class="logo-svg" width="40" height="40" viewBox="0 0 40 40" fill="none">
+              <rect width="40" height="40" rx="10" fill="var(--primary)"/>
+              <path d="M12 20l6-6 6 6-6 6-6-6z" fill="#000" opacity="0.8"/>
+              <path d="M18 14l8 8-8 8" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.6"/>
+            </svg>
+          </a>
+          <div class="search-bar">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="search-icon">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/>
+            </svg>
+            <span class="search-placeholder">Search dashboard...</span>
+            <div class="search-kbd"><span>Ctrl K</span></div>
+          </div>
+        </div>
+        <div class="header-actions">
+        </div>
+      </div>
+    </header>
+
+    <!-- ===== DOCK EDGE STRIP ===== -->
+    <div class="dock-edge" id="dock-edge">
+      <button class="dock-edge-btn dock-edge-chevron" id="dock-edge-toggle" title="Toggle dock">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
+      <button class="dock-edge-btn dock-edge-sm" id="dock-edge-lock" title="Lock dock hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+      </button>
+      <a href="#" class="dock-edge-btn dock-edge-sm" title="Status">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
+      </a>
+    </div>
+
+    <!-- ===== NAV DOCK ===== -->
+    <aside class="nav-dock" id="nav-dock">
+      <div class="dock-inner">
+        <div class="dock-indicator" id="dock-indicator"><div class="dock-accent"></div></div>
+        <button class="dock-item" data-href="/dashboard/" title="Home">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          <div class="dock-tooltip">Home</div>
+        </button>
+        <button class="dock-item" data-href="/dashboard/calibration/" title="Calibration">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+          <div class="dock-tooltip">Calibration</div>
+        </button>
+        <button class="dock-item active" data-href="/dashboard/detailed/" title="Detailed">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+          <div class="dock-tooltip">Detailed</div>
+        </button>
+        <div class="dock-sep"></div>
+      </div>
+    </aside>
+
+    <div class="body-wrap">
+      <main class="main-content">
+        <div class="content-wrap">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
+            <h1 class="page-h1">Detailed View</h1>
+            <div class="live-badge">
+              <span class="status-dot dot-green pulse"></span>
+              <span id="update-time">Updated just now</span>
+            </div>
+          </div>
+
+          <!-- Motor selector tabs -->
+          <div class="detail-motor-tabs" id="motor-tabs">
+            <button class="detail-motor-tab active" data-motor="1">FL Motor</button>
+            <button class="detail-motor-tab" data-motor="2">FR Motor</button>
+            <button class="detail-motor-tab" data-motor="3">RL Motor</button>
+            <button class="detail-motor-tab" data-motor="4">RR Motor</button>
+          </div>
+
+          <!-- Current exact values -->
+          <div class="detail-values-grid" id="value-cards" style="margin-bottom:24px;"></div>
+
+          <!-- Charts -->
+          <div class="detail-chart-grid" id="chart-grid">
+            <div class="chart-card">
+              <div class="chart-title">Temperature <span style="color:var(--gray-600);font-weight:400;">(°C)</span></div>
+              <canvas class="chart-canvas" id="chart-temp"></canvas>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title">Voltage <span style="color:var(--gray-600);font-weight:400;">(V)</span></div>
+              <canvas class="chart-canvas" id="chart-voltage"></canvas>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title">Current <span style="color:var(--gray-600);font-weight:400;">(A)</span></div>
+              <canvas class="chart-canvas" id="chart-current"></canvas>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title">Health <span style="color:var(--gray-600);font-weight:400;">(%)</span></div>
+              <canvas class="chart-canvas" id="chart-health"></canvas>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <nav class="mobile-nav">
+      <div class="mobile-nav-inner">
+        <button class="mobile-nav-btn" data-href="/dashboard/">
+          <div class="nav-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>
+            </svg>
+          </div>
+          <span class="mobile-nav-label">Dashboard</span>
+        </button>
+        <button class="mobile-nav-btn" data-href="/dashboard/calibration/">
+          <div class="nav-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
+            </svg>
+          </div>
+          <span class="mobile-nav-label">Calibrate</span>
+        </button>
+        <button class="mobile-nav-btn active" data-href="/dashboard/detailed/">
+          <div class="nav-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/>
+            </svg>
+          </div>
+          <span class="mobile-nav-label">Details</span>
+        </button>
+        <button class="mobile-nav-btn">
+          <div class="nav-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>
+            </svg>
+          </div>
+          <span class="mobile-nav-label">Status</span>
+        </button>
+      </div>
+    </nav>
+  </div>
+
+  <script src="../script.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
