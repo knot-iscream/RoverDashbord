@@ -60,12 +60,12 @@ and CANNOT be used as regular I/O. They are NOT used here.
 All 4 INA219 modules connect to the same SDA/SCL lines in parallel.
 Each must have a **unique I2C address** set via its A0/A1 solder jumpers:
 
-| Address | A0 jumper | A1 jumper |
-|---------|-----------|-----------|
-| 0x40 | GND | GND |
-| 0x41 | VCC | GND |
-| 0x44 | GND | VCC |
-| 0x45 | VCC | VCC |
+| Address | A0 jumper | A1 jumper | Motor       |
+|---------|-----------|-----------|-------------|
+| 0x40 | GND | GND | 4 (RR) |
+| 0x41 | VCC | GND | 1 (FL) |
+| 0x44 | GND | VCC | 2 (FR) |
+| 0x45 | VCC | VCC | 3 (RL) |
 
 ### Power Connections
 
