@@ -11,10 +11,12 @@
 #define MQTT_TOPIC_PREFIX "rover/motor"
 
 // Sensor pins
-#define DH11_PIN_1 4   // Motor 1 (FL)
-#define DH11_PIN_2 5   // Motor 2 (FR)
-#define DH11_PIN_3 6   // Motor 3 (RL)
-#define DH11_PIN_4 7   // Motor 4 (RR)
+// NOTE: GPIO 6-11 are connected to internal SPI flash on ESP32-WROOM
+// and CANNOT be used as regular I/O. Moved motor 3/4 to safe pins.
+#define DHT11_PIN_1 4   // Motor 1 (FL)
+#define DHT11_PIN_2 5   // Motor 2 (FR)
+#define DHT11_PIN_3 16  // Motor 3 (RL)
+#define DHT11_PIN_4 17  // Motor 4 (RR)
 
 #define SW420_PIN_1 14  // Motor 1 vibration
 #define SW420_PIN_2 27  // Motor 2 vibration
@@ -27,8 +29,14 @@
 #define INA219_ADDR_3 0x45
 #define INA219_ADDR_4 0x40
 
+// Calibration MQTT topics
+#define MQTT_CALIB_CMD_TOPIC    "rover/calibration/command"
+#define MQTT_CALIB_STATUS_TOPIC "rover/calibration/status"
+
+// Calibration timing
+#define CALIB_WARMUP_MS         900000   // 15 minutes
+
 // Sample interval (milliseconds)
 #define SAMPLE_INTERVAL_MS 250
-#define MQTT_PUBLISH_INTERVAL_MS 1000
 
 #endif

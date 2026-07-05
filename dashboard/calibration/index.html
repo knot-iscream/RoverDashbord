@@ -74,17 +74,17 @@
           <div class="page-header">
             <div>
               <h1 class="page-h1">Calibration</h1>
-              <p class="page-sub">12-hour baseline data collection</p>
+              <p class="page-sub">Baseline data collection</p>
             </div>
-            <div class="live-badge">
-              <span class="status-dot dot-green pulse" id="cal-status-dot"></span>
-              <span id="cal-status-label">Ready</span>
+            <div class="live-badge" id="cal-badge">
+              <span class="status-dot dot-green" id="cal-status-dot"></span>
+              <span id="cal-status-label">Disconnected</span>
             </div>
           </div>
 
           <div class="panel panel-pad" style="margin-bottom:24px;">
             <div class="panel-head">
-              <h2 class="panel-title-muted">12-Hour Baseline Collection</h2>
+              <h2 class="panel-title-muted">Baseline Collection</h2>
               <div style="display:flex;gap:8px;">
                 <button class="btn-primary" id="cal-start-btn" style="padding:6px 16px;">
                   <span class="btn-corner-tl"></span>
@@ -95,7 +95,15 @@
                     Start
                   </span>
                 </button>
-                <button class="btn-secondary" id="cal-reset-btn" style="padding:6px 16px;">
+                <button class="btn-reanime" id="cal-download-btn" style="padding:6px 16px;">
+                  <div class="btn-glow"></div>
+                  <span class="btn-content" style="font-size:10px;gap:6px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download
+                  </span>
+                </button>
+                <button class="btn-reanime" id="cal-reset-btn" style="padding:6px 16px;">
+                  <div class="btn-glow"></div>
                   <span class="btn-content" style="font-size:10px;gap:6px;">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
                     Reset
@@ -103,30 +111,50 @@
                 </button>
               </div>
             </div>
-            <div class="cal-progress-row">
-              <span style="font-size:12px;color:var(--gray-500);font-weight:500;">Progress</span>
+
+            <!-- Warmup progress -->
+            <div class="cal-progress-row" id="warmup-row" style="display:none;">
+              <span style="font-size:12px;color:var(--gray-500);font-weight:500;">Warming up</span>
               <div class="cal-progress-bar">
-                <div class="cal-progress-fill" id="cal-progress-fill" style="width:0%;"></div>
+                <div class="cal-progress-fill cal-warmup-fill" id="warmup-progress-fill" style="width:0%;"></div>
               </div>
-              <span class="cal-progress-text" id="cal-progress-text">0 / 12 hours</span>
+              <span class="cal-progress-text" id="warmup-progress-text">--:-- remaining</span>
             </div>
+
+            <!-- Collection progress -->
+            <div class="cal-progress-row" id="collect-row" style="display:none;">
+              <span style="font-size:12px;color:var(--gray-500);font-weight:500;">Recording</span>
+              <div class="cal-progress-bar">
+                <div class="cal-progress-fill" id="collect-progress-fill" style="width:0%;"></div>
+              </div>
+              <span class="cal-progress-text" id="collect-progress-text">0 samples</span>
+            </div>
+
             <div class="cal-info-chips">
               <div class="cal-info-chip">
                 <span class="chip-dot" style="background:var(--primary);"></span>
-                <span>Collecting motor telemetry</span>
+                <span id="cal-phase-label">Press Start to begin</span>
               </div>
               <div class="cal-info-chip">
                 <span class="chip-dot" style="background:var(--dot-yellow);"></span>
-                <span>Analyzing vibration patterns</span>
+                <span id="cal-samples-label">0 samples collected</span>
               </div>
               <div class="cal-info-chip">
                 <span class="chip-dot" style="background:var(--dot-green);"></span>
-                <span>Establishing temp baseline</span>
+                <span id="cal-conn-label">Disconnected from server</span>
               </div>
             </div>
           </div>
 
           <div class="cal-motor-grid" id="cal-motor-grid"></div>
+
+          <!-- Connection lost banner -->
+          <div class="panel panel-pad" id="conn-lost-banner" style="display:none;border:1px solid var(--dot-red);margin-top:16px;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <span style="font-size:14px;">&#9888;</span>
+              <span style="font-size:12px;color:var(--gray-300);">Connection lost — data is not being recorded. Reconnect and try again.</span>
+            </div>
+          </div>
         </div>
       </main>
     </div>

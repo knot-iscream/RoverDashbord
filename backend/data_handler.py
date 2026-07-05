@@ -4,6 +4,7 @@ import time
 
 CALIBRATION_FILE = "calibration_baseline.json"
 
+
 class DataHandler:
     def __init__(self):
         self.latest_data = {}
@@ -18,7 +19,7 @@ class DataHandler:
             "voltage": data.get("voltage", 0.0),
             "current": data.get("current", 0.0),
             "temp": data.get("temp", data.get("temperature", 0.0)),
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
         return self.compute_health(motor_id)
 
@@ -81,7 +82,8 @@ class DataHandler:
             try:
                 with open(CALIBRATION_FILE, "r") as f:
                     self.baselines = json.load(f)
-                print(f"[DataHandler] Loaded calibration for {len(self.baselines)} motors")
+                print(f"[DataHandler] Loaded calibration for "
+                      f"{len(self.baselines)} motors")
             except Exception as e:
                 print(f"[DataHandler] Failed to load calibration: {e}")
 
