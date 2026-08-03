@@ -129,9 +129,12 @@
   var path = window.location.pathname;
   dockItems.forEach(function(item) {
     var href = item.getAttribute('data-href');
-    if (href && path.indexOf(href) !== -1) {
-      dockItems.forEach(function(n) { n.classList.remove('active'); });
-      item.classList.add('active');
+    if (href) {
+      var hrefPath = new URL(href, window.location.href).pathname;
+      if (path.indexOf(hrefPath) !== -1) {
+        dockItems.forEach(function(n) { n.classList.remove('active'); });
+        item.classList.add('active');
+      }
     }
   });
   updateIndicator();
@@ -148,9 +151,12 @@
   });
   mobileBtns.forEach(function(btn) {
     var href = btn.getAttribute('data-href');
-    if (href && path.indexOf(href) !== -1) {
-      mobileBtns.forEach(function(b) { b.classList.remove('active'); });
-      btn.classList.add('active');
+    if (href) {
+      var hrefPath = new URL(href, window.location.href).pathname;
+      if (path.indexOf(hrefPath) !== -1) {
+        mobileBtns.forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+      }
     }
   });
 })();
