@@ -1,8 +1,13 @@
 #ifndef SENSORS_H
 #define SENSORS_H
 
-#include <DHT.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 #include <Adafruit_INA219.h>
+#include "config.h"
+
+#define NUM_MOTORS 4
+#define DS18B20_CONVERSION_MS 750
 
 struct MotorSensorData {
   int motor_id;
@@ -14,25 +19,40 @@ struct MotorSensorData {
 
 class SensorManager {
   private:
-    DHT* dht_sensors[4];
-    Adafruit_INA219* ina_sensors[4];
-    int vib_pins[4];
-    int dht_pins[4];
-    uint8_t ina_addresses[4];
+    OneWire* one_wire;
+    DallasTemperature* ds18b20;
+    DeviceAddress temp_addresses[NUM_MOTORS];
+    int temp_count;              // number of DS18B20 found
+    float temp_cache[NUM_MOTORS];// last good temps
+    bool conversion_pending;
+    unsigned long conversion_start;
+
+    Adafruit_INA219* ina_sensors[NUM_MOTORS];
+    int vib_pins[NUM_MOTORS];
+    uint8_t ina_addresses[NUM_MOTORS];
+
+    void requestConversion() {
+      if (ds18b20->requestTemperatures()) {
+        conversion_pending = true;
+        conversion_start = millis();
+      }
+    }
 
   public:
-    SensorManager() {}
+    SensorManager() : one_wire(nullptr), ds18b20(nullptr),
+                      temp_count(0), conversion_pending(false),
+                      conversion_start(0) {
+      for (int i = 0; i < NUM_MOTORS; i++) {
+        temp_cache[i] = 25.0f;
+      }
+    }
 
-    void begin(int dht_pins_arr[4], int vib_pins_arr[4], uint8_t ina_addrs[4]) {
-      for (int i = 0; i < 4; i++) {
-        dht_pins[i] = dht_pins_arr[i];
+    void begin(int vib_pins_arr[NUM_MOTORS], uint8_t ina_addrs[NUM_MOTORS]) {
+      for (int i = 0; i < NUM_MOTORS; i++) {
         vib_pins[i] = vib_pins_arr[i];
         ina_addresses[i] = ina_addrs[i];
 
         pinMode(vib_pins[i], INPUT);
-
-        dht_sensors[i] = new DHT(dht_pins[i], DHT11);
-        dht_sensors[i]->begin();
 
         ina_sensors[i] = new Adafruit_INA219(ina_addresses[i]);
         if (!ina_sensors[i]->begin()) {
@@ -45,6 +65,49 @@ class SensorManager {
           Serial.println(" initialized");
         }
       }
+
+      // DS18B20 — all probes share one OneWire bus
+      one_wire = new OneWire(DS18B20_DATA_PIN);
+      ds18b20 = new DallasTemperature(one_wire);
+      ds18b20->begin();
+
+      temp_count = ds18b20->getDeviceCount();
+      Serial.print("[Sensors] DS18B20 probes found: ");
+      Serial.println(temp_count);
+
+      for (int i = 0; i < temp_count && i < NUM_MOTORS; i++) {
+        if (ds18b20->getAddress(temp_addresses[i], i)) {
+          ds18b20->setResolution(temp_addresses[i], DS18B20_RESOLUTION);
+        }
+      }
+      if (temp_count < NUM_MOTORS) {
+        Serial.print("[Sensors] WARNING: expected ");
+        Serial.print(NUM_MOTORS);
+        Serial.println(" DS18B20, check wiring/pull-up");
+      }
+
+      // Kick off first conversion cycle
+      requestConversion();
+    }
+
+    // Call often from loop(). Drives the async DS18B20 conversion:
+    // request -> wait ~750ms -> read all into cache -> request again.
+    void update() {
+      if (!conversion_pending) {
+        requestConversion();
+        return;
+      }
+      if (millis() - conversion_start < DS18B20_CONVERSION_MS) {
+        return;
+      }
+
+      for (int i = 0; i < temp_count && i < NUM_MOTORS; i++) {
+        float t = ds18b20->getTempC(temp_addresses[i]);
+        if (t > -50.0f && t < 150.0f) {   // valid reading
+          temp_cache[i] = t;
+        }
+      }
+      conversion_pending = false;
     }
 
     MotorSensorData readMotor(int motor_idx) {
@@ -55,12 +118,8 @@ class SensorManager {
       // SW-420 outputs LOW when vibration detected
       data.vibration = (digitalRead(vib_pins[motor_idx]) == LOW);
 
-      // Temperature from DHT11
-      float temp = dht_sensors[motor_idx]->readTemperature();
-      if (isnan(temp)) {
-        temp = 25.0;  // fallback
-      }
-      data.temperature = temp;
+      // Temperature from DS18B20 cache (falls back to last good value)
+      data.temperature = temp_cache[motor_idx];
 
       // Voltage and current from INA219
       float shunt_v = ina_sensors[motor_idx]->getShuntVoltage_mV();

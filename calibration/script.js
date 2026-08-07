@@ -32,6 +32,9 @@
   var connLabel = document.getElementById('cal-conn-label');
   var connBanner = document.getElementById('conn-lost-banner');
   var motorGrid = document.getElementById('cal-motor-grid');
+  var motorControlGrid = document.getElementById('motor-control-grid');
+  var motorControlHint = document.getElementById('motor-control-hint');
+  var motorSpeeds = [0, 0, 0, 0];   // last sent speed per motor
 
   // ── WebSocket ─────────────────────────────────────────
   function connectWS() {
@@ -129,6 +132,7 @@
       warmupFill.style.width = pct + '%';
       warmupText.textContent = mins + 'm ' + secs + 's remaining';
       collectRow.style.display = 'none';
+      setMotorControlsEnabled(false);
 
       phaseLabel.textContent = 'Warming up — no data recorded';
       setStartPauseBtn(true);
@@ -139,6 +143,7 @@
       collectRow.style.display = 'flex';
       collectFill.style.width = Math.min(100, samplesCollected / 500) + '%';
       collectText.textContent = samplesCollected + ' samples';
+      setMotorControlsEnabled(false);
 
       phaseLabel.textContent = 'Recording data — press Pause to stop';
       setStartPauseBtn(true);
@@ -150,6 +155,7 @@
       collectRow.style.display = 'none';
       phaseLabel.textContent = 'Press Start to begin';
       setStartPauseBtn(false);
+      setMotorControlsEnabled(true);
       statusDot.className = 'status-dot dot-green';
       statusLabel.textContent = 'Ready';
     }
@@ -236,6 +242,158 @@
       html += '</div>';
     });
     motorGrid.innerHTML = html;
+  }
+
+  // ── Manual motor control ──────────────────────────────
+  var motorAnim = {};         // per-motor rAF handles
+  var motorSendTimers = {};   // per-motor debounce timers
+
+  function sendMotorCommand(motor, speed) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', API_BASE + '/api/motor/control', true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.send(JSON.stringify({ motor: motor, speed: speed }));
+  }
+
+  // Throttle rapid drag updates, then send the latest value
+  function scheduleMotorSend(motor, value) {
+    if (motorSendTimers[motor]) clearTimeout(motorSendTimers[motor]);
+    motorSendTimers[motor] = setTimeout(function () {
+      motorSendTimers[motor] = null;
+      sendMotorCommand(motor, value);
+    }, 80);
+  }
+
+  // Reflect a slider value on the row: fill, glow, direction, labels, readout
+  function updateMotorUI(motor, value) {
+    value = Math.max(-255, Math.min(255, value));
+    var row = motorControlGrid.querySelector('[data-motor-row="' + motor + '"]');
+    if (!row) return;
+
+    var mag = Math.abs(value) / 255;
+    var glow = (mag * 20).toFixed(1);
+
+    row.style.setProperty('--mag', mag.toFixed(3));
+    row.style.setProperty('--glow', glow + 'px');
+
+    var fill = row.querySelector('.motor-control-fill');
+    if (fill) {
+      fill.classList.toggle('rev', value < 0);
+      fill.classList.toggle('fwd', value > 0);
+    }
+
+    row.classList.toggle('on', value !== 0);
+
+    var valEl = document.getElementById('motor-val-' + motor);
+    if (valEl) {
+      valEl.classList.toggle('on', value !== 0);
+      valEl.textContent = value;
+    }
+
+    var revLabel = row.querySelector('[data-side="rev"]');
+    var fwdLabel = row.querySelector('[data-side="fwd"]');
+    if (revLabel) revLabel.classList.toggle('on', value < 0);
+    if (fwdLabel) fwdLabel.classList.toggle('on', value > 0);
+
+    motorSpeeds[motor - 1] = value;
+  }
+
+  function easeOutExpo(t) {
+    return t >= 1 ? 1 : 1 - Math.pow(2, -10 * t);
+  }
+
+  // Glide a motor's slider from its current value to `target` and send once at the end
+  function animateMotorTo(motor, target, duration) {
+    var slider = document.getElementById('motor-slider-' + motor);
+    if (!slider) return;
+
+    var start = parseInt(slider.value, 10);
+    if (start === target) {
+      updateMotorUI(motor, target);
+      return;
+    }
+
+    if (motorAnim[motor]) cancelAnimationFrame(motorAnim[motor]);
+
+    var t0 = null;
+    function frame(ts) {
+      if (t0 === null) t0 = ts;
+      var p = Math.min(1, (ts - t0) / duration);
+      var val = Math.round(start + (target - start) * easeOutExpo(p));
+      slider.value = val;
+      updateMotorUI(motor, val);
+      if (p < 1) {
+        motorAnim[motor] = requestAnimationFrame(frame);
+      } else {
+        motorAnim[motor] = null;
+        sendMotorCommand(motor, target);
+      }
+    }
+    motorAnim[motor] = requestAnimationFrame(frame);
+  }
+
+  function setMotorControlsEnabled(enabled) {
+    var sliders = motorControlGrid.querySelectorAll('input[type="range"]');
+    sliders.forEach(function (s) { s.disabled = !enabled; });
+    var offBtns = motorControlGrid.querySelectorAll('.btn-off');
+    offBtns.forEach(function (b) { b.disabled = !enabled; });
+    motorControlGrid.querySelectorAll('.motor-control-row').forEach(function (r) {
+      r.classList.toggle('disabled', !enabled);
+    });
+    motorControlHint.textContent = enabled
+      ? 'Sliders send speed to the ESP32 (L298N)'
+      : 'Motors are auto-controlled during calibration';
+  }
+
+  function renderMotorControls() {
+    var html = '';
+    MOTOR_NAMES.forEach(function (name, i) {
+      var mId = i + 1;
+      html += '<div class="motor-control-row" data-motor-row="' + mId + '">';
+      html += '<div class="motor-control-head">';
+      html += '<span class="cal-motor-name">Motor ' + name + '</span>';
+      html += '<div class="motor-control-meta">';
+      html += '<span class="motor-control-val" id="motor-val-' + mId + '">0</span>';
+      html += '<button class="btn-off" type="button" data-off="' + mId + '" title="Stop motor"><span class="btn-off-label">OFF</span></button>';
+      html += '</div>';
+      html += '</div>';
+      html += '<div class="motor-control-track">';
+      html += '<div class="motor-control-groove"></div>';
+      html += '<div class="motor-control-fill"></div>';
+      html += '<div class="motor-control-tick"></div>';
+      html += '<input type="range" class="motor-control-input" min="-255" max="255" step="1" value="0" ';
+      html += 'id="motor-slider-' + mId + '" data-motor="' + mId + '">';
+      html += '</div>';
+      html += '<div class="motor-control-labels">';
+      html += '<span class="motor-label" data-side="rev">REV</span>';
+      html += '<span class="motor-label" data-side="fwd">FWD</span>';
+      html += '</div>';
+      html += '</div>';
+    });
+    motorControlGrid.innerHTML = html;
+
+    motorControlGrid.querySelectorAll('input[type="range"]').forEach(function (slider) {
+      var motor = parseInt(slider.getAttribute('data-motor'), 10);
+      slider.addEventListener('input', function () {
+        if (motorAnim[motor]) {
+          cancelAnimationFrame(motorAnim[motor]);
+          motorAnim[motor] = null;
+        }
+        var val = parseInt(slider.value, 10);
+        updateMotorUI(motor, val);
+        scheduleMotorSend(motor, val);
+      });
+      slider.addEventListener('change', function () {
+        sendMotorCommand(motor, parseInt(slider.value, 10));
+      });
+    });
+
+    motorControlGrid.querySelectorAll('.btn-off').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var motor = parseInt(btn.getAttribute('data-off'), 10);
+        animateMotorTo(motor, 0, 280);
+      });
+    });
   }
 
   // ── UI Refresh (poll calibration status) ─────────────
@@ -327,5 +485,6 @@
 
   // ── Init ──────────────────────────────────────────────
   renderMotorCards();
+  renderMotorControls();
   connectWS();
 })();

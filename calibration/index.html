@@ -146,6 +146,14 @@
             </div>
           </div>
 
+          <div class="panel panel-pad" style="margin-bottom:24px;">
+            <div class="panel-head">
+              <h2 class="panel-title-muted">Manual Motor Control</h2>
+              <span style="font-size:11px;color:var(--gray-500);" id="motor-control-hint">Sliders send speed to the ESP32 (L298N)</span>
+            </div>
+            <div id="motor-control-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;margin-top:4px;"></div>
+          </div>
+
           <div class="cal-motor-grid" id="cal-motor-grid"></div>
 
           <!-- Connection lost banner -->

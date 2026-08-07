@@ -26,10 +26,11 @@ Before starting, make sure you have:
 
 - A **PC/laptop** (runs the backend + MQTT broker + dashboard)
 - **ESP32-WROOM** dev board with USB cable
-- **4x DHT11** temperature sensors
+- **4x DS18B20** waterproof temperature probes (all on one OneWire bus)
 - **4x SW-420** vibration sensors (adjust sensitivity pot per module)
 - **4x INA219** voltage/current sensors (with I2C address jumpers)
-- **4x 37GB 12V 100Rpm motors** with power supply
+- **2x L298N** H-Bridge dual motor drivers
+- **4x 37GB 12V 100Rpm motors** with a 12V power supply
 - **MQTT broker** (install Mosquitto on your PC)
 - **Python 3.10+** installed on your PC
 - **Arduino IDE** with ESP32 board support installed
@@ -40,15 +41,19 @@ Before starting, make sure you have:
 
 ### Pinout Table
 
-| Motor | DHT11 (Data pin) | SW-420 (DO pin) | INA219 (I2C addr) |
-|-------|------------------|-----------------|-------------------|
-| 1 (FL) | GPIO 4 | GPIO 14 | 0x41 |
-| 2 (FR) | GPIO 5 | GPIO 27 | 0x44 |
-| 3 (RL) | GPIO 16 | GPIO 26 | 0x45 |
-| 4 (RR) | GPIO 17 | GPIO 25 | 0x40 |
+| Motor | SW-420 (DO pin) | INA219 (I2C addr) | L298N channel |
+|-------|-----------------|-------------------|---------------|
+| 1 (FL) | GPIO 34 | 0x41 | L298N #1 A (ENA=13, IN1=15, IN2=14) |
+| 2 (FR) | GPIO 35 | 0x44 | L298N #1 B (ENB=18, IN3=19, IN4=23) |
+| 3 (RL) | GPIO 36 | 0x45 | L298N #2 A (ENA=32, IN1=33, IN2=27) |
+| 4 (RR) | GPIO 39 | 0x40 | L298N #2 B (ENB=16, IN3=17, IN4=25) |
+
+- **DS18B20** all four probes share **GPIO 4** (OneWire bus, 4.7kΩ pull-up)
+- Motor PWM channel speed is 8-bit (0-255), 1kHz
+- SW-420 uses input-only GPIOs 34/35/36/39
 
 **IMPORTANT:** GPIO 6-11 are connected to internal SPI flash on ESP32-WROOM
-and CANNOT be used as regular I/O. They are NOT used here.
+and CANNOT be used as regular I/O. They are NOT used here. GPIO 1/3 are UART0.
 
 ### I2C Bus (INA219 — all 4 share this)
 
@@ -67,21 +72,38 @@ Each must have a **unique I2C address** set via its A0/A1 solder jumpers:
 | 0x44 | GND | VCC | 2 (FR) |
 | 0x45 | VCC | VCC | 3 (RL) |
 
+### L298N Wiring (motor driver)
+
+Two L298N boards drive the four motors (one board per two motors):
+
+- **12V motor supply** → L298N `VS` (both boards share it)
+- **Common ground**: tie ESP32 GND, L298N `GND`, INA219 GND, and the 12V
+  supply GND together (critical!).
+- L298N `ENA`/`ENB` and `IN1`-`IN4` → ESP32 GPIOs listed above.
+  The L298N logic inputs are high-impedance, so 3.3V ESP32 logic works.
+- L298N onboard 5V regulator can power the logic, but **do not** back-feed it
+  into the ESP32 5V pin unless the ESP32 is unpowered.
+
+### INA219 current sensing (per motor)
+
+Place the INA219 **in series with the motor lead between the L298N output and
+the motor terminal** so it measures the actual load current. The 12V supply
+goes to L298N `VS`, not through the INA219.
+
 ### Power Connections
 
-- **DHT11** VCC → 3.3V, GND → GND (optional 4.7k-10k pull-up on data pin)
-- **SW-420** VCC → 3.3V, GND → GND, DO → GPIO
-- **INA219** VCC → 3.3V, GND → GND
-  - IN+/IN- in series with motor power wire (load passes through)
-  - VIN+ / VIN- across the battery/motor supply
+- **DS18B20** VCC → 3.3V, GND → GND, DATA → GPIO 4 (**4.7kΩ pull-up to 3.3V**).
+  Probe taped to the motor casing with thermal paste for accurate case temp.
+- **SW-420** VCC → 3.3V, GND → GND, DO → GPIO 34/35/36/39
+- **INA219** VCC → 3.3V, GND → GND (SDA/SCL → 21/22)
 
 ### Wiring Order
 
 1. Wire all INA219 modules to the I2C bus first (SDA/SCL)
-2. Connect each DHT11 data pin to its GPIO (with pull-up if needed)
+2. Connect the one DS18B20 OneWire bus to GPIO 4 (+ pull-up)
 3. Connect each SW-420 DO pin to its GPIO
-4. Power all sensors from ESP32 3.3V and GND
-5. Run motor power wires through INA219 terminals
+4. Wire both L298N boards (VS 12V, IN/ENA to ESP32) and common GND
+5. Run each motor lead through its INA219 then to the L298N output
 
 ---
 
@@ -209,6 +231,8 @@ var API_BASE = 'http://192.168.1.50:8000';    // ← your backend IP
 | Topic | Direction | Payload |
 |-------|-----------|---------|
 | `rover/motor/{1..4}` | ESP32 → Broker | `{"motor":1, "vibration":0, "voltage":12.3, "current":0.65, "temp":38.2}` |
+| `rover/motor/command` | Broker → ESP32 | `{"motor":1,"speed":200}` / `{"motor":0,"speed":-150}` (0 = all, -255..255) |
+| `rover/motor/status` | ESP32 → Broker | `{"state":"running","speed":[0,0,200,200]}` |
 | `rover/calibration/command` | Broker → ESP32 | `{"action":"start"}` / `{"action":"stop"}` |
 | `rover/calibration/status` | ESP32 → Broker | `{"state":"warmup","warmup_pct":50}` |
 
@@ -222,7 +246,8 @@ During calibration, motor data includes `"calib":1` to flag recordings.
 firmware/esp32/
   config.h            — WiFi, MQTT, pin assignments
   mqtt_comms.h        — MQTT communication (publish, subscribe, callbacks)
-  sensors.h           — DHT11, INA219, SW-420 sensor abstraction
+  sensors.h           — DS18B20, INA219, SW-420 sensor abstraction
+  motor_driver.h      — 2x L298N motor driver control (PWM + direction)
   rover_dashboard.ino — Main loop + calibration state machine
 
 backend/

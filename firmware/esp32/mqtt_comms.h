@@ -20,6 +20,7 @@ class MQTTManager {
     const char* topic_prefix;
     unsigned long last_publish = 0;
     void (*_cmd_handler)(const char* action) = nullptr;
+    void (*_motor_cmd_handler)(const char* json) = nullptr;
 
   public:
     MQTTManager() : mqtt_client(wifi_client) {
@@ -73,6 +74,7 @@ class MQTTManager {
           Serial.println("[MQTT] Connected");
           // Re-subscribe on reconnect
           subscribe(MQTT_CALIB_CMD_TOPIC);
+          subscribe(MQTT_MOTOR_CMD_TOPIC);
           return true;
         } else {
           Serial.print("[MQTT] Failed, rc=");
@@ -102,6 +104,10 @@ class MQTTManager {
       _cmd_handler = handler;
     }
 
+    void setMotorCommandHandler(void (*handler)(const char* json)) {
+      _motor_cmd_handler = handler;
+    }
+
     void publishCalibrationStatus(int warmup_pct, const char* state) {
       if (!mqtt_client.connected()) return;
 
@@ -112,6 +118,19 @@ class MQTTManager {
       char buffer[64];
       size_t n = serializeJson(doc, buffer);
       mqtt_client.publish(MQTT_CALIB_STATUS_TOPIC, buffer, n);
+    }
+
+    void publishMotorStatus(bool calibrating, int* speeds) {
+      if (!mqtt_client.connected()) return;
+
+      StaticJsonDocument<160> doc;
+      doc["state"] = calibrating ? "calibrating" : "running";
+      JsonArray arr = doc.createNestedArray("speed");
+      for (int i = 0; i < 4; i++) arr.add(speeds[i]);
+
+      char buffer[160];
+      size_t n = serializeJson(doc, buffer);
+      mqtt_client.publish(MQTT_MOTOR_STATUS_TOPIC, buffer, n);
     }
 
     void publishMotorData(int motor_id, bool vibration,
@@ -163,6 +182,9 @@ class MQTTManager {
             _mqtt_instance->_cmd_handler(action);
           }
         }
+      } else if (strcmp(topic, MQTT_MOTOR_CMD_TOPIC) == 0
+                 && _mqtt_instance->_motor_cmd_handler) {
+        _mqtt_instance->_motor_cmd_handler(buf);
       }
     }
 };

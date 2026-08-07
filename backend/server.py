@@ -20,6 +20,7 @@ app.add_middleware(
 
 data_handler = DataHandler()
 connected_clients = set()
+motor_status = {}
 
 # MQTT client instance (set during startup)
 mqtt_client_instance = None
@@ -95,6 +96,12 @@ def on_mqtt_message(data):
         asyncio.run(broadcast_calibration_status())
         return
 
+    # ── Motor driver status from ESP32 ──
+    if topic.startswith("rover/motor/status"):
+        motor_status.update(data)
+        asyncio.run(broadcast({"type": "motor_status", **data}))
+        return
+
     # ── Motor data ──
     motor_id = data.get("motor", data.get("id", 0))
     motor_data = data_handler.process_motor_data(data)
@@ -126,6 +133,31 @@ async def api_health():
 @app.get("/api/motors")
 async def api_motors():
     return {"motors": data_handler.get_latest()}
+
+
+# ── Motor control (L298N driver via ESP32) ──
+
+@app.post("/api/motor/control")
+async def api_motor_control(cmd: dict):
+    motor = cmd.get("motor", 0)
+    speed = cmd.get("speed", 0)
+
+    # Clamp to [-255, 255]
+    speed = max(-255, min(255, int(speed)))
+
+    if mqtt_client_instance:
+        mqtt_client_instance.publish("rover/motor/command", {
+            "motor": int(motor),
+            "speed": speed,
+        })
+        return {"status": "ok", "motor": motor, "speed": speed, "sent": True}
+
+    return {"status": "error", "detail": "MQTT not connected", "sent": False},
+
+
+@app.get("/api/motor/status")
+async def api_motor_status():
+    return motor_status
 
 
 @app.get("/api/calibration")
