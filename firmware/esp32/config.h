@@ -36,8 +36,13 @@
 // PWM configuration for the L298N enable pins
 #define MOTOR_PWM_FREQ   1000   // Hz
 #define MOTOR_PWM_RES    8      // bits (0-255 duty)
-#define CALIB_MOTOR_SPEED 200   // duty during calibration (0-255)
 #define DEFAULT_MOTOR_SPEED 0   // duty on boot / idle (0-255)
+
+// Calibration sweep profile: warm up, then sweep every speed % forward+reverse
+#define CALIB_WARMUP_MS    120000  // total warmup (split: 1min +255, 1min -255)
+#define CALIB_SWEEP_STEP_MS 120000 // 2 min per speed % (1min FWD + 1min REV)
+#define CALIB_HALF_STEP_MS  60000  // one direction half of a step
+// duty(pct) = (255 * pct + 50) / 100
 
 // ============================================================
 // Sensors

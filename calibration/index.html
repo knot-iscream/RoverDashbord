@@ -130,6 +130,15 @@
               <span class="cal-progress-text" id="collect-progress-text">0 samples</span>
             </div>
 
+            <!-- Sweep status (AUTO mode) -->
+            <div class="cal-progress-row" id="sweep-status-row" style="display:none;">
+              <span style="font-size:12px;color:var(--primary);font-weight:700;" id="sweep-status-label">Sweep --%</span>
+              <div class="cal-progress-bar">
+                <div class="cal-progress-fill cal-sweep-fill" id="sweep-status-fill" style="width:0%;"></div>
+              </div>
+              <span class="cal-progress-text" id="sweep-status-text">--</span>
+            </div>
+
             <div class="cal-info-chips">
               <div class="cal-info-chip">
                 <span class="chip-dot" style="background:var(--primary);"></span>
@@ -149,9 +158,41 @@
           <div class="panel panel-pad" style="margin-bottom:24px;">
             <div class="panel-head">
               <h2 class="panel-title-muted">Manual Motor Control</h2>
-              <span style="font-size:11px;color:var(--gray-500);" id="motor-control-hint">Sliders send speed to the ESP32 (L298N)</span>
+              <div style="display:flex;align-items:center;gap:12px;">
+                <span style="font-size:11px;color:var(--gray-500);" id="motor-control-hint">Motors auto-run during calibration</span>
+                <button class="btn-reanime mode-toggle" id="mode-toggle-btn" style="padding:6px 12px;" title="Toggle AUTO / MANUAL">
+                  <div class="btn-glow"></div>
+                  <span class="btn-content" style="font-size:10px;gap:6px;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9" cy="9" r="1.5"/><circle cx="15" cy="15" r="1.5"/><path d="m9 15 6-6"/></svg>
+                    <span id="mode-toggle-label">AUTO</span>
+                  </span>
+                </button>
+              </div>
             </div>
-            <div id="motor-control-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;margin-top:4px;"></div>
+            <div id="motor-control-grid" style="display:none;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;margin-top:4px;"></div>
+          </div>
+
+          <!-- History timeline (reanime-style, past data) -->
+          <div class="hud-panel history-panel" style="margin-bottom:24px;">
+            <span class="hud-corner hud-corner-tl" aria-hidden="true"></span>
+            <span class="hud-corner hud-corner-br" aria-hidden="true"></span>
+            <span class="hud-vents" aria-hidden="true"></span>
+            <div class="hud-content">
+              <div class="sched-head">
+                <button class="day-tile day-nav" id="hist-prev" aria-label="Previous day">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+                </button>
+                <div class="sched-days" id="sched-days"></div>
+                <button class="day-tile day-nav" id="hist-next" aria-label="Next day">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </button>
+              </div>
+              <div class="sched-list" id="sched-list"></div>
+              <div class="sched-foot">
+                <span class="sched-foot-ts" id="hist-foot-ts">--</span>
+                <a class="sched-more" href="../detailed/">More &rsaquo;</a>
+              </div>
+            </div>
           </div>
 
           <div class="cal-motor-grid" id="cal-motor-grid"></div>

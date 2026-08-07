@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from mqtt_handler import MQTTClient
 from data_handler import DataHandler
 from calibration_manager import CalibrationManager
+from history_store import HistoryStore
 
 app = FastAPI(title="Rover Digital Twin Backend")
 
@@ -19,6 +20,7 @@ app.add_middleware(
 )
 
 data_handler = DataHandler()
+history_store = HistoryStore()
 connected_clients = set()
 motor_status = {}
 
@@ -104,11 +106,15 @@ def on_mqtt_message(data):
 
     # ── Motor data ──
     motor_id = data.get("motor", data.get("id", 0))
-    motor_data = data_handler.process_motor_data(data)
 
-    # Route to calibration buffer if calib flag is set
-    if data.get("calib") == 1 or data.get("calib") == "1":
-        cal_manager.record_sample(data)
+    # Persist every sample to day-sharded history
+    history_store.add_sample(data)
+
+    # Count calibration samples while the sweep is running
+    if cal_manager.state in ("warmup", "sweep"):
+        cal_manager.count_sample()
+
+    motor_data = data_handler.process_motor_data(data)
 
     payload = {
         "type": "motor_update",
@@ -117,6 +123,7 @@ def on_mqtt_message(data):
         "voltage": data.get("voltage", 0.0),
         "current": data.get("current", 0.0),
         "temp": data.get("temp", data.get("temperature", 0.0)),
+        "speed": data.get("speed", 0),
         "health": motor_data["health"],
         "anomalies": motor_data["anomalies"],
     }
@@ -194,15 +201,27 @@ async def api_calibration_status():
 
 @app.get("/api/calibration/export")
 async def api_calibration_export():
-    filepath = cal_manager.export_excel()
+    filepath = history_store.export_excel()
     if filepath is None:
-        return {"error": "No calibration data to export"}, 400
+        return {"error": "No recorded data to export"}, 400
     return FileResponse(
         path=filepath,
         filename=os.path.basename(filepath),
         media_type="application/vnd.openxmlformats-officedocument."
                    "spreadsheetml.sheet",
     )
+
+
+# ── History timeline queries ──
+
+@app.get("/api/history/days")
+async def api_history_days():
+    return {"days": history_store.days()}
+
+
+@app.get("/api/history/segments")
+async def api_history_segments(day: str):
+    return {"day": day, "segments": history_store.segments(day)}
 
 
 # ===== Startup =====

@@ -108,14 +108,20 @@ class MQTTManager {
       _motor_cmd_handler = handler;
     }
 
-    void publishCalibrationStatus(int warmup_pct, const char* state) {
+    void publishCalibrationStatus(int warmup_pct, const char* state,
+                                  int speed_pct, int dir,
+                                  int step_remaining_s, int cycle) {
       if (!mqtt_client.connected()) return;
 
-      StaticJsonDocument<64> doc;
+      StaticJsonDocument<128> doc;
       doc["state"] = state;
       doc["warmup_pct"] = warmup_pct;
+      doc["speed_pct"] = speed_pct;
+      doc["dir"] = dir;                       // +1 fwd, -1 rev, 0 idle
+      doc["step_remaining_s"] = step_remaining_s;
+      doc["cycle"] = cycle;
 
-      char buffer[64];
+      char buffer[128];
       size_t n = serializeJson(doc, buffer);
       mqtt_client.publish(MQTT_CALIB_STATUS_TOPIC, buffer, n);
     }
@@ -135,7 +141,7 @@ class MQTTManager {
 
     void publishMotorData(int motor_id, bool vibration,
                           float voltage, float current,
-                          float temperature, bool calib = false) {
+                          float temperature, int motor_speed = 0) {
       unsigned long now = millis();
       if (now - last_publish < 250) return;
       last_publish = now;
@@ -148,7 +154,7 @@ class MQTTManager {
       doc["voltage"] = voltage;
       doc["current"] = current;
       doc["temp"] = temperature;
-      if (calib) doc["calib"] = 1;
+      doc["speed"] = motor_speed;   // signed duty (-255..255)
 
       char topic[32];
       snprintf(topic, sizeof(topic), "%s/%d", topic_prefix, motor_id);
@@ -159,7 +165,6 @@ class MQTTManager {
       if (mqtt_client.publish(topic, buffer, n)) {
         Serial.print("[MQTT] Published to ");
         Serial.print(topic);
-        if (calib) Serial.print(" [CALIB]");
         Serial.print(": ");
         Serial.println(buffer);
       }

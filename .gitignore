@@ -5,6 +5,9 @@ __pycache__/
 venv/
 .env
 calibration_baseline.json
+history/
+*.jsonl
+*.xlsx
 .DS_Store
 Thumbs.db
 poc/
