@@ -2,11 +2,11 @@
 #define CONFIG_H
 
 // WiFi credentials
-#define WIFI_SSID "your_wifi_ssid"
-#define WIFI_PASSWORD "your_wifi_password"
+#define WIFI_SSID "Your_SSID"
+#define WIFI_PASSWORD "Your_Password"
 
 // MQTT broker settings
-#define MQTT_BROKER "192.168.1.100"
+#define MQTT_BROKER "192.168.0.96"
 #define MQTT_PORT 1883
 #define MQTT_TOPIC_PREFIX "rover/motor"
 
@@ -43,6 +43,8 @@
 #define CALIB_SWEEP_STEP_MS 120000 // 2 min per speed % (1min FWD + 1min REV)
 #define CALIB_HALF_STEP_MS  60000  // one direction half of a step
 // duty(pct) = (255 * pct + 50) / 100
+// NOTE: CALIB_WARMUP_MS must stay in sync with the backend's 120 s warmup math
+// (backend/calibration_manager.py). Re-defining it below caused a mismatch.
 
 // ============================================================
 // Sensors
@@ -77,7 +79,6 @@
 // ============================================================
 // Timing
 // ============================================================
-#define CALIB_WARMUP_MS   900000   // 15 minutes
 #define SAMPLE_INTERVAL_MS 250
 
 #endif

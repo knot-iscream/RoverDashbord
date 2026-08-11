@@ -10,7 +10,6 @@ struct MotorChannel {
   int ena;   // PWM enable pin
   int in1;   // direction pin
   int in2;   // direction pin
-  int pwm_ch;// ledc channel
 };
 
 class MotorDriver {
@@ -30,7 +29,7 @@ class MotorDriver {
 
       digitalWrite(ch.in1, dir1);
       digitalWrite(ch.in2, dir2);
-      ledcWrite(ch.pwm_ch, pwm);
+      ledcWrite(ch.ena, pwm);
     }
 
   public:
@@ -46,14 +45,12 @@ class MotorDriver {
         channels[i].ena = pins[i][0];
         channels[i].in1 = pins[i][1];
         channels[i].in2 = pins[i][2];
-        channels[i].pwm_ch = i + 8;  // ledc channels 8-11
 
         pinMode(channels[i].ena, OUTPUT);
         pinMode(channels[i].in1, OUTPUT);
         pinMode(channels[i].in2, OUTPUT);
 
-        ledcSetup(channels[i].pwm_ch, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
-        ledcAttachPin(channels[i].ena, channels[i].pwm_ch);
+        ledcAttach(channels[i].ena, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
 
         speed[i] = 0;
       }

@@ -136,6 +136,21 @@ You'll need it in the next steps.
 
 ### Step 2: Configure & Upload ESP32
 
+First install these Arduino libraries via **Sketch → Include Library →
+Manage Libraries…**:
+
+- **OneWire** (Paul Stoffregen)
+- **DallasTemperature** (Miles Burton)
+- **Adafruit INA219** (+ **Adafruit BusIO**, its dependency)
+- **PubSubClient** (knolleary)
+- **ArduinoJson** (Benoit Blanchon)
+
+> **Note:** Install OneWire through the Library Manager — **do not** copy only
+> `OneWire.h` into the sketch folder. The full library ships a `util/`
+> subfolder (`OneWire_direct_regtype.h`, `OneWire_direct_gpio.h`) that
+> `OneWire.h` includes; copying just the header causes a
+> `fatal error: util/OneWire_direct_regtype.h: No such file or directory`.
+
 Open `firmware/esp32/config.h` and edit these lines:
 
 ```c
@@ -208,7 +223,7 @@ var API_BASE = 'http://192.168.1.50:8000';    // ← your backend IP
 1. Make sure all 4 motors are powered and running
 2. Open `dashboard/calibration/` in a browser
 3. Press **Start** — button changes to **Pause**
-4. Motors warm up for **15 minutes** (countdown displayed)
+4. Motors warm up for **2 minutes** (countdown displayed)
 5. Automatically transitions to **data collection**
 6. Live sensor readings show on motor cards
 7. Press **Pause** to stop recording at any time
