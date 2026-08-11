@@ -155,9 +155,9 @@ void loop() {
     MotorSensorData data = sensors.readMotor(current_motor);
 
     mqtt.publishMotorData(
-      data.motor_id, data.vibration,
+      data.motor_id, data.vibration, data.vibration_valid,
       data.voltage, data.current, data.temperature,
-      driver.getSpeed(current_motor)
+      data.ina_ok, data.temp_valid, driver.getSpeed(current_motor)
     );
 
     current_motor = (current_motor + 1) % 4;

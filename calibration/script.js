@@ -13,7 +13,12 @@
   var uiTimer = null;
   var samplesCollected = 0;
   var latestMotorData = {};       // { motorId: {temp, voltage, current, vibration, health} }
+  var motorLastRx = {};           // motorId -> performance.now() of last fresh packet
+  var FRESH_LIVE_MS = 5000;
   var isPaused = false;
+  var deviceOnline = false;       // ESP32 presence (real heartbeat, not server WS)
+  var statusCls = 'status-dot dot-green';
+  var statusText = 'Ready';
 
   // ── DOM refs ──────────────────────────────────────────
   var startBtn = document.getElementById('cal-start-btn');
@@ -45,6 +50,8 @@
   var schedDays = document.getElementById('sched-days');
   var schedList = document.getElementById('sched-list');
   var histFootTs = document.getElementById('hist-foot-ts');
+  var histToday = document.getElementById('hist-today');
+  var histMore = document.getElementById('hist-more');
   var motorSpeeds = [0, 0, 0, 0];   // last sent speed per motor
 
   // Control mode: 'auto' (sweep drives motors, sliders hidden) or
@@ -54,6 +61,7 @@
   // History timeline state
   var histDay = new Date();
   var histTimer = null;
+  var expandedHours = {};   // dayKey:hourKey -> expanded (survives re-renders)
 
   // ── WebSocket ─────────────────────────────────────────
   function connectWS() {
@@ -91,33 +99,53 @@
   function handleWSMessage(msg) {
     if (msg.type === 'motor_update') {
       var mId = msg.motor;
+      motorLastRx[mId] = performance.now();
       latestMotorData[mId] = {
         temp: msg.temp,
         voltage: msg.voltage,
         current: msg.current,
         vibration: msg.vibration,
         health: msg.health,
+        vibration_valid: msg.vibration_valid !== false,
+        ina_ok: msg.ina_ok !== false,
+        temp_valid: msg.temp_valid !== false,
       };
       if (calState === 'sweep' || calState === 'warmup') {
-        renderMotorCards();
+        queueMotorRender();
       }
     } else if (msg.type === 'snapshot') {
-      if (Array.isArray(msg.data)) {
-        msg.data.forEach(function (d) {
-          latestMotorData[d.id] = {
-            temp: d.temp,
-            voltage: d.voltage,
-            current: d.current,
-            vibration: d.vibration,
-            health: d.health,
-          };
-        });
-      }
+      // Cached history replay — deliberately ignored for display. Only live
+      // motor_update packets (real hardware samples) drive the cards, so an
+      // unplugged/disconnected sensor never leaves stale or fake values.
     } else if (msg.type === 'calibration_status') {
       updateCalState(msg);
+    } else if (msg.type === 'device_status') {
+      applyDeviceStatus(msg.online);
     } else if (msg.type === 'pong') {
       // keep alive
     }
+  }
+
+  function setStatusBadge(cls, text) {
+    statusCls = cls;
+    statusText = text;
+    renderStatusBadge();
+  }
+
+  function renderStatusBadge() {
+    if (!statusDot || !statusLabel) return;
+    if (!deviceOnline) {
+      statusDot.className = 'status-dot dot-red';
+      statusLabel.textContent = 'Offline';
+      return;
+    }
+    statusDot.className = statusCls;
+    statusLabel.textContent = statusText;
+  }
+
+  function applyDeviceStatus(online) {
+    deviceOnline = online === true;
+    renderStatusBadge();
   }
 
   function setConnectionStatus(connected) {
@@ -155,8 +183,7 @@
 
       phaseLabel.textContent = 'Warming up — no data recorded';
       setStartPauseBtn(true);
-      statusDot.className = 'status-dot dot-yellow pulse';
-      statusLabel.textContent = 'Warming up ' + pct + '%';
+      setStatusBadge('status-dot dot-yellow pulse', 'Warming up ' + pct + '%');
     } else if (calState === 'sweep') {
       warmupRow.style.display = 'none';
       collectRow.style.display = 'none';
@@ -174,8 +201,7 @@
 
       phaseLabel.textContent = 'Sweeping speeds — recording data';
       setStartPauseBtn(true);
-      statusDot.className = 'status-dot dot-green pulse';
-      statusLabel.textContent = 'Sweeping ' + spd + '%';
+      setStatusBadge('status-dot dot-green pulse', 'Sweeping ' + spd + '%');
     } else {
       // idle
       warmupRow.style.display = 'none';
@@ -183,8 +209,7 @@
       sweepStatusRow.style.display = 'none';
       phaseLabel.textContent = 'Press Start to begin';
       setStartPauseBtn(false);
-      statusDot.className = 'status-dot dot-green';
-      statusLabel.textContent = 'Ready';
+      setStatusBadge('status-dot dot-green', 'Ready');
     }
 
     samplesLabel.textContent = samplesCollected + ' samples recorded';
@@ -225,6 +250,17 @@
   }
 
   // ── Motor cards ───────────────────────────────────────
+  // Coalesce card renders: motor messages arrive ~4x/sec (250ms sampling);
+  // rebuild the DOM at most every 500ms so the page stays clickable.
+  var motorRenderTimer = null;
+  function queueMotorRender() {
+    if (motorRenderTimer) return;
+    motorRenderTimer = setTimeout(function () {
+      motorRenderTimer = null;
+      renderMotorCards();
+    }, 500);
+  }
+
   function renderMotorCards() {
     if (calState === 'idle' && Object.keys(latestMotorData).length === 0) {
       var emptyHtml = '';
@@ -249,14 +285,30 @@
     MOTOR_NAMES.forEach(function (name, i) {
       var mId = i + 1;
       var d = latestMotorData[mId];
+      var fresh = motorLastRx[mId] !== undefined &&
+        (performance.now() - motorLastRx[mId]) < FRESH_LIVE_MS;
+      // Stale or never-heard-from motors must render as no-data, not as
+      // cached/stale values.
+      var live = fresh && d;
       var statusClass = calState === 'idle' ? 'idle' : (calState === 'sweep' ? 'collecting' : 'warmup');
       var statusText = calState === 'idle' ? 'Idle' : (calState === 'sweep' ? 'Sweeping' : 'Warming');
 
-      var tempStr = d ? d.temp.toFixed(1) + ' \u00b0C' : '-- \u00b0C';
-      var voltStr = d ? d.voltage.toFixed(2) + ' V' : '-- V';
-      var currStr = d ? d.current.toFixed(3) + ' A' : '-- A';
-      var vibStr = d ? (d.vibration ? 'YES' : 'no') : '--';
-      var healthStr = d ? d.health.toFixed(1) + '%' : '--';
+      var tempStr = (live && d.temp_valid && typeof d.temp === 'number')
+        ? d.temp.toFixed(1) + ' \u00b0C' : '-- \u00b0C';
+      var voltStr = (live && d.ina_ok && typeof d.voltage === 'number')
+        ? d.voltage.toFixed(2) + ' V' : '-- V';
+      var currStr = (live && d.ina_ok && typeof d.current === 'number')
+        ? d.current.toFixed(3) + ' A' : '-- A';
+      var vibStr = '--';
+      if (live) {
+        if (d.vibration_valid) {
+          vibStr = d.vibration ? 'YES' : 'no';
+        } else {
+          vibStr = 'NO SIGNAL';
+        }
+      }
+      var healthStr = (live && typeof d.health === 'number')
+        ? d.health.toFixed(1) + '%' : '--';
 
       html += '<div class="cal-motor-card">';
       html += '<div class="cal-motor-header">';
@@ -278,8 +330,8 @@
       html +=
         '<div class="cal-sensor-row"><span class="cal-sensor-label">Health</span><span class="cal-sensor-value">' +
         healthStr + '</span></div>';
-      if (d) {
-        var hpct = Math.min(100, d.health || 100);
+      if (live && typeof d.health === 'number') {
+        var hpct = Math.min(100, Math.max(0, d.health));
         html +=
           '<div style="margin-top:8px;height:3px;border-radius:9999px;background:var(--bg-white-05);overflow:hidden;">' +
           '<div style="height:100%;width:' + hpct +
@@ -453,6 +505,21 @@
     xhr.send();
   }
 
+  // ── Device presence fallback poll (also updated via WS device_status) ──
+  function pollDeviceStatus() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', API_BASE + '/api/device/status', true);
+    xhr.onload = function () {
+      if (xhr.status === 200) {
+        try { applyDeviceStatus(JSON.parse(xhr.responseText).online); } catch (e) { /* ignore */ }
+      }
+    };
+    xhr.onerror = function () {
+      applyDeviceStatus(false);
+    };
+    xhr.send();
+  }
+
   // ── Actions ───────────────────────────────────────────
   function toggleCalibration() {
     if (calState !== 'idle') {
@@ -508,8 +575,7 @@
     collectRow.style.display = 'none';
     phaseLabel.textContent = 'Press Start to begin';
     setStartPauseBtn(false);
-    statusDot.className = 'status-dot dot-green';
-    statusLabel.textContent = 'Ready';
+    setStatusBadge('status-dot dot-green', 'Ready');
     samplesLabel.textContent = '0 samples collected';
     calState = 'idle';
     samplesCollected = 0;
@@ -558,7 +624,7 @@
         '<button class="day-tile' + (isSel ? ' active' : '') +
         (hasData ? ' has-data' : '') + '" data-day="' + key + '" type="button">' +
         '<span class="day-label">' + WEEKDAYS[d.getDay()] + '</span>' +
-        '<span class="h-badge">' + d.getDate() + '</span>' +
+        '<span class="h-badge"><span class="h-badge-inner">' + d.getDate() + '</span></span>' +
         '</button>';
     }
     schedDays.innerHTML = html;
@@ -571,50 +637,246 @@
     });
   }
 
-  function renderSegments(segments) {
-    if (!segments || segments.length === 0) {
+  var HEAT_OK = 45, HEAT_WARN = 50;
+
+  function heatCls(temp) {
+    if (temp >= HEAT_WARN) return 'alarm';
+    if (temp >= HEAT_OK) return 'warn';
+    return 'ok';
+  }
+
+  function renderHourlySummary(segments) {
+    var hours = aggregateHours(segments);
+    renderActivityStrip(hours);
+
+    if (!hours || hours.length === 0) {
       schedList.innerHTML =
         '<div class="sched-empty">No data recorded on this day</div>';
       return;
     }
 
-    var html = '';
-    segments.forEach(function (s) {
-      var alert = (s.max_temp > 50) || (s.vibration_count > 0) ||
-                  (s.avg_voltage > 0 && s.avg_voltage < 11.5);
-      var motorName = MOTOR_NAMES[(s.motor - 1)] || ('M' + s.motor);
-      var title = motorName + ' \u00b7 ' + s.speed_pct + '% ' + s.direction;
-      var reading =
-        s.avg_temp.toFixed(1) + '\u00b0C \u00b7 ' + s.avg_current.toFixed(2) + 'A';
-      var tag = alert ? 'ALARM' : (s.direction === 'IDLE' ? 'IDLE' : 'RUN');
+    var now = Date.now() / 1000;
+    var nowHour = Math.floor(now / 3600);
+    var isToday = dateStr(histDay) === dateStr(new Date());
+    var nowIdx = -1;
+    var todayKey = dateStr(histDay);
 
-      html += '<div class="sched-row' + (alert ? ' is-alert' : '') + '">';
-      if (alert) {
-        html += '<div class="sched-alert-badge">ALERT</div>';
+    var rows = [];
+    hours.forEach(function (h) {
+      if (isToday && nowIdx < 0 && h.key > nowHour) {
+        nowIdx = rows.length;
       }
-      html += '<div class="sched-row-main">';
-      html += '<span class="sched-time">' + s.start_iso + '</span>';
-      html += '<span class="sched-marker"></span>';
-      html += '<span class="sched-title">' + title + '</span>';
-      html += '</div>';
-      html += '<div class="sched-meta">';
-      html += '<span class="sched-tag ' + (alert ? 'alert' : '') + '">' + tag + '</span>';
-      html += '<span class="sched-reading">' + reading + '</span>';
-      html += '</div>';
-      html += '</div>';
+      var expanded = !!expandedHours[todayKey + ':' + h.key];
+
+      var motors = Object.keys(h.motors).sort(function (a, b) { return a - b; })
+        .map(function (m) {
+          return MOTOR_NAMES[(m - 1)] || ('M' + m);
+        }).join(' \u00b7 ');
+      var title = (motors || 'Motors') + ' \u00b7 ' + h.runs +
+        (h.runs > 1 ? ' runs' : ' run') + ' \u00b7 ' + h.minutes + ' min';
+      var reading = h.maxTemp > 0
+        ? h.maxTemp.toFixed(1) + '\u00b0C max'
+        : '--\u00b0C';
+      reading += ' \u00b7 ' + h.avgCurr.toFixed(2) + 'A';
+      var tag = h.alert ? 'ALERT' : 'OK';
+
+      var row = '<div class="sched-row hour' + (h.alert ? ' is-alert' : '') +
+        (expanded ? ' expanded' : '') + '" data-hour="' + h.key + '">';
+      if (h.alert) {
+        row += '<div class="sched-alert-badge">ALERT</div>';
+      }
+      row += '<div class="sched-hour-head">';
+      row += '<div class="sched-row-main">';
+      row += '<span class="sched-time">' + hourLabel(h.key) + '</span>';
+      row += '<span class="sched-marker"></span>';
+      row += '<span class="sched-title">' + title + '</span>';
+      row += '</div>';
+      row += '<div class="sched-meta">';
+      row += '<span class="sched-tag ' + (h.alert ? 'alert' : '') + '">' + tag + '</span>';
+      row += '<span class="sched-reading">' + reading + '</span>';
+      row += '<svg class="sched-hour-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>';
+      row += '</div>';
+      row += '</div>';
+
+      row += '<div class="sched-hour-detail">';
+      row += '<div class="heat-cells">';
+      MOTOR_NAMES.forEach(function (name, i) {
+        var mid = i + 1;
+        var m = h.motors[mid];
+        row += '<div class="heat-cell">';
+        row += '<span class="heat-label">' + name + '</span>';
+        row += '<div class="heat-track"><div class="heat-fill' +
+          (m ? ' ' + heatCls(m.maxTemp) : ' none') +
+          '" style="width:' + (m ? Math.min(100, m.seconds / 36) : 0) + '%;"></div></div>';
+        row += '</div>';
+      });
+      row += '</div>';
+
+      row += '<div class="metric-bars">';
+      row += metricBar('T', (h.avgTemp / 60) * 100, h.avgTemp.toFixed(1) + '\u00b0', 83.3, h.avgTemp > 50);
+      row += metricBar('A', (h.avgCurr / 3) * 100, h.avgCurr.toFixed(2) + 'A', 66.7, h.avgCurr > 2);
+      row += metricBar('V', ((h.avgVolt - 10) / 4) * 100, h.avgVolt.toFixed(1) + 'V', 37.5, h.avgVolt > 0 && h.avgVolt < 11.5);
+      if (h.vib > 0) {
+        row += '<span class="metric-vib" title="Vibrations detected">' + h.vib + ' vib</span>';
+      }
+      row += '</div>';
+      row += '</div>';
+
+      row += '<div class="sched-hour-segs">';
+      h.segs.forEach(function (s) {
+        var segAlert = (s.max_temp > 50) || (s.vibration_count > 0) ||
+                       (s.avg_voltage > 0 && s.avg_voltage < 11.5);
+        var mName = MOTOR_NAMES[(s.motor - 1)] || ('M' + s.motor);
+        var dir = s.direction === 'IDLE' ? 'IDLE' : (s.direction + ' ' + s.speed_pct + '%');
+        var dur = (s.duration_s || 0) / 60;
+        var segReading = (s.max_temp > 0 ? s.max_temp.toFixed(1) + '\u00b0C max' : '--') +
+          ' \u00b7 ' + (s.avg_current || 0).toFixed(2) + 'A';
+        if (s.vibration_count > 0) segReading += ' \u00b7 ' + s.vibration_count + ' vib';
+        row += '<div class="sched-seg' + (segAlert ? ' is-alert' : '') + '">';
+        row += '<span class="sched-seg-motor">' + mName + '</span>';
+        row += '<span class="sched-seg-info">' + dir + ' \u00b7 ' + s.start_iso + ' \u00b7 ' +
+          dur.toFixed(1) + ' min</span>';
+        row += '<span class="sched-seg-reading">' + segReading + '</span>';
+        row += '</div>';
+      });
+      row += '</div>';
+
+      row += '</div>';
+      rows.push(row);
     });
-    schedList.innerHTML = html;
+
+    if (isToday && nowIdx < 0) nowIdx = rows.length;
+    if (isToday) {
+      rows.splice(
+        nowIdx, 0,
+        '<div class="sched-now"><span class="sched-now-diamond" aria-hidden="true"></span><span class="sched-now-line" aria-hidden="true"></span></div>'
+      );
+    }
+
+    schedList.innerHTML = rows.join('');
+    bindHourExpands();
+  }
+
+  function metricBar(label, pct, val, tickPct, danger) {
+    var clamped = Math.max(0, Math.min(100, pct));
+    var tick = Math.max(0, Math.min(100, tickPct));
+    return '<div class="metric-bar' + (danger ? ' danger' : '') + '">' +
+      '<span class="metric-label">' + label + '</span>' +
+      '<div class="metric-track"><div class="metric-fill" style="width:' + clamped + '%;"></div>' +
+      '<span class="metric-tick" style="left:' + tick + '%;"></span></div>' +
+      '<span class="metric-val">' + val + '</span></div>';
+  }
+
+  function bindHourExpands() {
+    var rows = schedList.querySelectorAll('.sched-row.hour');
+    rows.forEach(function (r) {
+      r.addEventListener('click', function () {
+        var key = dateStr(histDay) + ':' + r.getAttribute('data-hour');
+        if (r.classList.toggle('expanded')) expandedHours[key] = true;
+        else delete expandedHours[key];
+      });
+    });
+  }
+
+  function hourLabel(key) {
+    var d = new Date(key * 3600 * 1000);
+    return pad2(d.getHours()) + ':00';
+  }
+
+  function aggregateHours(segments) {
+    var map = {};
+    (segments || []).forEach(function (s) {
+      var key = Math.floor((s.start_ts || 0) / 3600);
+      var h = map[key] || (map[key] = {
+        key: key, runs: 0, samples: 0, seconds: 0,
+        tempMax: 0, tempSum: 0, voltSum: 0, currSum: 0,
+        vib: 0, motors: {}, segs: [], alert: false,
+      });
+      var n = s.samples || 1;
+      h.runs += 1;
+      h.samples += n;
+      h.seconds += s.duration_s || 0;
+      h.tempSum += (s.avg_temp || 0) * n;
+      if (s.max_temp > h.tempMax) h.tempMax = s.max_temp;
+      h.voltSum += (s.avg_voltage || 0) * n;
+      h.currSum += (s.avg_current || 0) * n;
+      h.vib += s.vibration_count || 0;
+
+      var m = h.motors[s.motor] || (h.motors[s.motor] = { seconds: 0, maxTemp: 0 });
+      m.seconds += s.duration_s || 0;
+      if (s.max_temp > m.maxTemp) m.maxTemp = s.max_temp;
+
+      h.segs.push(s);
+      if ((s.max_temp > 50) || (s.vibration_count > 0) ||
+          (s.avg_voltage > 0 && s.avg_voltage < 11.5)) {
+        h.alert = true;
+      }
+    });
+
+    var hours = Object.keys(map).map(function (k) { return map[k]; });
+    hours.sort(function (a, b) { return a.key - b.key; });
+    hours.forEach(function (h) {
+      h.minutes = Math.round(h.seconds / 60);
+      h.avgTemp = h.samples ? h.tempSum / h.samples : 0;
+      h.avgVolt = h.samples ? h.voltSum / h.samples : 0;
+      h.avgCurr = h.samples ? h.currSum / h.samples : 0;
+    });
+    return hours;
+  }
+
+  function renderActivityStrip(hours) {
+    var strip = document.getElementById('sched-strip');
+    if (!strip) return;
+    var nowHour = Math.floor(Date.now() / 3600);
+    var isToday = dateStr(histDay) === dateStr(new Date());
+    var byHour = {};
+    (hours || []).forEach(function (h) { byHour[h.key] = h; });
+
+    var dayStart = Math.floor(
+      new Date(histDay.getFullYear(), histDay.getMonth(), histDay.getDate()).getTime() / 3600000
+    );
+    var html = '';
+    for (var i = 0; i < 24; i++) {
+      var key = dayStart + i;
+      var h = byHour[key];
+      var cls = 'sched-strip-cell';
+      var tip = '';
+      if (h) {
+        cls += h.alert ? ' alert' : ' on';
+        tip = ' title="' + hourLabel(key) + ' \u00b7 ' + h.runs +
+          (h.runs > 1 ? ' runs' : ' run') + ' \u00b7 ' + h.minutes + ' min"';
+      }
+      if (isToday && key === nowHour) cls += ' now';
+      html += '<div class="' + cls + '"' + tip + '></div>';
+    }
+    strip.innerHTML = html;
   }
 
   function renderHistory(daysCache) {
     fetchJSON('/api/history/days', function (days) {
       renderDayNav(days || []);
       fetchJSON('/api/history/segments?day=' + dateStr(histDay), function (res) {
-        renderSegments(res ? res.segments : null);
+        renderHourlySummary(res ? res.segments : null);
       });
     });
-    histFootTs.textContent = dateStr(new Date()) + ' ' +
-      pad2(new Date().getHours()) + ':' + pad2(new Date().getMinutes());
+    updateTodayBtn();
+    updateFootClock();
+  }
+
+  function updateTodayBtn() {
+    if (!histToday) return;
+    histToday.style.display =
+      dateStr(histDay) === dateStr(new Date()) ? 'none' : '';
+  }
+
+  function nowLabel() {
+    var d = new Date();
+    return d.getFullYear() + '/' + pad2(d.getMonth() + 1) + '/' + pad2(d.getDate()) +
+      ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+  }
+
+  function updateFootClock() {
+    if (histFootTs) histFootTs.textContent = nowLabel();
   }
 
   function reloadHistory() {
@@ -653,8 +915,33 @@
     renderHistory();
   });
 
+  if (histToday) {
+    histToday.addEventListener('click', function () {
+      histDay = new Date();
+      renderHistory();
+      if (schedList) schedList.scrollTop = 0;
+    });
+  }
+
+  if (histMore) {
+    histMore.addEventListener('click', function () {
+      window.location.href = '../detailed/';
+    });
+  }
+
   // Periodic UI refresh
   uiTimer = setInterval(pollStatus, 2000);
+  setInterval(pollDeviceStatus, 3000);
+  setInterval(updateFootClock, 1000);
+  setInterval(function () {
+    // Re-render cards when any motor crosses the freshness boundary so
+    // stale/offline motors drop to "--" without waiting for a new packet.
+    if (calState === 'sweep' || calState === 'warmup') {
+      queueMotorRender();
+    } else if (Object.keys(latestMotorData).length) {
+      renderMotorCards();
+    }
+  }, 1000);
 
   // ── Init ──────────────────────────────────────────────
   renderMotorCards();

@@ -204,6 +204,43 @@
     });
   });
 
+  // ── Device presence (real ESP32 heartbeat via backend) ──
+  var HOME_API = 'http://localhost:8000';
+
+  function applyDeviceStatus(online) {
+    var badges = [
+      { dot: 'home-live-dot', label: 'home-live-label', on: 'Live' },
+      { dot: 'home-rt-dot', label: 'home-rt-label', on: 'Real-time' }
+    ];
+    badges.forEach(function (b) {
+      var dot = document.getElementById(b.dot);
+      var label = document.getElementById(b.label);
+      if (dot) {
+        dot.className = online ? 'status-dot dot-green pulse' : 'status-dot dot-red';
+      }
+      if (label) label.textContent = online ? b.on : 'Offline';
+    });
+  }
+
+  function pollDeviceStatus() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', HOME_API + '/api/device/status', true);
+    xhr.onload = function () {
+      var online = false;
+      if (xhr.status === 200) {
+        try { online = JSON.parse(xhr.responseText).online === true; } catch (e) { online = false; }
+      }
+      applyDeviceStatus(online);
+    };
+    xhr.onerror = function () {
+      applyDeviceStatus(false);
+    };
+    xhr.send();
+  }
+
+  pollDeviceStatus();
+  setInterval(pollDeviceStatus, 3000);
+
   updateHUD();
   setInterval(simulateData, 600);
 

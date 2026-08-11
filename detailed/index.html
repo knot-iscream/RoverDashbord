@@ -65,6 +65,10 @@
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
           <div class="dock-tooltip">Detailed</div>
         </button>
+        <button class="dock-item" data-href="../test/" title="Motor Test">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          <div class="dock-tooltip">Motor Test</div>
+        </button>
         <div class="dock-sep"></div>
       </div>
     </aside>
@@ -77,8 +81,9 @@
               <p class="page-sub">Per-motor telemetry &amp; analytics</p>
             </div>
             <div class="live-badge">
-              <span class="status-dot dot-green pulse"></span>
-              <span id="update-time">Updated just now</span>
+              <span class="status-dot dot-green pulse" id="detail-live-dot"></span>
+              <span id="detail-live-label">Live</span>
+              <span id="update-time" style="color:var(--gray-500);font-weight:500;"></span>
             </div>
           </div>
           <div class="detail-motor-tabs" id="motor-tabs">
@@ -134,6 +139,14 @@
             </svg>
           </div>
           <span class="mobile-nav-label">Details</span>
+        </button>
+        <button class="mobile-nav-btn" data-href="../test/">
+          <div class="nav-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+          </div>
+          <span class="mobile-nav-label">Motor Test</span>
         </button>
         <button class="mobile-nav-btn">
           <div class="nav-icon-wrap">

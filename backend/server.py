@@ -1,6 +1,7 @@
 import json
 import asyncio
 import os
+import time
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -24,8 +25,19 @@ history_store = HistoryStore()
 connected_clients = set()
 motor_status = {}
 
+# Device (ESP32) presence — driven by the firmware's ~2s heartbeat on
+# rover/motor/status (and any other rover message). A device that stops
+# publishing for DEVICE_OFFLINE_TIMEOUT seconds is considered offline.
+DEVICE_OFFLINE_TIMEOUT = 8.0
+device_last_seen = None
+device_online = False
+
 # MQTT client instance (set during startup)
 mqtt_client_instance = None
+
+# Running asyncio loop (set during startup) — used to schedule WS
+# broadcasts from the MQTT callback thread without cross-loop sends.
+main_loop = None
 
 # Calibration manager
 cal_manager = CalibrationManager()
@@ -53,6 +65,9 @@ async def websocket_endpoint(websocket: WebSocket):
             "type": "calibration_status",
             **cal_status,
         })
+
+        # Send current device presence
+        await websocket.send_json(get_device_status_payload())
 
         while True:
             msg = await websocket.receive_text()
@@ -87,28 +102,82 @@ async def broadcast_calibration_status():
     await broadcast({"type": "calibration_status", **status})
 
 
+# ===== Device presence =====
+
+def get_device_status_payload():
+    return {
+        "type": "device_status",
+        "online": device_online,
+        "last_seen": (
+            time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(device_last_seen))
+            if device_last_seen else None
+        ),
+    }
+
+
+def update_device_online():
+    """Recompute online state from last_seen; returns True if it changed."""
+    global device_online
+    was = device_online
+    if device_last_seen is None:
+        device_online = False
+    else:
+        device_online = (time.time() - device_last_seen) < DEVICE_OFFLINE_TIMEOUT
+    return device_online != was
+
+
+async def monitor_device_status():
+    """Background loop: broadcast device_status only when the state flips."""
+    while True:
+        try:
+            if update_device_online():
+                await broadcast(get_device_status_payload())
+        except Exception as e:
+            print(f"[Device] Monitor error: {e}")
+        await asyncio.sleep(2.0)
+
+
+def schedule(coro):
+    """Schedule a broadcast coroutine onto uvicorn's loop from another thread."""
+    if main_loop is not None:
+        asyncio.run_coroutine_threadsafe(coro, main_loop)
+
+
 # ===== MQTT message handler =====
 
 def on_mqtt_message(data):
+    global device_last_seen
     topic = data.pop("_topic", "")
+
+    # Any rover message proves the ESP32 is alive — but NOT command topics:
+    # the backend itself publishes to rover/*/command while also subscribing to
+    # rover/motor/#, so its own echoes must not count as a device heartbeat.
+    if not topic.endswith("/command"):
+        device_last_seen = time.time()
 
     # ── Calibration status from ESP32 ──
     if topic.startswith("rover/calibration/status"):
         cal_manager.handle_esp32_status(data)
-        asyncio.run(broadcast_calibration_status())
+        schedule(broadcast_calibration_status())
         return
 
     # ── Motor driver status from ESP32 ──
     if topic.startswith("rover/motor/status"):
         motor_status.update(data)
-        asyncio.run(broadcast({"type": "motor_status", **data}))
+        schedule(broadcast({"type": "motor_status", **data}))
         return
 
     # ── Motor data ──
     motor_id = data.get("motor", data.get("id", 0))
 
-    # Persist every sample to day-sharded history
-    history_store.add_sample(data)
+    # Persist samples to day-sharded history ONLY when the rover is doing
+    # something real (a motor is moving or calibration is running). Idle
+    # publishes (speed:0 with unplugged sensors) are junk — skip them so
+    # history/Excel/segments never fill with fabricated idle telemetry.
+    running = int(data.get("speed", 0) or 0) != 0
+    calibrating = cal_manager.state in ("warmup", "sweep")
+    if running or calibrating:
+        history_store.add_sample(data)
 
     # Count calibration samples while the sweep is running
     if cal_manager.state in ("warmup", "sweep"):
@@ -116,18 +185,31 @@ def on_mqtt_message(data):
 
     motor_data = data_handler.process_motor_data(data)
 
+    # Pass through sensor validity flags and keep raw nulls (invalid INA219 /
+    # missing temp probe) so pages render "--" instead of garbage numbers.
+    # Missing flags default to FALSE: a packet that doesn't vouch for its
+    # sensors is never trusted (old firmware / unplugged modules show "--").
+    ina_ok = bool(data.get("ina_ok", False))
+    vibration_valid = bool(data.get(
+        "vibration_valid", data.get("vib_valid", False)))
+    temp_valid = bool(data.get("temp_valid", False))
+
     payload = {
         "type": "motor_update",
         "motor": motor_id,
         "vibration": data.get("vibration", 0),
-        "voltage": data.get("voltage", 0.0),
-        "current": data.get("current", 0.0),
-        "temp": data.get("temp", data.get("temperature", 0.0)),
+        "vibration_valid": vibration_valid,
+        "ina_ok": ina_ok,
+        "temp_valid": temp_valid,
+        "voltage": data.get("voltage", None) if ina_ok else None,
+        "current": data.get("current", None) if ina_ok else None,
+        "temp": data.get("temp", data.get("temperature", None))
+               if temp_valid else None,
         "speed": data.get("speed", 0),
         "health": motor_data["health"],
         "anomalies": motor_data["anomalies"],
     }
-    asyncio.run(broadcast(payload))
+    schedule(broadcast(payload))
 
 
 # ===== REST endpoints =====
@@ -135,6 +217,14 @@ def on_mqtt_message(data):
 @app.get("/api/health")
 async def api_health():
     return {"status": "ok", "clients": len(connected_clients)}
+
+
+@app.get("/api/device/status")
+async def api_device_status():
+    update_device_online()
+    payload = get_device_status_payload()
+    payload.pop("type", None)
+    return payload
 
 
 @app.get("/api/motors")
@@ -228,8 +318,10 @@ async def api_history_segments(day: str):
 
 @app.on_event("startup")
 async def startup():
-    global mqtt_client_instance
+    global mqtt_client_instance, main_loop
     print("[Server] Starting Rover Digital Twin Backend...")
+
+    main_loop = asyncio.get_running_loop()
 
     mqtt_client_instance = MQTTClient(
         broker="localhost",
@@ -240,6 +332,9 @@ async def startup():
     # Share MQTT client with calibration manager for outgoing commands
     cal_manager.mqtt_client = mqtt_client_instance
     mqtt_client_instance.start()
+
+    # Start device presence monitor
+    asyncio.create_task(monitor_device_status())
 
 
 if __name__ == "__main__":

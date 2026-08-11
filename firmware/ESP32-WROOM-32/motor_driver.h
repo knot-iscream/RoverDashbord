@@ -27,6 +27,24 @@ class MotorDriver {
       int dir2 = motor_speed > 0 ? LOW : HIGH;
       int pwm  = abs(motor_speed);
 
+      // Stop = active brake: both inputs LOW shorts the motor so stopping
+      // never depends on the enable line (prevents "won't stop" faults).
+      if (motor_speed == 0) {
+        dir1 = LOW;
+        dir2 = LOW;
+      }
+
+      int cur1 = digitalRead(ch.in1);
+      int cur2 = digitalRead(ch.in2);
+
+      // Dead-time on a direction flip: both inputs HIGH would shoot-through
+      // the half-bridge (the classic L298N failure). Kill PWM, let the
+      // bridge settle, then switch direction and re-apply duty.
+      if (cur1 != dir1 || cur2 != dir2) {
+        ledcWrite(ch.ena, 0);
+        delayMicroseconds(5);
+      }
+
       digitalWrite(ch.in1, dir1);
       digitalWrite(ch.in2, dir2);
       ledcWrite(ch.ena, pwm);

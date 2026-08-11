@@ -29,9 +29,9 @@
 #define L298N2_ENA 32   // PWM speed — Motor 3
 #define L298N2_IN1 33   // Motor 3 direction
 #define L298N2_IN2 27   // Motor 3 direction
-#define L298N2_ENB 16   // PWM speed — Motor 4
+#define L298N2_ENB 25   // PWM speed — Motor 4
 #define L298N2_IN3 17   // Motor 4 direction
-#define L298N2_IN4 25   // Motor 4 direction
+#define L298N2_IN4 16   // Motor 4 direction
 
 // PWM configuration for the L298N enable pins
 #define MOTOR_PWM_FREQ   1000   // Hz

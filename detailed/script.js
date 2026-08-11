@@ -1,16 +1,31 @@
 (function() {
   'use strict';
 
+  var WS_URL = 'ws://localhost:8000/ws';
+  var DETAIL_API = 'http://localhost:8000';
+  var maxPoints = 60;
+  var currentMotor = 1;
+
+  // Live telemetry per motor (real ESP32 samples only — no simulation).
   var motorData = {
-    1: { label: 'FL', temp: 38, voltage: 12.3, current: 0.6, health: 92 },
-    2: { label: 'FR', temp: 42, voltage: 12.1, current: 0.8, health: 87 },
-    3: { label: 'RL', temp: 35, voltage: 12.4, current: 0.5, health: 95 },
-    4: { label: 'RR', temp: 48, voltage: 11.8, current: 1.2, health: 78 }
+    1: { label: 'FL', temp: null, voltage: null, current: null, health: null,
+         temp_valid: true, ina_ok: true },
+    2: { label: 'FR', temp: null, voltage: null, current: null, health: null,
+         temp_valid: true, ina_ok: true },
+    3: { label: 'RL', temp: null, voltage: null, current: null, health: null,
+         temp_valid: true, ina_ok: true },
+    4: { label: 'RR', temp: null, voltage: null, current: null, health: null,
+         temp_valid: true, ina_ok: true }
   };
 
   var history = { 1: [], 2: [], 3: [], 4: [] };
-  var maxPoints = 60;
-  var currentMotor = 1;
+  var deviceOnline = false;
+
+  // Data freshness — only real motor_update packets count as "live".
+  var lastRxAt = { 1: null, 2: null, 3: null, 4: null };
+  var FRESH_LIVE_MS = 5000;     // live while samples arrive within this window
+  var FRESH_TIMEOUT_MS = 60000; // after this, drop back to placeholders
+  var freshTimer = null;
 
   // Canvas references
   var canvases = {
@@ -21,6 +36,8 @@
   };
 
   function getCtx(id) { return canvases[id] ? canvases[id].getContext('2d') : null; }
+
+  function isReal(v) { return typeof v === 'number' && isFinite(v); }
 
   // ===== Resize canvases =====
   function resizeCanvases() {
@@ -35,7 +52,8 @@
   }
 
   // ===== Draw a line chart on a canvas =====
-  function drawChart(canvasId, data, color, label, unit) {
+  // `range` pins the scale when given, otherwise it auto-fits the data.
+  function drawChart(canvasId, data, color, label, unit, range) {
     var ctx = getCtx(canvasId);
     if (!ctx) return;
     var w = ctx.canvas.width;
@@ -46,21 +64,22 @@
 
     ctx.clearRect(0, 0, w, h);
 
-    // Background
-    ctx.fillStyle = 'transparent';
-
     if (data.length < 2) {
       ctx.fillStyle = 'rgba(255,255,255,0.08)';
       ctx.font = '11px Inter, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('Waiting for data...', w / 2, h / 2 + 4);
+      ctx.fillText('Waiting for live data...', w / 2, h / 2 + 4);
       return;
     }
 
     var min = Math.min.apply(null, data);
     var max = Math.max.apply(null, data);
-    var range = max - min || 1;
-    var padding = range * 0.15;
+    if (range) {
+      min = range[0];
+      max = range[1];
+    }
+    var span = max - min || 1;
+    var padding = span * 0.15;
     min -= padding;
     max += padding;
 
@@ -83,7 +102,7 @@
     ctx.beginPath();
     for (var j = 0; j < data.length; j++) {
       var x = pad.left + (j / (data.length - 1)) * plotW;
-      var yVal = pad.top + plotH - ((data[j] - min) / range) * plotH;
+      var yVal = pad.top + plotH - ((data[j] - min) / (max - min)) * plotH;
       if (j === 0) ctx.moveTo(x, yVal);
       else ctx.lineTo(x, yVal);
     }
@@ -95,7 +114,7 @@
     ctx.beginPath();
     for (var k = 0; k < data.length; k++) {
       var x2 = pad.left + (k / (data.length - 1)) * plotW;
-      var y2 = pad.top + plotH - ((data[k] - min) / range) * plotH;
+      var y2 = pad.top + plotH - ((data[k] - min) / (max - min)) * plotH;
       if (k === 0) ctx.moveTo(x2, y2);
       else ctx.lineTo(x2, y2);
     }
@@ -122,11 +141,21 @@
   function renderValueCards() {
     var m = motorData[currentMotor];
     var container = document.getElementById('value-cards');
+
+    var stale = isStale(currentMotor);
+    var tempTxt = (!stale && m.temp_valid && isReal(m.temp))
+      ? m.temp.toFixed(1) : '--';
+    var voltTxt = (!stale && m.ina_ok && isReal(m.voltage))
+      ? m.voltage.toFixed(2) : '--';
+    var currTxt = (!stale && m.ina_ok && isReal(m.current))
+      ? m.current.toFixed(3) : '--';
+    var healthTxt = (!stale && isReal(m.health)) ? Math.round(m.health) : '--';
+
     var cards = [
-      { label: 'Temperature', value: m.temp.toFixed(1), unit: '°C', badge: 'normal', badgeClass: 'dot-green' },
-      { label: 'Voltage', value: m.voltage.toFixed(2), unit: 'V', badge: m.voltage >= 12 ? 'stable' : 'low', badgeClass: m.voltage >= 12 ? 'dot-green' : 'dot-yellow' },
-      { label: 'Current', value: m.current.toFixed(3), unit: 'A', badge: m.current < 1.5 ? 'nominal' : 'high', badgeClass: m.current < 1.5 ? 'dot-green' : 'dot-yellow' },
-      { label: 'Health', value: Math.round(m.health), unit: '%', badge: m.health > 70 ? 'good' : (m.health > 40 ? 'fair' : 'critical'), badgeClass: m.health > 70 ? 'dot-green' : (m.health > 40 ? 'dot-yellow' : 'dot-red') }
+      { label: 'Temperature', value: tempTxt, unit: '°C', badge: (!stale && m.temp_valid) ? 'normal' : 'no probe', badgeClass: (!stale && m.temp_valid) ? 'dot-green' : 'dot-red' },
+      { label: 'Voltage', value: voltTxt, unit: 'V', badge: (!stale && m.ina_ok) ? (m.voltage >= 12 ? 'stable' : 'low') : 'no chip', badgeClass: (!stale && m.ina_ok) ? (m.voltage >= 12 ? 'dot-green' : 'dot-yellow') : 'dot-red' },
+      { label: 'Current', value: currTxt, unit: 'A', badge: (!stale && m.ina_ok) ? (m.current < 1.5 ? 'nominal' : 'high') : 'no chip', badgeClass: (!stale && m.ina_ok) ? (m.current < 1.5 ? 'dot-green' : 'dot-yellow') : 'dot-red' },
+      { label: 'Health', value: healthTxt, unit: '%', badge: (!stale && isReal(m.health)) ? (m.health > 70 ? 'good' : (m.health > 40 ? 'fair' : 'critical')) : 'no data', badgeClass: (!stale && isReal(m.health)) ? (m.health > 70 ? 'dot-green' : (m.health > 40 ? 'dot-yellow' : 'dot-red')) : 'dot-red' }
     ];
     var html = '';
     cards.forEach(function(c) {
@@ -139,27 +168,110 @@
     container.innerHTML = html;
   }
 
-  // ===== Simulate data =====
-  function tick() {
-    var m = motorData[currentMotor];
-    m.temp += (Math.random() - 0.5) * 1.2;
-    m.temp = Math.max(30, Math.min(65, m.temp));
-    m.voltage += (Math.random() - 0.5) * 0.1;
-    m.voltage = Math.max(10.5, Math.min(14, m.voltage));
-    m.current += (Math.random() - 0.5) * 0.08;
-    m.current = Math.max(0, Math.min(3, m.current));
-    m.health += (Math.random() - 0.5) * 0.5;
-    m.health = Math.max(10, Math.min(100, m.health));
+  // ===== Telemetry ingestion (live WS only) =====
+  function applySample(msg) {
+    var id = msg.motor;
+    if (!motorData[id]) return;
+    var m = motorData[id];
+    m.temp_valid = msg.temp_valid !== false;
+    m.ina_ok = msg.ina_ok !== false;
+    lastRxAt[id] = performance.now();
 
-    var hist = history[currentMotor];
-    hist.push(m.temp);
+    if (m.temp_valid && isReal(msg.temp)) {
+      m.temp = msg.temp;
+      pushOne('temp', id, msg.temp);
+    } else {
+      m.temp = null;
+    }
+    if (m.ina_ok && isReal(msg.voltage)) {
+      m.voltage = msg.voltage;
+      pushOne('voltage', id, msg.voltage);
+    } else {
+      m.voltage = null;
+    }
+    if (m.ina_ok && isReal(msg.current)) {
+      m.current = msg.current;
+      pushOne('current', id, msg.current);
+    } else {
+      m.current = null;
+    }
+    if (typeof msg.health === 'number') {
+      m.health = msg.health;
+      pushOne('health', id, msg.health);
+    } else {
+      m.health = null;
+    }
+    renderCurrent();
+  }
+
+  function pushOne(key, id, val) {
+    var hist = history[id];
+    if (!hist) history[id] = hist = [];
+    hist.push(val);
     if (hist.length > maxPoints) hist.shift();
+    if (id === currentMotor) {
+      if (key === 'temp') drawChart('chart-temp', history[currentMotor], '#f97316', 'Temp', '°C', [20, 80]);
+      else if (key === 'voltage') drawChart('chart-voltage', history[currentMotor], '#22c55e', 'Voltage', 'V', [10, 14]);
+      else if (key === 'current') drawChart('chart-current', history[currentMotor], '#3b82f6', 'Current', 'A', [0, 3]);
+      else if (key === 'health') drawChart('chart-health', history[currentMotor], '#a855f7', 'Health', '%', [0, 100]);
+    }
+  }
 
+  function renderCurrent() {
     renderValueCards();
-    drawChart('chart-temp', hist, '#f97316', 'Temp', '°C');
-    drawChart('chart-voltage', history[currentMotor].slice().map(function(v, i) { return motorData[currentMotor].voltage + (Math.random()-0.5)*0.1; }), '#22c55e', 'Voltage', 'V');
-    drawChart('chart-current', history[currentMotor].slice().map(function(v, i) { return motorData[currentMotor].current + (Math.random()-0.5)*0.05; }), '#3b82f6', 'Current', 'A');
-    drawChart('chart-health', history[currentMotor].slice().map(function(v) { return motorData[currentMotor].health; }), '#a855f7', 'Health', '%');
+    var stale = isStale(currentMotor);
+    var data = stale ? [] : (history[currentMotor] || []);
+    drawChart('chart-temp', data, '#f97316', 'Temp', '°C', [20, 80]);
+    drawChart('chart-voltage', data, '#22c55e', 'Voltage', 'V', [10, 14]);
+    drawChart('chart-current', data, '#3b82f6', 'Current', 'A', [0, 3]);
+    drawChart('chart-health', data, '#a855f7', 'Health', '%', [0, 100]);
+  }
+
+  // ===== Data freshness (real vs stale vs nothing) =====
+  function isStale(id) {
+    var last = lastRxAt[id];
+    if (last === null) return true;
+    var age = performance.now() - last;
+    return age > FRESH_LIVE_MS;
+  }
+
+  function updateFreshness() {
+    var changed = false;
+    [1, 2, 3, 4].forEach(function (id) {
+      var before = isStale(id);
+      var after = (lastRxAt[id] !== null) &&
+        (performance.now() - lastRxAt[id]) > FRESH_LIVE_MS;
+      if (before !== after) changed = true;
+    });
+    if (changed) renderCurrent();
+  }
+
+  // ===== WebSocket (real backing data) =====
+  var ws = null;
+  function connectWS() {
+    if (ws && ws.readyState === WebSocket.OPEN) return;
+    ws = new WebSocket(WS_URL);
+    ws.onopen = function () { ws.send('ping'); };
+    ws.onmessage = function (e) {
+      try {
+        var msg = JSON.parse(e.data);
+        if (msg.type === 'motor_update') {
+          applySample(msg);
+        } else if (msg.type === 'snapshot') {
+          // Cached history replay — intentionally ignored. Only fresh
+          // motor_update packets (real hardware samples) drive this page,
+          // so an unplugged/disconnected sensor never leaves stale or
+          // fake-looking values on screen.
+        } else if (msg.type === 'device_status') {
+          applyDeviceStatus(msg.online);
+        }
+      } catch (err) { /* ignore */ }
+    };
+    ws.onclose = function () {
+      ws = null;
+      setTimeout(connectWS, 3000);
+    };
+    ws.onerror = function () { ws.close(); };
   }
 
   // ===== Motor tab switching =====
@@ -170,18 +282,45 @@
       this.classList.add('active');
       currentMotor = parseInt(this.getAttribute('data-motor'), 10);
       if (!history[currentMotor]) history[currentMotor] = [];
-      renderValueCards();
-      tick();
+      renderCurrent();
     });
   });
+
+  // ===== Device presence (real ESP32 heartbeat via backend) =====
+  function applyDeviceStatus(online) {
+    deviceOnline = online === true;
+    var dot = document.getElementById('detail-live-dot');
+    var label = document.getElementById('detail-live-label');
+    if (dot) dot.className = deviceOnline ? 'status-dot dot-green pulse' : 'status-dot dot-red';
+    if (label) label.textContent = deviceOnline ? 'Live' : 'Offline';
+  }
+
+  function pollDeviceStatus() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', DETAIL_API + '/api/device/status', true);
+    xhr.onload = function () {
+      var online = false;
+      if (xhr.status === 200) {
+        try { online = JSON.parse(xhr.responseText).online === true; } catch (e) { online = false; }
+      }
+      applyDeviceStatus(online);
+    };
+    xhr.onerror = function () { applyDeviceStatus(false); };
+    xhr.send();
+  }
 
   // ===== Init =====
   window.addEventListener('resize', function() {
     resizeCanvases();
-    tick();
+    renderCurrent();
   });
   resizeCanvases();
   renderValueCards();
   updateTimestamp();
-  setInterval(function() { tick(); updateTimestamp(); }, 800);
+  pollDeviceStatus();
+  setInterval(pollDeviceStatus, 3000);
+  setInterval(updateTimestamp, 1000);
+  freshTimer = setInterval(updateFreshness, 1000);
+  connectWS();
+  renderCurrent();
 })();

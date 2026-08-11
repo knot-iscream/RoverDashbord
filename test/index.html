@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Motor Test | Rover Digital Twin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body style="background:#050505">
+  <div class="app-wrap">
+    <header class="header" id="site-header">
+      <div class="header-bg"></div>
+      <div class="header-glow-left"></div>
+      <div class="header-glow-right"></div>
+      <div class="header-inner">
+        <div style="display:flex;align-items:center;gap:16px;">
+          <a href="../" class="logo-link">
+            <svg class="logo-svg" width="40" height="40" viewBox="0 0 40 40" fill="none">
+              <rect width="40" height="40" rx="10" fill="var(--primary)"/>
+              <path d="M12 20l6-6 6 6-6 6-6-6z" fill="#000" opacity="0.8"/>
+              <path d="M18 14l8 8-8 8" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.6"/>
+            </svg>
+          </a>
+          <div class="search-bar">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="search-icon">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/>
+            </svg>
+            <span class="search-text">Search dashboard...</span>
+            <div class="search-kbd">
+              <kbd>Ctrl</kbd>
+              <kbd>K</kbd>
+            </div>
+          </div>
+        </div>
+        <div class="header-actions">
+        </div>
+      </div>
+    </header>
+    <div class="dock-edge" id="dock-edge">
+      <button class="dock-edge-btn dock-edge-chevron" id="dock-edge-toggle" title="Toggle dock">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
+      <button class="dock-edge-btn dock-edge-sm" id="dock-edge-lock" title="Lock dock hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+      </button>
+      <a href="#" class="dock-edge-btn dock-edge-sm" title="Status">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
+      </a>
+    </div>
+    <aside class="nav-dock dock-hidden" id="nav-dock">
+      <div class="dock-inner">
+        <div class="dock-indicator" id="dock-indicator"><div class="dock-accent"></div></div>
+        <button class="dock-item" data-href="../" title="Home">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          <div class="dock-tooltip">Home</div>
+        </button>
+        <button class="dock-item" data-href="../calibration/" title="Calibration">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+          <div class="dock-tooltip">Calibration</div>
+        </button>
+        <button class="dock-item" data-href="../detailed/" title="Detailed">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+          <div class="dock-tooltip">Detailed</div>
+        </button>
+        <button class="dock-item active" data-href="../test/" title="Motor Test">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          <div class="dock-tooltip">Motor Test</div>
+        </button>
+        <div class="dock-sep"></div>
+      </div>
+    </aside>
+    <div class="body-wrap">
+      <main class="main-content">
+        <div class="content-wrap">
+          <div class="page-header">
+            <div>
+              <h1 class="page-h1">Motor Test</h1>
+              <p class="page-sub">Single-motor bench test — Rear Right</p>
+            </div>
+            <div class="live-badge">
+              <span class="status-dot dot-green" id="test-status-dot"></span>
+              <span id="test-status-label">Disconnected</span>
+            </div>
+          </div>
+
+          <div class="hud-layout">
+
+            <!-- ===== LEFT: Control hero ===== -->
+            <div class="hud-panel">
+              <span class="hud-corner hud-corner-tl" aria-hidden="true"></span>
+              <span class="hud-corner hud-corner-br" aria-hidden="true"></span>
+              <span class="hud-vents" aria-hidden="true"></span>
+              <div class="hud-content">
+                <div class="panel-head">
+                  <h2 class="panel-title-muted">Motor RR &middot; #4</h2>
+                  <span class="cal-motor-status idle" id="run-status">Idle</span>
+                </div>
+
+                <div class="motor-control-row test-hero" data-motor-row="4">
+                  <div class="motor-control-head">
+                    <span class="cal-motor-name">Rear Right</span>
+                    <div class="motor-control-meta">
+                      <span class="motor-control-val test-hero-val" id="motor-val-4">0</span>
+                      <button class="btn-off" type="button" data-off="4" title="Stop motor"><span class="btn-off-label">OFF</span></button>
+                    </div>
+                  </div>
+                  <div class="motor-control-track">
+                    <div class="motor-control-groove"></div>
+                    <div class="motor-control-fill"></div>
+                    <div class="motor-control-tick"></div>
+                    <input type="range" class="motor-control-input" min="-255" max="255" step="1" value="0" id="motor-slider-4" data-motor="4">
+                  </div>
+                  <div class="motor-control-labels">
+                    <span class="motor-label" data-side="rev">REV</span>
+                    <span class="motor-label" data-side="fwd">FWD</span>
+                  </div>
+                </div>
+
+                <!-- Preset power buttons -->
+                <div class="test-presets" id="preset-fwd">
+                  <span class="test-preset-tag">FWD</span>
+                  <button class="test-preset" data-speed="64">25%</button>
+                  <button class="test-preset" data-speed="128">50%</button>
+                  <button class="test-preset" data-speed="191">75%</button>
+                  <button class="test-preset" data-speed="255">100%</button>
+                </div>
+                <div class="test-presets" id="preset-rev">
+                  <span class="test-preset-tag">REV</span>
+                  <button class="test-preset" data-speed="-64">25%</button>
+                  <button class="test-preset" data-speed="-128">50%</button>
+                  <button class="test-preset" data-speed="-191">75%</button>
+                  <button class="test-preset" data-speed="-255">100%</button>
+                </div>
+
+                <!-- Ramp test -->
+                <div class="test-ramp">
+                  <button class="btn-primary" id="ramp-btn" style="padding:8px 22px;">
+                    <span class="btn-corner-tl"></span>
+                    <span class="btn-corner-br"></span>
+                    <span class="btn-sweep"><span class="btn-sweep-inner"></span></span>
+                    <span class="btn-content" style="gap:8px;">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                      Ramp Test
+                    </span>
+                  </button>
+                  <span class="test-ramp-status" id="ramp-status">FWD 25 &rarr; 50 &rarr; 75 &rarr; 100 &rarr; REV &rarr; 0</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- ===== RIGHT: Live telemetry ===== -->
+            <div class="hud-right-stack">
+
+              <div class="hud-panel">
+                <span class="hud-corner hud-corner-tl" aria-hidden="true"></span>
+                <span class="hud-corner hud-corner-br" aria-hidden="true"></span>
+                <span class="hud-vents" aria-hidden="true"></span>
+                <div class="hud-content" id="telemetry-panel">
+                  <div class="panel-head">
+                    <h2 class="panel-title-muted">Live Telemetry</h2>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                      <span class="test-age" id="t-age">Waiting for RR stream&hellip;</span>
+                      <span class="status-dot dot-off" id="tele-dot"></span>
+                    </div>
+                  </div>
+
+                  <div id="sys-status" class="test-sys-ok">All systems nominal</div>
+
+                  <div class="cal-sensor-row"><span class="cal-sensor-label">Temperature</span><span class="cal-sensor-value" id="t-temp">-- &deg;C</span></div>
+                  <div class="cal-sensor-row"><span class="cal-sensor-label">Voltage</span><span class="cal-sensor-value" id="t-volt">-- V</span></div>
+                  <div class="cal-sensor-row"><span class="cal-sensor-label">Current</span><span class="cal-sensor-value" id="t-curr">-- A</span></div>
+                  <div class="cal-sensor-row"><span class="cal-sensor-label">Health</span><span class="cal-sensor-value" id="t-health">--</span></div>
+                  <div class="cal-sensor-row"><span class="cal-sensor-label">Commanded</span><span class="cal-sensor-value" id="t-speed">0</span></div>
+
+                  <div class="test-health-bar-wrap">
+                    <div class="test-health-bar" id="t-health-bar" style="width:0%;"></div>
+                  </div>
+
+                  <div class="test-beat-wrap">
+                    <span class="test-beat-label">Vibration</span>
+                    <div class="test-beats" id="vib-bars"></div>
+                    <span class="test-beat-read" id="vib-read">--</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Calibration guard / connection -->
+              <div class="hud-panel">
+                <span class="hud-corner hud-corner-tl" aria-hidden="true"></span>
+                <span class="hud-corner hud-corner-br" aria-hidden="true"></span>
+                <span class="hud-vents" aria-hidden="true"></span>
+                <div class="hud-content">
+                  <div class="test-guard" id="test-guard">
+                    <span style="font-size:14px;">&#9888;</span>
+                    <span style="font-size:12px;color:var(--gray-300);" id="test-guard-text">Motors auto-run during calibration &mdash; manual control disabled.</span>
+                  </div>
+                  <div class="cal-info-chips" style="margin-top:12px;">
+                    <div class="cal-info-chip">
+                      <span class="chip-dot" id="chip-cal" style="background:var(--gray-500);"></span>
+                      <span id="chip-cal-label">Calibration idle</span>
+                    </div>
+                    <div class="cal-info-chip">
+                      <span class="chip-dot" id="chip-conn" style="background:var(--dot-red);"></span>
+                      <span id="chip-conn-label">Disconnected</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Connection lost banner -->
+          <div class="panel panel-pad" id="conn-lost-banner" style="display:none;border:1px solid var(--dot-red);margin-top:16px;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <span style="font-size:14px;">&#9888;</span>
+              <span style="font-size:12px;color:var(--gray-300);">Connection lost — motor control is still enabled but telemetry is stale.</span>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+    <nav class="mobile-nav">
+      <div class="mobile-nav-inner">
+        <button class="mobile-nav-btn" data-href="../">
+          <div class="nav-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>
+            </svg>
+          </div>
+          <span class="mobile-nav-label">Dashboard</span>
+        </button>
+        <button class="mobile-nav-btn" data-href="../calibration/">
+          <div class="nav-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
+            </svg>
+          </div>
+          <span class="mobile-nav-label">Calibrate</span>
+        </button>
+        <button class="mobile-nav-btn" data-href="../detailed/">
+          <div class="nav-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/>
+            </svg>
+          </div>
+          <span class="mobile-nav-label">Details</span>
+        </button>
+        <button class="mobile-nav-btn active" data-href="../test/">
+          <div class="nav-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+          </div>
+          <span class="mobile-nav-label">Motor Test</span>
+        </button>
+      </div>
+    </nav>
+  </div>
+  <script src="../script.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>

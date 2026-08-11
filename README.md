@@ -14,7 +14,7 @@ Digital twin dashboard for a 4-wheeled rover with sensor-based motor health moni
 
 | Layer | Tech | Location |
 |-------|------|----------|
-| Firmware | Arduino (ESP32-WROOM) | `firmware/esp32/` |
+| Firmware | Arduino (ESP32-WROOM-32) | `firmware/ESP32-WROOM-32/` |
 | Backend | FastAPI + Paho MQTT | `backend/` |
 | Dashboard | Vanilla HTML/CSS/JS | `dashboard/` |
 
@@ -46,14 +46,16 @@ Before starting, make sure you have:
 | 1 (FL) | GPIO 34 | 0x41 | L298N #1 A (ENA=13, IN1=15, IN2=14) |
 | 2 (FR) | GPIO 35 | 0x44 | L298N #1 B (ENB=18, IN3=19, IN4=23) |
 | 3 (RL) | GPIO 36 | 0x45 | L298N #2 A (ENA=32, IN1=33, IN2=27) |
-| 4 (RR) | GPIO 39 | 0x40 | L298N #2 B (ENB=16, IN3=17, IN4=25) |
+| 4 (RR) | GPIO 39 | 0x40 | L298N #2 B (ENB=25, IN3=17, IN4=16) |
 
 - **DS18B20** all four probes share **GPIO 4** (OneWire bus, 4.7kΩ pull-up)
 - Motor PWM channel speed is 8-bit (0-255), 1kHz
 - SW-420 uses input-only GPIOs 34/35/36/39
 
-**IMPORTANT:** GPIO 6-11 are connected to internal SPI flash on ESP32-WROOM
-and CANNOT be used as regular I/O. They are NOT used here. GPIO 1/3 are UART0.
+**IMPORTANT (ESP32-WROOM-32 only):** GPIO 6-11 are connected to internal SPI
+flash and CANNOT be used as regular I/O. They are NOT used here. GPIO 1/3 are
+UART0. Other boards (added as sibling `firmware/<board>/` folders) may expose
+different GPIOs — check that board's pinout before reusing this pin map.
 
 ### I2C Bus (INA219 — all 4 share this)
 
@@ -151,7 +153,7 @@ Manage Libraries…**:
 > `OneWire.h` includes; copying just the header causes a
 > `fatal error: util/OneWire_direct_regtype.h: No such file or directory`.
 
-Open `firmware/esp32/config.h` and edit these lines:
+Open `firmware/ESP32-WROOM-32/config.h` and edit these lines:
 
 ```c
 // WiFi — set your home/network WiFi
@@ -163,7 +165,7 @@ Open `firmware/esp32/config.h` and edit these lines:
 ```
 
 Save the file, then in Arduino IDE:
-1. File → Open → select `firmware/esp32/rover_dashboard.ino`
+1. File → Open → select `firmware/ESP32-WROOM-32/rover_dashboard.ino`
 2. Tools → Board → ESP32 Dev Module
 3. Select the correct COM port
 4. Click Upload
@@ -258,7 +260,7 @@ During calibration, motor data includes `"calib":1` to flag recordings.
 ## File Structure
 
 ```
-firmware/esp32/
+firmware/ESP32-WROOM-32/
   config.h            — WiFi, MQTT, pin assignments
   mqtt_comms.h        — MQTT communication (publish, subscribe, callbacks)
   sensors.h           — DS18B20, INA219, SW-420 sensor abstraction

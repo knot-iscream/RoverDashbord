@@ -18,6 +18,17 @@ def _day_path(day):
     return os.path.join(HISTORY_DIR, f"history_{day}.jsonl")
 
 
+def _num(value, default=0.0):
+    """Coerce a JSON value (may be None/NaN from ESP32) into a float."""
+    try:
+        v = float(value)
+        if v != v:   # NaN
+            return default
+        return v
+    except (TypeError, ValueError):
+        return default
+
+
 class HistoryStore:
     def __init__(self, history_dir=None):
         self.history_dir = history_dir or HISTORY_DIR
@@ -35,10 +46,10 @@ class HistoryStore:
                 "iso": datetime.fromtimestamp(now).strftime("%Y-%m-%d %H:%M:%S"),
                 "motor": data.get("motor", data.get("id", 0)),
                 "speed": int(data.get("speed", 0) or 0),
-                "temp": data.get("temp", data.get("temperature", 0.0)),
-                "voltage": data.get("voltage", 0.0),
-                "current": data.get("current", 0.0),
-                "vibration": data.get("vibration", 0),
+                "temp": _num(data.get("temp", data.get("temperature"))),
+                "voltage": _num(data.get("voltage")),
+                "current": _num(data.get("current")),
+                "vibration": 1 if data.get("vibration") else 0,
             }
             with self._lock:
                 with open(_day_path(_day_str(now)), "a") as f:
@@ -93,9 +104,9 @@ class HistoryStore:
             else:
                 direction = "IDLE"
 
-            temp = float(r.get("temp", 0.0))
-            voltage = float(r.get("voltage", 0.0))
-            current = float(r.get("current", 0.0))
+            temp = _num(r.get("temp"))
+            voltage = _num(r.get("voltage"))
+            current = _num(r.get("current"))
             vib = int(r.get("vibration", 0) or 0)
 
             new_seg = (

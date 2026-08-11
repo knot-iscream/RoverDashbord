@@ -139,18 +139,22 @@ class MQTTManager {
       mqtt_client.publish(MQTT_MOTOR_STATUS_TOPIC, buffer, n);
     }
 
-    void publishMotorData(int motor_id, bool vibration,
+    void publishMotorData(int motor_id, bool vibration, bool vibration_valid,
                           float voltage, float current,
-                          float temperature, int motor_speed = 0) {
+                          float temperature, bool ina_ok, bool temp_valid,
+                          int motor_speed = 0) {
       unsigned long now = millis();
       if (now - last_publish < 250) return;
       last_publish = now;
 
       if (!mqtt_client.connected()) return;
 
-      StaticJsonDocument<192> doc;
+      StaticJsonDocument<256> doc;
       doc["motor"] = motor_id;
       doc["vibration"] = vibration ? 1 : 0;
+      doc["vib_valid"] = vibration_valid ? 1 : 0;
+      doc["ina_ok"] = ina_ok ? 1 : 0;
+      doc["temp_valid"] = temp_valid ? 1 : 0;
       doc["voltage"] = voltage;
       doc["current"] = current;
       doc["temp"] = temperature;
@@ -159,7 +163,7 @@ class MQTTManager {
       char topic[32];
       snprintf(topic, sizeof(topic), "%s/%d", topic_prefix, motor_id);
 
-      char buffer[192];
+      char buffer[256];
       size_t n = serializeJson(doc, buffer);
 
       if (mqtt_client.publish(topic, buffer, n)) {
