@@ -2,6 +2,7 @@ import json
 import asyncio
 import os
 import time
+import uuid
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -23,6 +24,7 @@ app.add_middleware(
 data_handler = DataHandler()
 history_store = HistoryStore()
 connected_clients = set()
+connected_client_ids = {}  # websocket -> client_id
 motor_status = {}
 
 # Device (ESP32) presence — driven by the firmware's ~2s heartbeat on
@@ -42,15 +44,39 @@ main_loop = None
 # Calibration manager
 cal_manager = CalibrationManager()
 
+# ===== User presence broadcast ─────────────────────────────────
+
+async def broadcast_user_presence():
+    """Broadcast current user count to all clients."""
+    count = len(connected_clients)
+    await broadcast({
+        "type": "user_presence",
+        "users_online": count,
+        "timestamp": time.time(),
+    })
+
 
 # ===== WebSocket endpoint for dashboard browsers =====
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    client_id = str(uuid.uuid4())[:8]
     connected_clients.add(websocket)
-    print(f"[WS] Client connected. Total: {len(connected_clients)}")
+    connected_client_ids[websocket] = client_id
+    
+    user_count = len(connected_clients)
+    print(f"[WS] Client {client_id} connected. Total: {user_count}")
+    
     try:
+        # Notify ALL clients that a new user has joined
+        await broadcast({
+            "type": "user_joined",
+            "client_id": client_id,
+            "users_online": user_count,
+            "timestamp": time.time(),
+        })
+        
         # Send latest data snapshot on connect
         snapshot = data_handler.get_latest()
         if snapshot:
@@ -79,7 +105,17 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"[WS] Error: {e}")
     finally:
         connected_clients.discard(websocket)
-        print(f"[WS] Client disconnected. Total: {len(connected_clients)}")
+        disconnected_id = connected_client_ids.pop(websocket, client_id)
+        remaining = len(connected_clients)
+        print(f"[WS] Client {disconnected_id} disconnected. Total: {remaining}")
+        
+        # Notify remaining clients that user left
+        asyncio.create_task(broadcast({
+            "type": "user_left",
+            "client_id": disconnected_id,
+            "users_online": remaining,
+            "timestamp": time.time(),
+        }))
 
 
 # ===== Broadcast helpers =====
@@ -247,6 +283,12 @@ async def api_motor_control(cmd: dict):
             "motor": int(motor),
             "speed": speed,
         })
+        # Broadcast to all connected clients so they see motor state change
+        asyncio.create_task(broadcast({
+            "type": "motor_control",
+            "motor": int(motor),
+            "speed": speed,
+        }))
         return {"status": "ok", "motor": motor, "speed": speed, "sent": True}
 
     return {"status": "error", "detail": "MQTT not connected", "sent": False},
@@ -312,6 +354,28 @@ async def api_history_days():
 @app.get("/api/history/segments")
 async def api_history_segments(day: str):
     return {"day": day, "segments": history_store.segments(day)}
+
+
+# ── Calibration records (universal to all clients) ──
+
+@app.get("/api/records/days")
+async def api_records_days():
+    """Return list of days with available calibration/recording history."""
+    return {"days": history_store.days()}
+
+
+@app.get("/api/records/{day}")
+async def api_records_by_day(day: str):
+    """Return all motor samples recorded on a given day (for universal replay)."""
+    samples = history_store._read_day(day)
+    if not samples:
+        return {"day": day, "samples": [], "count": 0}
+    return {
+        "day": day,
+        "samples": samples,
+        "count": len(samples),
+        "motors_recorded": list(set(s.get("motor", 0) for s in samples if s.get("motor")))
+    }
 
 
 # ===== Startup =====

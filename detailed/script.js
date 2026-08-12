@@ -257,6 +257,9 @@
         var msg = JSON.parse(e.data);
         if (msg.type === 'motor_update') {
           applySample(msg);
+        } else if (msg.type === 'user_joined' || msg.type === 'user_left' || msg.type === 'user_presence') {
+          // Pass user presence messages through to global script.js
+          // (handled by window.dashboardWS which is the same connection)
         } else if (msg.type === 'snapshot') {
           // Cached history replay — intentionally ignored. Only fresh
           // motor_update packets (real hardware samples) drive this page,

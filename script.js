@@ -139,6 +139,135 @@
   });
   updateIndicator();
 
+  // ===== User Presence Badge & Notifications ═════════════════════════════
+  
+  var userPresenceBadge = null;
+  var userBusyModal = null;
+  var userCount = 1;  // Start with 1 (self)
+  
+  function createUserPresenceBadge() {
+    if (userPresenceBadge) return userPresenceBadge;
+    
+    var badge = document.createElement('div');
+    badge.className = 'user-presence-badge users-1';
+    badge.innerHTML = '<div class="user-presence-dot"></div><span>1 user</span>';
+    document.body.appendChild(badge);
+    return badge;
+  }
+  
+  function createUserBusyModal() {
+    if (userBusyModal) return userBusyModal;
+    
+    var modal = document.createElement('div');
+    modal.className = 'user-busy-modal';
+    modal.innerHTML = `
+      <div class="user-busy-card">
+        <div class="user-busy-header">
+          <div class="user-busy-icon">⚙</div>
+          <div class="user-busy-title">Dashboard in Use</div>
+        </div>
+        <div class="user-busy-message">
+          Another user is currently viewing the dashboard. Your changes will be synchronized in real-time. You can continue browsing, or wait for them to disconnect.
+        </div>
+        <div class="user-busy-actions">
+          <button class="user-busy-btn user-busy-btn-cancel" onclick="window.location.href='/'">Return Home</button>
+          <button class="user-busy-btn user-busy-btn-wait" onclick="this.closest('.user-busy-modal').classList.remove('show')">Continue</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    return modal;
+  }
+  
+  function createNotificationToast(message, type) {
+    var toast = document.createElement('div');
+    toast.className = 'notification-toast ' + type;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    
+    setTimeout(function() {
+      toast.style.opacity = '0';
+      toast.style.transition = 'opacity 0.3s ease';
+      setTimeout(function() { toast.remove(); }, 300);
+    }, 3000);
+  }
+  
+  function updateUserPresenceBadge(count) {
+    userCount = count;
+    var badge = userPresenceBadge || createUserPresenceBadge();
+    var countText = count + ' user' + (count !== 1 ? 's' : '');
+    badge.innerHTML = '<div class="user-presence-dot"></div><span>' + countText + '</span>';
+    
+    badge.className = 'user-presence-badge';
+    if (count === 1) badge.classList.add('users-1');
+    else if (count === 2) badge.classList.add('users-2');
+    else badge.classList.add('users-2plus');
+  }
+  
+  // Hook into global WebSocket for user presence
+  if (typeof window.userPresenceInit === 'undefined') {
+    window.userPresenceInit = true;
+    
+    // Wait for page WS to initialize, then hook into messages
+    var presenceCheckInterval = setInterval(function() {
+      // Try to find existing WS from calibration or app.js
+      if (window.dashboardWS && window.dashboardWS.readyState === WebSocket.OPEN) {
+        clearInterval(presenceCheckInterval);
+        createUserPresenceBadge();
+      }
+    }, 100);
+    
+    // Also connect our own WS for user presence if pages don't have one
+    if (!window.dashboardWS) {
+      var wsUrl = (window.location.protocol === 'https:' ? 'wss:' : 'ws:') + 
+                  '//' + window.location.hostname + ':8000/ws';
+      try {
+        var presenceWS = new WebSocket(wsUrl);
+        window.dashboardWS = presenceWS;
+        
+        presenceWS.onopen = function() {
+          console.log('[User Presence] Connected');
+          createUserPresenceBadge();
+        };
+        
+        presenceWS.onmessage = function(e) {
+          try {
+            var msg = JSON.parse(e.data);
+            
+            if (msg.type === 'user_joined') {
+              updateUserPresenceBadge(msg.users_online);
+              if (msg.users_online > 1) {
+                createNotificationToast('User joined the dashboard', 'joined');
+                // Show busy modal if this is the new user
+                var modal = createUserBusyModal();
+                modal.classList.add('show');
+              }
+            } else if (msg.type === 'user_left') {
+              updateUserPresenceBadge(msg.users_online);
+              if (msg.users_online >= 1) {
+                createNotificationToast('User left the dashboard', 'left');
+              }
+            } else if (msg.type === 'user_presence') {
+              updateUserPresenceBadge(msg.users_online);
+            }
+          } catch (e) {
+            console.error('[User Presence] Message error:', e);
+          }
+        };
+        
+        presenceWS.onerror = function(err) {
+          console.error('[User Presence] Error:', err);
+        };
+        
+        presenceWS.onclose = function() {
+          console.log('[User Presence] Disconnected');
+        };
+      } catch (e) {
+        console.error('[User Presence] Connection error:', e);
+      }
+    }
+  }
+
   // ===== Mobile bottom nav active =====
   var mobileBtns = document.querySelectorAll('.mobile-nav-btn');
   mobileBtns.forEach(function(btn) {

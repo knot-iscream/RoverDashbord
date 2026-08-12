@@ -242,6 +242,67 @@
   setInterval(pollDeviceStatus, 3000);
 
   updateHUD();
-  setInterval(simulateData, 600);
+  // WebSocket connection for real-time data from backend
+  var ws = null;
+  var wsUrl = (window.location.protocol === 'https:' ? 'wss:' : 'ws:') + 
+              '//' + window.location.hostname + ':8000/ws';
+  var apiBase = (window.location.protocol === 'https:' ? 'https:' : 'http:') + 
+                '//' + window.location.hostname + ':8000';
+  
+  function connectWebSocket() {
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.onopen = function() {
+        console.log('[HUD] WebSocket connected to ' + wsUrl);
+        ws.send('ping');
+      };
+      ws.onmessage = function(e) {
+        try {
+          var msg = JSON.parse(e.data);
+          if (msg.type === 'motor_update') {
+            var mId = msg.motor;
+            if (mId >= 1 && mId <= 4) {
+              var motor = motors[mId - 1];
+              if (motor) {
+                if (msg.temp_valid && typeof msg.temp === 'number') motor.temp = msg.temp;
+                if (msg.ina_ok && typeof msg.voltage === 'number') motor.voltage = msg.voltage;
+                if (msg.ina_ok && typeof msg.current === 'number') motor.current = msg.current;
+                if (typeof msg.vibration === 'number') motor.vibration = msg.vibration;
+                if (typeof msg.health === 'number') motor.health = msg.health;
+                updateHUD();
+              }
+            }
+          } else if (msg.type === 'user_joined' || msg.type === 'user_left' || msg.type === 'user_presence') {
+            // Pass user presence messages through to global script.js
+            // (handled by window.dashboardWS which is the same connection)
+          } else if (msg.type === 'pong') {
+            // keepalive
+          }
+        } catch (e) {
+          console.error('[HUD] Message parse error:', e);
+        }
+      };
+      ws.onerror = function(err) {
+        console.error('[HUD] WebSocket error:', err);
+      };
+      ws.onclose = function() {
+        console.log('[HUD] WebSocket closed, reconnecting in 3s');
+        setTimeout(connectWebSocket, 3000);
+      };
+    } catch (e) {
+      console.error('[HUD] WebSocket connection error:', e);
+      setTimeout(connectWebSocket, 3000);
+    }
+  }
+  
+  // Connect to WebSocket for real data
+  connectWebSocket();
+  
+  // Fallback: simulate data if no real connection (for testing)
+  var simTimer = setInterval(function() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      simulateData();
+    }
+  }, 600);
 
 })();

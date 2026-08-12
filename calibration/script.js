@@ -113,6 +113,15 @@
       if (calState === 'sweep' || calState === 'warmup') {
         queueMotorRender();
       }
+    } else if (msg.type === 'motor_control') {
+      // Motor control command from any client (broadcast from backend)
+      // Update motor speed so all clients see which motors are running
+      if (msg.motor > 0 && msg.motor <= 4) {
+        motorSpeeds[msg.motor - 1] = msg.speed;
+      }
+    } else if (msg.type === 'user_joined' || msg.type === 'user_left' || msg.type === 'user_presence') {
+      // Pass user presence messages through to global script.js
+      // (handled by window.dashboardWS which is the same connection)
     } else if (msg.type === 'snapshot') {
       // Cached history replay — deliberately ignored for display. Only live
       // motor_update packets (real hardware samples) drive the cards, so an
