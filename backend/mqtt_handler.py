@@ -13,17 +13,28 @@ class MQTTClient:
         self.client = mqtt.Client()
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
+        self.client.on_disconnect = self._on_disconnect
         self.running = False
+        self.connected = False  # Track actual connection status
 
     def _on_connect(self, client, userdata, flags, rc):
         print(f"[MQTT] Connected to broker at {self.broker}:{self.port} "
               f"(rc={rc})")
         if rc == 0:
+            self.connected = True
             for topic in self.topics:
                 self.client.subscribe(topic)
                 print(f"[MQTT] Subscribed to {topic}")
         else:
+            self.connected = False
             print(f"[MQTT] Connection failed with rc={rc}")
+
+    def _on_disconnect(self, client, userdata, rc):
+        self.connected = False
+        if rc != 0:
+            print(f"[MQTT] Unexpected disconnection (rc={rc})")
+        else:
+            print("[MQTT] Disconnected cleanly")
 
     def _on_message(self, client, userdata, msg):
         try:

@@ -278,7 +278,7 @@ async def api_motor_control(cmd: dict):
     # Clamp to [-255, 255]
     speed = max(-255, min(255, int(speed)))
 
-    if mqtt_client_instance:
+    if mqtt_client_instance and mqtt_client_instance.connected:
         mqtt_client_instance.publish("rover/motor/command", {
             "motor": int(motor),
             "speed": speed,
@@ -291,7 +291,7 @@ async def api_motor_control(cmd: dict):
         }))
         return {"status": "ok", "motor": motor, "speed": speed, "sent": True}
 
-    return {"status": "error", "detail": "MQTT not connected", "sent": False},
+    return {"status": "error", "detail": "MQTT not connected", "mqtt_instance": bool(mqtt_client_instance), "mqtt_connected": mqtt_client_instance.connected if mqtt_client_instance else False, "sent": False}
 
 
 @app.get("/api/motor/status")

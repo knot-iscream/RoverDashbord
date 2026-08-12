@@ -360,8 +360,31 @@
 
   function sendMotorCommand(motor, speed) {
     var xhr = new XMLHttpRequest();
-    xhr.open('POST', API_BASE + '/api/motor/control', true);
+    var url = API_BASE + '/api/motor/control';
+    
+    xhr.onload = function() {
+      try {
+        var resp = JSON.parse(xhr.responseText);
+        console.log('[Motor] Response:', resp);
+        if (!resp.sent) {
+          console.error('[Motor] Command failed:', resp.detail || 'Unknown error');
+        }
+      } catch (e) {
+        console.error('[Motor] Invalid response:', xhr.responseText);
+      }
+    };
+    
+    xhr.onerror = function() {
+      console.error('[Motor] Request failed to:', url, '(Status:', xhr.status, ')');
+    };
+    
+    xhr.onabort = function() {
+      console.warn('[Motor] Request aborted');
+    };
+    
+    xhr.open('POST', url, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
+    console.log('[Motor] Sending command:', { motor, speed, url });
     xhr.send(JSON.stringify({ motor: motor, speed: speed }));
   }
 
