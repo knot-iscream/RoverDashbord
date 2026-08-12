@@ -1,8 +1,11 @@
 (function() {
   'use strict';
 
-  var WS_URL = 'ws://localhost:8000/ws';
-  var DETAIL_API = 'http://localhost:8000';
+  // Auto-detect backend server from page location (fixes multi-PC access)
+  var WS_URL = (window.location.protocol === 'https:' ? 'wss:' : 'ws:') + 
+               '//' + window.location.hostname + ':8000/ws';
+  var DETAIL_API = (window.location.protocol === 'https:' ? 'https:' : 'http:') + 
+                   '//' + window.location.hostname + ':8000';
   var maxPoints = 60;
   var currentMotor = 1;
 

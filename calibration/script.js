@@ -2,8 +2,11 @@
   'use strict';
 
   // ── Config ────────────────────────────────────────────
-  var WS_URL = 'ws://localhost:8000/ws';
-  var API_BASE = 'http://localhost:8000';
+  // Auto-detect backend server from page location (fixes multi-PC access)
+  var WS_URL = (window.location.protocol === 'https:' ? 'wss:' : 'ws:') + 
+               '//' + window.location.hostname + ':8000/ws';
+  var API_BASE = (window.location.protocol === 'https:' ? 'https:' : 'http:') + 
+                 '//' + window.location.hostname + ':8000';
   var MOTOR_NAMES = ['FL', 'FR', 'RL', 'RR'];
 
   // ── State ─────────────────────────────────────────────
