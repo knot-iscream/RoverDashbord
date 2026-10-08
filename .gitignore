@@ -1,0 +1,25 @@
+# Rust build output (any level: backend + wasm crates)
+/target/
+target/
+
+# Trunk bundle (generated) - rebuild with: trunk build
+web/dist/
+
+# Local session workflow (per AGENTS.md) - never commit
+/backups/
+HANDOFF.md
+LOG.md
+SESSION.md
+
+# Runtime state - created on boot / via the Setup page
+rover_config.json
+calibration_baseline.json
+history/
+history_export_*.xlsx
+Rover.log
+Rover-opener.log
+*.log
+
+# Editor / OS
+.vscode/
+Desktop.ini
