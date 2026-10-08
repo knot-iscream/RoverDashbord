@@ -1,0 +1,105 @@
+{
+    "attachments": [
+        {
+            "data_filename": "1283131.png",
+            "original_filename": "Screenshot454.png",
+            "thumb_filename": "thumbs\/1283131.jpg"
+        },
+        {
+            "data_filename": "1283132.png",
+            "original_filename": "Screenshot472.png",
+            "thumb_filename": "thumbs\/1283132.jpg"
+        },
+        {
+            "data_filename": "1285456.png",
+            "original_filename": "Screenshot559.png",
+            "thumb_filename": "thumbs\/1285456.jpg"
+        }
+    ],
+    "resource_id": 36692,
+    "current_version_id": 69646,
+    "download_count": 0,
+    "resource_version_id": 70022,
+    "version_string": "3.2",
+    "last_update": 1781608822,
+    "rating_avg": 4.92857,
+    "rating_count": 0,
+    "rating_sum": 0,
+    "resource_category_id": 10,
+    "resource_date": 1766144555,
+    "review_count": 14,
+    "tag_line": "A better version of BeamNG\u2019s vehicle damage app",
+    "update_count": 18,
+    "path": "MHAUGSXT5\/69646\/",
+    "filename": "ImprovedVehicleDamageApp.zip",
+    "title": "Improved Vehicle Damage App",
+    "user_id": 394617,
+    "username": "SpaceGood",
+    "tagid": "MHAUGSXT5",
+    "message": "[CENTER][SIZE=7][COLOR=#ff8000][B]Improved Vehicle Damage App[\/B][\/COLOR][\/SIZE][\/CENTER]\n\n[CENTER][SIZE=4]This mod completely revamps BeamNG's Vehicle Damage App[\/SIZE][\/CENTER]\n\n[CENTER]The current damage indicator has always bugged me ever since its revamp in 0.11. There has always been several issues with it and honestly, it has received more bugs than fixes over time with the newer damage types. Since the damage app has been part of the default UI for almost 10 years, I decided to fix it myself. This mod started off with a few simple fixes, which then turned into a much bigger project including many new features and changes.\nEnjoy!\n\n[B][ATTACH]1291765[\/ATTACH] [ATTACH]1287277[\/ATTACH] [ATTACH]1287278[\/ATTACH]\n[ATTACH]1283132[\/ATTACH] [ATTACH]1283131[\/ATTACH] [ATTACH]1285456[\/ATTACH]\n\n[MEDIA=streamable]78lcb4[\/MEDIA]\n[HR][\/HR][\/B][\/CENTER]\n[B][COLOR=#ff8000][SIZE=5]Main Features and Improvements:[\/SIZE][\/COLOR][\/B]\n[LIST]\n[*]Updated damage message visual appearance and made the text fit properly\n[*]Adjusted and repositioned several icons to be much more even\n[*]Added a separate green version of the app, based on the old legacy version\n[*]Added the ability to click on the damaged icons to refresh the app and re-display any messages\n[*]Added priority tracking so once an icon turns red, any subsequent damage will never turn the icon orange\n[*]Overhauled temporary damage by making it never overwrite any previous damage, along with many more improvements\n[*]Included several new damage messages and vehicle specific damage messages\n[*]Changed several outdated damage messages\n[*]Many bug fixes and quality of life improvements\n[\/LIST]\nRead the update changelog tab for a detailed list of changes.\n\n[B][COLOR=#0080ff][SIZE=4]How to use:[\/SIZE][\/COLOR][\/B]\nGo to UI apps (Shift + Alt + U)\nClick add app\nEither find or search for \"Improved Vehicle Damage App\" and add it to your screen\nClick any damaged icons to refresh the app\n[LEFT][B]\n[COLOR=#0080ff][SIZE=4]Notes: [\/SIZE][\/COLOR][\/B]\n- Do not expect this to look drastically different from the current UI. There are a lot of minor changes and improvements underneath in the code. This is my first mod and it's still [B][COLOR=rgb(255, 0, 0)]WIP.[\/COLOR][\/B]\n- Translations for messages are currently removed for the time being due to using custom messages. (Will be added back if I can figure out how to implement them)\n- Any feedback or suggestions are welcome.\n\n[B][COLOR=#0080ff][SIZE=4]Credits:[\/SIZE][\/COLOR][\/B]\nBeamNG - For the original code[\/LEFT]\nMe - For everything else\n[B]\n[SIZE=4][COLOR=#ff0000]Troubleshooting:[\/COLOR][\/SIZE][\/B]\nDelete the old version of the mod when updating the mod manually.\nIf you get a fatal lua error or the ui apps don't show up, then deactivate and re-enable the mod, or clear the cache, and it will fix it.\n\n[SIZE=4][COLOR=#ff0000][B]Known Issues:[\/B][\/COLOR][\/SIZE]\nSwitching between vehicles sometimes doesn't display the current damage on that vehicle.",
+    "category_title": "",
+    "prefix_title": "",
+    "via": "packed by repo on Fri, 03 Jul 2026 02:19:33 GMT",
+    "hashes": [
+        [
+            "lua\/vehicle\/extensions\/auto\/tirePunctureTracker.lua",
+            "742d631f46550a28"
+        ],
+        [
+            "lua\/vehicle\/extensions\/auto\/lowFuelTracker.lua",
+            "5dd8eb3927806b7f"
+        ],
+        [
+            "lua\/vehicle\/extensions\/auto\/clutchDamageTracker.lua",
+            "a0e3db6aed3f5093"
+        ],
+        [
+            "lua\/vehicle\/extensions\/auto\/combustionEngineThermalsTracker.lua",
+            "cc4e966774f9d9a2"
+        ],
+        [
+            "lua\/ge\/extensions\/ui\/vehiclePartsInfo.lua",
+            "78348ac3cad87460"
+        ],
+        [
+            "ui\/modules\/apps\/improvedVehicleDamageAppGreen\/app.js",
+            "45cf9caa8a213f5b"
+        ],
+        [
+            "ui\/modules\/apps\/improvedVehicleDamageAppGreen\/app.png",
+            "e65969089ff63e7a"
+        ],
+        [
+            "ui\/modules\/apps\/improvedVehicleDamageAppGreen\/fuelPump.svg",
+            "90e180d45e6b6b47"
+        ],
+        [
+            "ui\/modules\/apps\/improvedVehicleDamageAppGreen\/app.json",
+            "a2d545120d762ad9"
+        ],
+        [
+            "ui\/modules\/apps\/improvedVehicleDamageAppGreen\/damage_car.svg",
+            "6e07619d1fdd1d2e"
+        ],
+        [
+            "ui\/modules\/apps\/improvedVehicleDamageApp\/app.js",
+            "fde2602d6e5e414f"
+        ],
+        [
+            "ui\/modules\/apps\/improvedVehicleDamageApp\/app.png",
+            "2ffeb3d7c744ba60"
+        ],
+        [
+            "ui\/modules\/apps\/improvedVehicleDamageApp\/fuelPump.svg",
+            "90e180d45e6b6b47"
+        ],
+        [
+            "ui\/modules\/apps\/improvedVehicleDamageApp\/app.json",
+            "758375fa6c7f31dd"
+        ],
+        [
+            "ui\/modules\/apps\/improvedVehicleDamageApp\/damage_car.svg",
+            "6e07619d1fdd1d2e"
+        ]
+    ]
+}

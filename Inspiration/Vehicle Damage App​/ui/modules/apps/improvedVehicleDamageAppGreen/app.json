@@ -1,0 +1,14 @@
+{
+  "name" : "Improved Vehicle Damage App (Green)",
+  "author": "SpaceGood",
+  "version": "3.2",
+  "description": "Improved, legacy version of the vehicle damage app",
+  "directive": "improvedVehicleDamageAppGreen",
+  "category": "Dashboard",
+  "isAuxiliary": false,
+  "interactive": "yes",
+  "types": [ "ui.apps.categories.vehicle_info" ],
+  "domElement": "<improved-vehicle-damage-app-green></improved-vehicle-damage-app-green>",
+  "css": { "width": "180px", "min-width": "45px", "height": "320px", "min-height": "80px","top": "0px", "left": "0px" },
+  "preserveAspectRatio": true
+}

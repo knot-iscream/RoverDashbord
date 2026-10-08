@@ -20,6 +20,10 @@ Rover.log
 Rover-opener.log
 *.log
 
+# Local assistant config - works locally, never published
+.opencode/
+opencode.json
+
 # Editor / OS
 .vscode/
 Desktop.ini

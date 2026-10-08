@@ -38,7 +38,10 @@ remembers it by itself.
   are served untouched (Phase A). Opt-in Leptos rebuild lives behind
   `?ui=next` per page (Phase B) — build it with `trunk build` (install
   [trunk](https://trunkrs.dev/) once).
-- ESP32 firmware stays C++ and is out of scope here; its MQTT contract
-  (topics, payloads, timing) is the source of truth both sides follow.
+- ESP32 firmware (C++) lives in `firmware/ESP32-WROOM-32/` — flash it from the
+  Arduino IDE (WiFi code stays placeholder; the rover learns real credentials
+  via its phone portal). Its MQTT contract (topics, payloads, timing) is the
+  source of truth both sides follow.
+- `Inspiration/` holds the design references the dashboard look is based on.
 - History samples append to day-sharded `history/history_YYYY-MM-DD.jsonl`;
   calibration baselines persist to `calibration_baseline.json`.
