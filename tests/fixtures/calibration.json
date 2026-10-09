@@ -1,0 +1,75 @@
+[
+ {
+  "case": "fresh_status",
+  "status": {
+   "cycle": 0,
+   "direction": 0,
+   "samples_collected": 0,
+   "speed_pct": 0,
+   "state": "idle",
+   "step_remaining_s": 0,
+   "warmup_pct": 0,
+   "warmup_remaining_s": 120
+  }
+ },
+ {
+  "case": "start_result",
+  "result": {
+   "state": "warmup",
+   "warmup_duration_s": 120
+  }
+ },
+ {
+  "case": "warming_status",
+  "status": {
+   "cycle": 0,
+   "direction": 0,
+   "samples_collected": 0,
+   "speed_pct": 0,
+   "state": "warmup",
+   "step_remaining_s": 0,
+   "warmup_pct": 0.0,
+   "warmup_remaining_s": 120.0
+  }
+ },
+ {
+  "case": "sweep_status",
+  "input": {
+   "cycle": 3,
+   "dir": 1,
+   "speed_pct": 57,
+   "state": "sweep",
+   "step_remaining_s": 45
+  },
+  "status": {
+   "cycle": 3,
+   "direction": 1,
+   "samples_collected": 0,
+   "speed_pct": 57,
+   "state": "sweep",
+   "step_remaining_s": 45,
+   "warmup_pct": 0,
+   "warmup_remaining_s": 120
+  }
+ },
+ {
+  "case": "idle_after_sweep",
+  "status": {
+   "cycle": 3,
+   "direction": 0,
+   "samples_collected": 0,
+   "speed_pct": 0,
+   "state": "idle",
+   "step_remaining_s": 45,
+   "warmup_pct": 0,
+   "warmup_remaining_s": 120
+  }
+ },
+ {
+  "case": "stop_result",
+  "result": {
+   "samples_collected": 2,
+   "state": "idle"
+  }
+ }
+]

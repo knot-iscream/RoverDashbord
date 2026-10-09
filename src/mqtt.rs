@@ -92,8 +92,13 @@ pub struct MqttSlot {
 /// paho `connect_async` + `reconnect_delay_set(1,30)`); every `ConnAck`
 /// re-subscribes like Python's `_on_connect`.
 pub async fn spawn_mqtt(ctx: Ctx, broker: &str, port: u16) -> MqttSlot {
-    let mut opts = MqttOptions::new("rover-backend-rust", broker, port);
-    opts.set_keep_alive(Duration::from_secs(60));
+    // Unique per process: two backends sharing one client id kick each other
+    // off the broker in a reconnect loop (paho's default is broker-assigned).
+    let client_id = format!("rover-backend-rust-{}", std::process::id());
+    let mut opts = MqttOptions::new(client_id, broker, port);
+    // 15s, not Python's 60s: narrows the window where /api/health can report
+    // a stale `mqtt_connected: true` after a silent TCP drop.
+    opts.set_keep_alive(Duration::from_secs(15));
     let (client, mut eventloop) = AsyncClient::new(opts, 16);
     let handle = MqttHandle {
         client: client.clone(),
@@ -145,6 +150,15 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
         }
     }
 
+    // Our own command echoes (`rover/motor/command` matches our own
+    // `rover/motor/#` subscription): stop here. Falling through would treat
+    // the echo as telemetry — overwriting the motor's live sample with
+    // sensor-less data and writing a junk history row. v1 had this defect;
+    // 2.0 deliberately diverges (documented in README).
+    if topic.ends_with("/command") {
+        return;
+    }
+
     // ── Calibration status from ESP32 ──
     if topic.starts_with("rover/calibration/status") {
         ctx.cal.write().await.handle_esp32_status(&data);
@@ -171,11 +185,7 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
     }
 
     // ── Motor telemetry ──
-    let running = data
-        .get("speed")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0)
-        != 0;
+    let running = crate::data::coerce_i64(data.get("speed")) != 0;
     let cal_state = ctx.cal.read().await.state.clone();
     let calibrating = cal_state == CalState::Warmup || cal_state == CalState::Sweep;
 
@@ -194,7 +204,11 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
         .cloned()
         .unwrap_or(json!(0));
     let ina_ok = py_bool(&data.get("ina_ok"));
-    let vib_valid = py_bool(&data.get("vibration_valid").or_else(|| data.get("vib_valid")));
+    let vib_valid = py_bool(
+        &data
+            .get("vibration_valid")
+            .or_else(|| data.get("vib_valid")),
+    );
     let temp_valid = py_bool(&data.get("temp_valid"));
 
     broadcast(
@@ -230,6 +244,8 @@ pub async fn calibration_payload(ctx: &Ctx) -> Value {
 }
 
 /// Bare status object for `GET /api/calibration/status` (no `type` key, like Python).
+/// Takes the write lock on purpose: `status()` auto-advances warmup→sweep,
+/// so a read lock would serve a stale state. Held for microseconds.
 pub async fn status_value(ctx: &Ctx) -> Value {
     let st = ctx.cal.write().await.status();
     serde_json::to_value(&st).unwrap_or(json!({}))
@@ -249,4 +265,3 @@ pub async fn monitor_device(ctx: Ctx) {
         }
     }
 }
-

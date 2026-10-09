@@ -56,7 +56,8 @@ pub struct StopResult {
 }
 
 fn round1(x: f64) -> f64 {
-    (x * 10.0).round() / 10.0
+    // Python `round(x, 1)` (banker's) in `get_status`, not half-away.
+    crate::data::py_round(x, 1)
 }
 
 fn coerce_i64(v: Option<&Value>, keep: i64) -> i64 {
@@ -70,6 +71,12 @@ fn coerce_i64(v: Option<&Value>, keep: i64) -> i64 {
         },
         Some(Value::Bool(b)) => i64::from(*b),
         _ => keep,
+    }
+}
+
+impl Default for CalibrationManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -91,8 +98,7 @@ impl CalibrationManager {
         self.state = CalState::Warmup;
         self.warmup_start = Some(Instant::now());
         self.samples = 0;
-        // NOTE: MQTT publish of rover/calibration/command {"action":"start"}
-        // is wired in Milestone 2 (needs the rumqttc client handle).
+        // Published by routes::calibration_start (needs the client handle).
         StartResult {
             state: CalState::Warmup,
             warmup_duration_s: 120,
@@ -105,7 +111,7 @@ impl CalibrationManager {
         self.speed_pct = 0;
         self.direction = 0;
         self.step_remaining_s = 0;
-        // NOTE: MQTT publish {"action":"stop"} wired in Milestone 2.
+        // Published by routes::calibration_stop (needs the client handle).
         StopResult {
             state: CalState::Idle,
             samples_collected: self.samples,
@@ -120,13 +126,15 @@ impl CalibrationManager {
     pub fn status(&mut self) -> CalStatus {
         let mut elapsed = 0.0;
         let mut warmup_pct = 0.0;
-        if self.state == CalState::Warmup && self.warmup_start.is_some() {
-            elapsed = self.warmup_start.unwrap().elapsed().as_secs_f64();
-            warmup_pct = (elapsed / WARMUP_S * 100.0).min(100.0);
-            warmup_pct = round1(warmup_pct);
-            if elapsed >= WARMUP_S {
-                self.state = CalState::Sweep;
-                warmup_pct = 100.0;
+        if self.state == CalState::Warmup {
+            if let Some(t0) = self.warmup_start {
+                elapsed = t0.elapsed().as_secs_f64();
+                warmup_pct = (elapsed / WARMUP_S * 100.0).min(100.0);
+                warmup_pct = round1(warmup_pct);
+                if elapsed >= WARMUP_S {
+                    self.state = CalState::Sweep;
+                    warmup_pct = 100.0;
+                }
             }
         }
         CalStatus {
@@ -152,21 +160,17 @@ impl CalibrationManager {
                     status.get("dir").or_else(|| status.get("direction")),
                     self.direction,
                 );
-                self.step_remaining_s = coerce_i64(
-                    status.get("step_remaining_s"),
-                    self.step_remaining_s,
-                );
+                self.step_remaining_s =
+                    coerce_i64(status.get("step_remaining_s"), self.step_remaining_s);
                 self.cycle = coerce_i64(status.get("cycle"), self.cycle);
             }
             "warmup" => {
                 self.state = CalState::Warmup;
             }
-            "idle" => {
-                if self.state != CalState::Idle {
-                    self.state = CalState::Idle;
-                    self.speed_pct = 0;
-                    self.direction = 0;
-                }
+            "idle" if self.state != CalState::Idle => {
+                self.state = CalState::Idle;
+                self.speed_pct = 0;
+                self.direction = 0;
             }
             _ => {}
         }

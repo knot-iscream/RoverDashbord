@@ -1,5 +1,0 @@
-# Trunk bundles frontend-wasm to web/dist, which Axum serves at /next/*.
-# Vanilla pages stay default; /next/* is only reachable via ?ui=next.
-[build]
-target = "index.html"
-dist = "../web/dist"

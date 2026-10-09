@@ -22,10 +22,11 @@ pub async fn ws_handler(ws: WebSocketUpgrade, State(s): State<AppState>) -> Resp
     ws.on_upgrade(move |socket| handle(socket, s))
 }
 
-async fn send(socket_split_tx: &mut futures_util::stream::SplitSink<WebSocket, Message>, v: &serde_json::Value) {
-    let _ = socket_split_tx
-        .send(Message::Text(v.to_string().into()))
-        .await;
+async fn send(
+    socket_split_tx: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    v: &serde_json::Value,
+) {
+    let _ = socket_split_tx.send(Message::Text(v.to_string())).await;
 }
 
 async fn handle(socket: WebSocket, s: AppState) {

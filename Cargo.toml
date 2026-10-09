@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "frontend-wasm"]
+members = ["."]
 # Backend stays the default so `cargo run` / `cargo test` keep working unchanged.
 default-members = ["."]
 
@@ -11,7 +11,7 @@ edition = "2021"
 [dependencies]
 axum = { version = "0.7", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
-tower-http = { version = "0.5", features = ["fs", "cors"] }
+tower-http = { version = "0.5", features = ["fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rumqttc = "0.24"
@@ -20,6 +20,16 @@ chrono = { version = "0.4", features = ["serde"] }
 rust_xlsxwriter = "0.64"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = "0.8"
+qrcode = { version = "0.14", features = ["svg"] }
 
 [dev-dependencies]
-approx = "0.5"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+quick-xml = "0.31"
+tower = { version = "0.5", features = ["util"] }
+tokio-tungstenite = "0.26"
+criterion = "0.5"
+
+[[bench]]
+name = "telemetry"
+harness = false

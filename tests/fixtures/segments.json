@@ -1,0 +1,182 @@
+[
+ {
+  "case": "real_day",
+  "day": "2026-10-08",
+  "input_rows": [
+   {
+    "current": 0.0,
+    "iso": "2026-10-08 22:14:55",
+    "motor": 4,
+    "speed": 255,
+    "temp": 0.0,
+    "ts": 1791476095.7346609,
+    "vibration": 0,
+    "voltage": 0.0
+   },
+   {
+    "current": 0.0,
+    "iso": "2026-10-08 22:14:55",
+    "motor": 4,
+    "speed": 255,
+    "temp": 0.0,
+    "ts": 1791476095.7849202,
+    "vibration": 0,
+    "voltage": 0.0
+   }
+  ],
+  "segments": [
+   {
+    "avg_current": 0.0,
+    "avg_temp": 0.0,
+    "avg_voltage": 0.0,
+    "direction": "FWD",
+    "duration_s": 0.1,
+    "max_temp": 0.0,
+    "motor": 4,
+    "samples": 2,
+    "speed": 255,
+    "speed_pct": 100,
+    "start_iso": "22:14:55",
+    "start_ts": 1791476095.73,
+    "vibration_count": 0
+   }
+  ]
+ },
+ {
+  "case": "synthetic",
+  "day": "synth",
+  "input_rows": [
+   {
+    "current": 0.5,
+    "motor": 1,
+    "speed": 128,
+    "temp": 40.0,
+    "ts": 100.0,
+    "vibration": 0,
+    "voltage": 12.0
+   },
+   {
+    "current": 0.5,
+    "motor": 1,
+    "speed": 128.0,
+    "temp": 41.0,
+    "ts": 101.0,
+    "vibration": 0,
+    "voltage": 12.0
+   },
+   {
+    "current": 0.5,
+    "motor": 1,
+    "speed": -128,
+    "temp": 42.0,
+    "ts": 102.0,
+    "vibration": 1,
+    "voltage": 12.0
+   },
+   {
+    "current": 0.5,
+    "motor": "1",
+    "speed": 64,
+    "temp": 43.0,
+    "ts": 103.0,
+    "vibration": 0,
+    "voltage": 12.0
+   },
+   {
+    "current": 0.5,
+    "motor": 2,
+    "speed": 64,
+    "temp": null,
+    "ts": 104.0,
+    "vibration": 0,
+    "voltage": 12.0
+   },
+   {
+    "current": 0.5,
+    "motor": 2,
+    "speed": 64,
+    "temp": 45.0,
+    "ts": 200.0,
+    "vibration": 0,
+    "voltage": 12.0
+   }
+  ],
+  "segments": [
+   {
+    "avg_current": 0.5,
+    "avg_temp": 40.5,
+    "avg_voltage": 12.0,
+    "direction": "FWD",
+    "duration_s": 1.0,
+    "max_temp": 41.0,
+    "motor": 1,
+    "samples": 2,
+    "speed": 128,
+    "speed_pct": 50,
+    "start_iso": "06:01:40",
+    "start_ts": 100.0,
+    "vibration_count": 0
+   },
+   {
+    "avg_current": 0.5,
+    "avg_temp": 42.0,
+    "avg_voltage": 12.0,
+    "direction": "REV",
+    "duration_s": 0.0,
+    "max_temp": 42.0,
+    "motor": 1,
+    "samples": 1,
+    "speed": -128,
+    "speed_pct": 50,
+    "start_iso": "06:01:42",
+    "start_ts": 102.0,
+    "vibration_count": 1
+   },
+   {
+    "avg_current": 0.5,
+    "avg_temp": 43.0,
+    "avg_voltage": 12.0,
+    "direction": "FWD",
+    "duration_s": 0.0,
+    "max_temp": 43.0,
+    "motor": "1",
+    "samples": 1,
+    "speed": 64,
+    "speed_pct": 25,
+    "start_iso": "06:01:43",
+    "start_ts": 103.0,
+    "vibration_count": 0
+   },
+   {
+    "avg_current": 0.5,
+    "avg_temp": 0.0,
+    "avg_voltage": 12.0,
+    "direction": "FWD",
+    "duration_s": 0.0,
+    "max_temp": 0.0,
+    "motor": 2,
+    "samples": 1,
+    "speed": 64,
+    "speed_pct": 25,
+    "start_iso": "06:01:44",
+    "start_ts": 104.0,
+    "vibration_count": 0
+   },
+   {
+    "avg_current": 0.5,
+    "avg_temp": 45.0,
+    "avg_voltage": 12.0,
+    "direction": "FWD",
+    "duration_s": 0.0,
+    "max_temp": 45.0,
+    "motor": 2,
+    "samples": 1,
+    "speed": 64,
+    "speed_pct": 25,
+    "start_iso": "06:03:20",
+    "start_ts": 200.0,
+    "vibration_count": 0
+   }
+  ]
+ }
+]

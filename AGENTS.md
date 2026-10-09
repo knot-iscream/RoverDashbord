@@ -19,6 +19,10 @@ convert [text](../DigitalTwinDashboard) to a rust based app.
 4. **When the user ends a session and asks to save it**, write the full session summary into `SESSION.md`. At that same moment, **verify/trim `HANDOFF.md` against the session**: move completed items into the SESSION md entry and keep only current, actionable next-steps.
 6. **Token efficiency** Save token usasge without sacrificing **performance**.
 7. **Unchanged translation** nothing (*features and functionality*) from the original version could vanish, it should be as 1:1 ratio translastion possible.
+8. **Avoid Ai-detection** dont spam unneccessary m-dash (—), ai language/phrasing (not this, that. 3 things again and again, etc) , emojis — like ai
+9. **Dont frezz** check every 3 min if you are stucked in a proccess or not.
+10. **User can be wrong** im a an ameture so i could be wrong in most instances so push back if you feels like.
+11. **Let user go AFK** at the beginning of the task when starting to complete to do list ask for all the permission at once so user can allow or reject and go take a break
 
 ## Project Overview
 

@@ -2,11 +2,11 @@
 /target/
 target/
 
-# Trunk bundle (generated) - rebuild with: trunk build
-web/dist/
-
 # Local session workflow (per AGENTS.md) - never commit
 /backups/
+
+# Local BOM / budget working files - never commit
+/BOM/
 HANDOFF.md
 LOG.md
 SESSION.md
@@ -15,7 +15,6 @@ SESSION.md
 rover_config.json
 calibration_baseline.json
 history/
-history_export_*.xlsx
 Rover.log
 Rover-opener.log
 *.log

@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const CALIBRATION_FILE: &str = "calibration_baseline.json";
@@ -44,7 +44,9 @@ pub struct MotorSample {
 
 #[derive(Debug, Clone, Default)]
 pub struct DataHandler {
-    pub latest: HashMap<u8, MotorSample>,
+    // BTreeMap, not HashMap: /api/motors + WS snapshot list motors sorted by
+    // id (Python dicts preserve insertion order; HashMap would randomize it).
+    pub latest: BTreeMap<u8, MotorSample>,
     /// Raw baseline dicts (full fidelity with `calibration_baseline.json`).
     pub baselines: HashMap<u8, Value>,
 }
@@ -77,6 +79,58 @@ pub fn raw_num(v: Option<&Value>) -> Option<f64> {
         Some(Value::String(s)) => s.parse::<f64>().ok().filter(|x| x.is_finite()),
         _ => None,
     }
+}
+
+/// Python `int(value or 0)` coercion for `speed`: floats truncate (128.0 → 128),
+/// numeric strings parse, missing/null/bool-ish → 0. `serde_json::as_i64`
+/// returns None for floats, so using it directly would silently read a float
+/// speed as 0 (dropped history, wrong IDLE direction) where Python records it.
+pub fn coerce_i64(v: Option<&Value>) -> i64 {
+    match v {
+        Some(Value::Number(n)) => n
+            .as_i64()
+            .or_else(|| n.as_f64().map(|f| f.trunc() as i64))
+            .unwrap_or(0),
+        Some(Value::String(s)) => s
+            .trim()
+            .parse::<f64>()
+            .map(|f| f.trunc() as i64)
+            .unwrap_or(0),
+        Some(Value::Bool(b)) => i64::from(*b),
+        _ => 0,
+    }
+}
+
+/// Python `round(x, n)` (round-half-to-even) for aggregated values.
+/// Rust `f64::round` is half-away-from-zero, which disagrees on exact ties
+/// (e.g. 96.25 → Python 96.2, Rust 96.3). Only exact float ties take the
+/// even branch; everything else rounds normally, matching Python on every
+/// value this codebase rounds (health, temps, timestamps).
+/// Known limit: the 2.675 class. Python rounds the exact binary expansion
+/// (`2.675` is really `2.67499999…`, so `round(2.675, 2) == 2.67`), while any
+/// float-scaled approach sees `2.675*100 == 267.5` exactly and returns 2.68.
+/// That needs a decimal within half-an-ulp of a tie point — unreachable from
+/// real sensor math — so the exact-tie check is the right tradeoff.
+pub fn py_round(x: f64, digits: u32) -> f64 {
+    if !x.is_finite() {
+        return x;
+    }
+    let m = 10f64.powi(digits as i32);
+    let s = x * m;
+    let f = s.fract();
+    let r = if f == 0.5 || f == -0.5 {
+        let t = s.trunc();
+        if t % 2.0 == 0.0 {
+            t
+        } else if s > 0.0 {
+            t + 1.0
+        } else {
+            t - 1.0
+        }
+    } else {
+        s.round()
+    };
+    r / m
 }
 
 /// Python `bool(value)` truthiness.
@@ -167,6 +221,9 @@ impl DataHandler {
 
     /// Pure health math (unit-testable). Penalty gates + message strings are
     /// verbatim from `data_handler.py`.
+    /// Eight params by design: the signature mirrors Python's sensor bundle
+    /// 1:1 so parity review stays mechanical.
+    #[allow(clippy::too_many_arguments)]
     pub fn health_of(
         temp: Option<f64>,
         voltage: Option<f64>,
@@ -218,7 +275,7 @@ impl DataHandler {
         }
         let clamped = score.clamp(0.0, 100.0);
         Health {
-            health: Some((clamped * 10.0).round() / 10.0),
+            health: Some(py_round(clamped, 1)),
             anomalies,
         }
     }
@@ -249,10 +306,20 @@ impl DataHandler {
     }
 
     pub fn save_calibration(&self) {
-        let map: HashMap<String, &Value> =
-            self.baselines.iter().map(|(k, v)| (k.to_string(), v)).collect();
-        if let Ok(text) = serde_json::to_string_pretty(&map) {
-            let _ = std::fs::write(CALIBRATION_FILE, text);
+        let map: HashMap<String, &Value> = self
+            .baselines
+            .iter()
+            .map(|(k, v)| (k.to_string(), v))
+            .collect();
+        let Ok(text) = serde_json::to_string_pretty(&map) else {
+            return;
+        };
+        // Temp file + rename: a crash mid-write must never truncate baselines.
+        let tmp = format!("{CALIBRATION_FILE}.tmp");
+        if let Err(e) =
+            std::fs::write(&tmp, text).and_then(|()| std::fs::rename(&tmp, CALIBRATION_FILE))
+        {
+            tracing::warn!("could not save {CALIBRATION_FILE}: {e}");
         }
     }
 }
@@ -381,7 +448,37 @@ mod tests {
         assert!(!s.ina_ok);
         assert_eq!(s.temp, Some(42.5));
         assert_eq!(s.voltage, None); // raw null preserved, not 0.0
-        // ina missing + temp invalid → only vibration valid → 100-5
+                                     // ina missing + temp invalid → only vibration valid → 100-5
         assert_eq!(health.health, Some(95.0));
+    }
+
+    #[test]
+    fn coerce_i64_matches_python_int_or_0() {
+        use serde_json::json;
+        assert_eq!(coerce_i64(Some(&json!(128))), 128);
+        assert_eq!(coerce_i64(Some(&json!(128.0))), 128); // float truncates, never 0
+        assert_eq!(coerce_i64(Some(&json!(128.9))), 128);
+        assert_eq!(coerce_i64(Some(&json!(-64.0))), -64);
+        assert_eq!(coerce_i64(Some(&json!("64"))), 64);
+        assert_eq!(coerce_i64(Some(&json!(true))), 1);
+        assert_eq!(coerce_i64(Some(&json!(null))), 0);
+        assert_eq!(coerce_i64(None), 0);
+        assert_eq!(coerce_i64(Some(&json!("abc"))), 0);
+    }
+
+    #[test]
+    fn py_round_matches_python_bankers() {
+        assert_eq!(py_round(96.25, 1), 96.2); // Rust round() gives 96.3 here
+        assert_eq!(py_round(97.75, 1), 97.8);
+        assert_eq!(py_round(2.5, 0), 2.0);
+        assert_eq!(py_round(3.5, 0), 4.0);
+        assert_eq!(py_round(-2.5, 0), -2.0);
+        assert_eq!(py_round(-3.5, 0), -4.0);
+        assert_eq!(py_round(0.125, 2), 0.12); // exact tie → even
+        assert_eq!(py_round(0.375, 2), 0.38); // exact tie → odd rounds up
+        assert_eq!(py_round(40.125, 2), 40.12);
+        assert_eq!(py_round(100.0, 1), 100.0);
+        // NOTE: py_round(2.675, 2) == 2.68 here, Python says 2.67 — the
+        // documented half-ulp limit (see py_round docs). Unreachable in practice.
     }
 }

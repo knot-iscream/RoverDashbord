@@ -6,6 +6,7 @@ use chrono::Local;
 use chrono::TimeZone;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 use crate::data::{coerce_num, py_bool};
@@ -45,6 +46,11 @@ pub struct Segment {
 
 pub struct HistoryStore {
     pub dir: PathBuf,
+    /// Open append handle for the current day. Previously every sample did a
+    /// full open/write/close (~16×/s on the async executor); now the handle
+    /// persists and rotates on day rollover. Flushed per sample, so durability
+    /// matches the old close-per-write behavior.
+    out: Option<(String, BufWriter<std::fs::File>)>,
 }
 
 fn day_str(ts: f64) -> String {
@@ -92,7 +98,7 @@ impl HistoryStore {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
         let dir = dir.into();
         let _ = std::fs::create_dir_all(&dir);
-        Self { dir }
+        Self { dir, out: None }
     }
 
     fn day_path(&self, day: &str) -> PathBuf {
@@ -101,7 +107,7 @@ impl HistoryStore {
 
     /// 1:1 with `add_sample`: append one motor sample to today's JSONL.
     /// Returns the written row (useful for tests).
-    pub fn add_sample(&self, data: &Value) -> Option<Sample> {
+    pub fn add_sample(&mut self, data: &Value) -> Option<Sample> {
         let now = now_secs();
         let row = Sample {
             ts: now,
@@ -111,47 +117,36 @@ impl HistoryStore {
                 .or_else(|| data.get("id"))
                 .cloned()
                 .unwrap_or(Value::from(0)),
-            speed: data
-                .get("speed")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0),
-            temp: coerce_num(
-                data.get("temp").or_else(|| data.get("temperature")),
-                0.0,
-            ),
+            speed: crate::data::coerce_i64(data.get("speed")),
+            temp: coerce_num(data.get("temp").or_else(|| data.get("temperature")), 0.0),
             voltage: coerce_num(data.get("voltage"), 0.0),
             current: coerce_num(data.get("current"), 0.0),
             vibration: u8::from(py_bool(data.get("vibration"))),
         };
         let line = serde_json::to_string(&row).ok()?;
-        let path = self.day_path(&day_str(now));
-        std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .and_then(|mut f| {
-                use std::io::Write as _;
-                writeln!(f, "{line}")
-            })
-            .ok()?;
+        let day = day_str(now);
+        let rotated = self.out.as_ref().is_none_or(|(d, _)| *d != day);
+        if rotated {
+            let path = self.day_path(&day);
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .ok()?;
+            self.out = Some((day, BufWriter::new(file)));
+        }
+        let (_, w) = self.out.as_mut()?;
+        {
+            use std::io::Write as _;
+            writeln!(w, "{line}").ok()?;
+            w.flush().ok()?;
+        }
         Some(row)
     }
 
     /// 1:1 with `days()`: day strings, newest first.
     pub fn days(&self) -> Vec<String> {
-        let Ok(entries) = std::fs::read_dir(&self.dir) else {
-            return vec![];
-        };
-        let mut out = vec![];
-        for e in entries.flatten() {
-            let name = e.file_name().to_string_lossy().into_owned();
-            if name.starts_with("history_") && name.ends_with(".jsonl") {
-                out.push(name["history_".len()..name.len() - ".jsonl".len()].to_string());
-            }
-        }
-        out.sort();
-        out.reverse();
-        out
+        day_list(&self.dir)
     }
 
     /// 1:1 with `_read_day`: parsed rows, skipping blank/corrupt lines.
@@ -164,6 +159,24 @@ impl HistoryStore {
     pub fn segments(&self, day: &str) -> Vec<Segment> {
         segments_of(&self.read_day(day))
     }
+}
+
+/// Day strings in `dir`, newest first (backing `HistoryStore::days`, also
+/// usable without holding the store lock — see the export path).
+pub fn day_list(dir: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return vec![];
+    };
+    let mut out = vec![];
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name.starts_with("history_") && name.ends_with(".jsonl") {
+            out.push(name["history_".len()..name.len() - ".jsonl".len()].to_string());
+        }
+    }
+    out.sort();
+    out.reverse();
+    out
 }
 
 pub fn read_day_file(path: &Path) -> Vec<Value> {
@@ -198,7 +211,7 @@ pub fn segments_of(rows: &[Value]) -> Vec<Segment> {
     for r in rows {
         let ts = r.get("ts").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let motor = r.get("motor").cloned().unwrap_or(Value::from(0));
-        let speed = r.get("speed").and_then(|v| v.as_i64()).unwrap_or(0);
+        let speed = crate::data::coerce_i64(r.get("speed"));
         let dir = direction_of(speed).to_string();
         let temp = coerce_num(r.get("temp"), 0.0);
         let voltage = coerce_num(r.get("voltage"), 0.0);
@@ -247,29 +260,22 @@ pub fn segments_of(rows: &[Value]) -> Vec<Segment> {
         .map(|s| {
             let n = s.samples.max(1) as f64;
             Segment {
-                start_ts: (s.start_ts * 100.0).round() / 100.0,
+                start_ts: crate::data::py_round(s.start_ts, 2),
                 start_iso: time_str(s.start_ts),
-                duration_s: ((s.end_ts - s.start_ts) * 10.0).round() / 10.0,
+                duration_s: crate::data::py_round(s.end_ts - s.start_ts, 1),
                 motor: s.motor,
                 speed: s.speed,
-                speed_pct: ((s.speed.abs() as f64) / 255.0 * 100.0).round() as i64,
+                speed_pct: crate::data::py_round((s.speed.abs() as f64) / 255.0 * 100.0, 0) as i64,
                 direction: s.direction,
-                avg_temp: (s.sum_temp / n * 100.0).round() / 100.0,
-                max_temp: (s.max_temp.unwrap_or(0.0) * 100.0).round() / 100.0,
-                avg_voltage: (s.sum_voltage / n * 100.0).round() / 100.0,
-                avg_current: (s.sum_current / n * 100.0).round() / 100.0,
+                avg_temp: crate::data::py_round(s.sum_temp / n, 2),
+                max_temp: crate::data::py_round(s.max_temp.unwrap_or(0.0), 2),
+                avg_voltage: crate::data::py_round(s.sum_voltage / n, 2),
+                avg_current: crate::data::py_round(s.sum_current / n, 2),
                 vibration_count: s.vib_count,
                 samples: s.samples,
             }
         })
         .collect()
-}
-
-/// Speed gate from `server.py::on_mqtt_message` (history is written only when
-/// the rover is doing something real). Wired in Milestone 2.
-#[allow(dead_code)]
-pub fn is_running_sample(data: &Value) -> bool {
-    data.get("speed").and_then(|v| v.as_i64()).unwrap_or(0) != 0
 }
 
 #[cfg(test)]
@@ -286,11 +292,11 @@ mod tests {
     fn splits_on_dir_speed_motor_and_gap() {
         let rows = vec![
             row(100.0, 1, 128, 40.0),
-            row(101.0, 1, 128, 41.0),   // same segment
-            row(102.0, 1, -128, 42.0),  // dir change
-            row(103.0, 1, 64, 43.0),    // speed change
-            row(104.0, 2, 64, 44.0),    // motor change
-            row(200.0, 2, 64, 45.0),    // gap > 5s
+            row(101.0, 1, 128, 41.0),  // same segment
+            row(102.0, 1, -128, 42.0), // dir change
+            row(103.0, 1, 64, 43.0),   // speed change
+            row(104.0, 2, 64, 44.0),   // motor change
+            row(200.0, 2, 64, 45.0),   // gap > 5s
         ];
         let segs = segments_of(&rows);
         assert_eq!(segs.len(), 5);
@@ -337,7 +343,7 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let h = HistoryStore::new(&dir);
+        let mut h = HistoryStore::new(&dir);
         let pkt = json!({"motor": 1, "speed": 128, "temp": 42.5,
                          "voltage": 12.1, "current": 0.6, "vibration": 1});
         let row = h.add_sample(&pkt).expect("write row");

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Dashboard | Rover Digital Twin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body style="background:#050505">
+  <div class="app-wrap">
+
+    <!-- ===== HEADER — Reanime.to style ===== -->
+    <header class="header" id="site-header">
+      <div class="header-bg"></div>
+      <div class="header-glow-left"></div>
+      <div class="header-glow-right"></div>
+      <div class="header-inner">
+        <div style="display:flex;align-items:center;gap:16px;">
+          <a href="./" class="logo-link">
+            <svg class="logo-svg" width="40" height="40" viewBox="0 0 40 40" fill="none">
+              <rect width="40" height="40" rx="10" fill="var(--primary)"/>
+              <path d="M12 20l6-6 6 6-6 6-6-6z" fill="#000" opacity="0.8"/>
+              <path d="M18 14l8 8-8 8" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.6"/>
+            </svg>
+          </a>
+          <div class="search-bar">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="search-icon">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/>
+            </svg>
+            <span class="search-text">Search dashboard...</span>
+            <div class="search-kbd">
+              <kbd>Ctrl</kbd>
+              <kbd>K</kbd>
+            </div>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button class="header-btn-sm" aria-label="Search">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- ===== DOCK EDGE STRIP ===== -->
+    <div class="dock-edge" id="dock-edge">
+      <button class="dock-edge-btn dock-edge-chevron" id="dock-edge-toggle" title="Toggle dock">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
+      <button class="dock-edge-btn dock-edge-sm" id="dock-edge-lock" title="Lock dock hidden">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+      </button>
+      <a href="#" class="dock-edge-btn dock-edge-sm" title="Status">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
+      </a>
+    </div>
+
+    <!-- ===== NAV DOCK ===== -->
+    <aside class="nav-dock dock-hidden" id="nav-dock">
+      <div class="dock-inner">
+        <div class="dock-indicator" id="dock-indicator"><div class="dock-accent"></div></div>
+        <button class="dock-item active" data-href="./" title="Home">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          <div class="dock-tooltip">Home</div>
+        </button>
+        <button class="dock-item" data-href="./calibration/" title="Calibration">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+          <div class="dock-tooltip">Calibration</div>
+        </button>
+        <button class="dock-item" data-href="./detailed/" title="Detailed">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+          <div class="dock-tooltip">Detailed</div>
+        </button>
+        <button class="dock-item" data-href="./test/" title="Motor Test">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          <div class="dock-tooltip">Motor Test</div>
+        </button>
+        <div class="dock-sep"></div>
+      </div>
+    </aside>
+
+    <!-- ===== BODY WRAP ===== -->
+    <div class="body-wrap">
+      <main class="main-content">
+        <div class="content-wrap">
+
+          <!-- Page header -->
+          <div class="page-header">
+            <div>
+              <div style="display:flex;align-items:center;gap:12px;">
+                <h1 class="page-h1">Dashboard</h1>
+                <span class="page-badge" id="home-live-badge">
+                  <span class="status-dot dot-green pulse" id="home-live-dot"></span>
+                  <span id="home-live-label">Live</span>
+                </span>
+              </div>
+              <p class="page-sub">Vehicle telemetry &amp; diagnostics</p>
+            </div>
+            <div class="live-badge" id="home-rt-badge">
+              <span class="status-dot dot-green pulse" id="home-rt-dot"></span>
+              <span id="home-rt-label">Real-time</span>
+            </div>
+          </div>
+
+          <!-- ===== HUD LAYOUT ===== -->
+          <div class="hud-layout">
+
+            <!-- LEFT: Motor Health HUD -->
+            <div class="panel panel-pad">
+              <div class="panel-head">
+                <h2 class="panel-title-muted">Vehicle Damage</h2>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <span class="status-dot" id="dmg-status-dot"></span>
+                  <span id="dmg-status-text" style="font-size:10px;color:var(--gray-500);">All systems nominal</span>
+                </div>
+              </div>
+              <div class="car-hud-wrap">
+                <svg class="car-hud-svg" viewBox="0 0 575 503" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <defs>
+                    <clipPath id="chassis-clip">
+                      <path d="M339.153 87.0187C333.63 87.0187 329.153 91.4959 329.153 97.0187V163.77C329.153 169.293 333.63 173.77 339.153 173.77H364.546V362.256H339.153C333.63 362.256 329.153 366.733 329.153 372.256V439.006C329.153 444.529 333.63 449.006 339.153 449.006H364.546V454.764C364.546 468.571 353.353 479.764 339.546 479.764H232.24C218.433 479.764 207.24 468.571 207.24 454.764V449.006H232.634C238.157 449.006 242.634 444.529 242.634 439.006V372.256C242.634 366.733 238.157 362.256 232.634 362.256H207.24V173.77H232.634C238.157 173.77 242.634 169.292 242.634 163.77V97.0187C242.634 91.496 238.157 87.0188 232.634 87.0187H207.24V86.7823C207.24 72.9754 218.433 61.7826 232.24 61.7823H339.546C353.353 61.7824 364.546 72.9752 364.546 86.7823V87.0187H339.153Z"/>
+                    </clipPath>
+                  </defs>
+                  <rect x="575" width="503" height="575" rx="25" transform="rotate(90 575 0)" fill="#222831"/>
+                  <path d="M339.153 87.0187C333.63 87.0187 329.153 91.4959 329.153 97.0187V163.77C329.153 169.293 333.63 173.77 339.153 173.77H364.546V362.256H339.153C333.63 362.256 329.153 366.733 329.153 372.256V439.006C329.153 444.529 333.63 449.006 339.153 449.006H364.546V454.764C364.546 468.571 353.353 479.764 339.546 479.764H232.24C218.433 479.764 207.24 468.571 207.24 454.764V449.006H232.634C238.157 449.006 242.634 444.529 242.634 439.006V372.256C242.634 366.733 238.157 362.256 232.634 362.256H207.24V173.77H232.634C238.157 173.77 242.634 169.292 242.634 163.77V97.0187C242.634 91.496 238.157 87.0188 232.634 87.0187H207.24V86.7823C207.24 72.9754 218.433 61.7826 232.24 61.7823H339.546C353.353 61.7824 364.546 72.9752 364.546 86.7823V87.0187H339.153Z" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
+                  <rect class="chassis-fill dmg-flashable" data-part="chassis" x="207" y="61" width="158" height="419" fill="transparent" clip-path="url(#chassis-clip)" data-total-height="419"/>
+                  <line y1="-0.5" x2="39.4058" y2="-0.5" transform="matrix(-0.498994 -0.866605 0.865444 -0.501006 211.173 130.632)" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+                  <line x1="191.51" y1="96.9827" x2="141.958" y2="96.9827" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+                  <line y1="-0.5" x2="39.4058" y2="-0.5" transform="matrix(0.498994 -0.866605 -0.865444 -0.501006 362.187 130.632)" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+                  <line y1="-0.5" x2="49.5515" y2="-0.5" transform="matrix(1 0 0 -1 381.85 96.4827)" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+                  <line y1="-0.5" x2="39.4058" y2="-0.5" transform="matrix(-0.498994 -0.866605 0.865444 -0.501006 211.173 406.657)" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+                  <line x1="191.51" y1="373.008" x2="141.958" y2="373.008" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+                  <line y1="-0.5" x2="39.4058" y2="-0.5" transform="matrix(0.498994 -0.866605 -0.865444 -0.501006 362.187 406.657)" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+                  <line y1="-0.5" x2="49.5515" y2="-0.5" transform="matrix(1 0 0 -1 381.85 372.508)" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+                  <g>
+                    <rect x="237.5" y="91.5" width="75" height="28" rx="5.5" transform="rotate(90 237.5 91.5)" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.10)" stroke-width="1.5"/>
+                    <rect x="17.6862" y="18.4069" width="124.272" height="171.136" rx="20" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.10)" stroke-width="1.5"/>
+                    <rect class="wheel-fill dmg-flashable" data-part="wheelFL" x="237" y="116.42" width="49.58" height="27" rx="5" transform="rotate(90 237 116.42)" fill="transparent" data-orig-width="49.58"/>
+                    <text class="corner-name" x="80" y="88" text-anchor="middle">Front Left</text>
+                    <text class="corner-temp" id="temp-fl" x="80" y="108" text-anchor="middle">38°C</text>
+                    <text class="corner-health" id="health-fl" x="80" y="126" text-anchor="middle">92%</text>
+                  </g>
+                  <g>
+                    <rect x="361.772" y="91.5" width="75" height="28" rx="5.5" transform="rotate(90 361.772 91.5)" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.10)" stroke-width="1.5"/>
+                    <rect x="431.402" y="18.4069" width="124.272" height="171.136" rx="20" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.10)" stroke-width="1.5"/>
+                    <rect class="wheel-fill dmg-flashable" data-part="wheelFR" x="361.272" y="148.24" width="17.76" height="27" rx="5" transform="rotate(90 361.272 148.24)" fill="transparent" data-orig-width="17.76"/>
+                    <text class="corner-name" x="493" y="88" text-anchor="middle">Front Right</text>
+                    <text class="corner-temp" id="temp-fr" x="493" y="108" text-anchor="middle">38°C</text>
+                    <text class="corner-health" id="health-fr" x="493" y="126" text-anchor="middle">92%</text>
+                  </g>
+                  <g>
+                    <rect x="237.5" y="367.525" width="75" height="28" rx="5.5" transform="rotate(90 237.5 367.525)" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.10)" stroke-width="1.5"/>
+                    <rect x="17.6861" y="274.716" width="124.272" height="171.136" rx="20" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.10)" stroke-width="1.5"/>
+                    <rect class="wheel-fill dmg-flashable" data-part="wheelRL" x="237" y="413.165" width="28.86" height="27" rx="5" transform="rotate(90 237 413.165)" fill="transparent" data-orig-width="28.86"/>
+                    <text class="corner-name" x="80" y="345" text-anchor="middle">Rear Left</text>
+                    <text class="corner-temp" id="temp-rl" x="80" y="365" text-anchor="middle">38°C</text>
+                    <text class="corner-health" id="health-rl" x="80" y="383" text-anchor="middle">92%</text>
+                  </g>
+                  <g>
+                    <rect x="361.772" y="367.525" width="75" height="28" rx="5.5" transform="rotate(90 361.772 367.525)" fill="rgba(255,255,255,0.04)" stroke="rgba(255,255,255,0.10)" stroke-width="1.5"/>
+                    <rect x="431.402" y="274.716" width="124.272" height="171.136" rx="20" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.10)" stroke-width="1.5"/>
+                    <rect class="wheel-fill dmg-flashable" data-part="wheelRR" x="361.272" y="405.025" width="37" height="27" rx="5" transform="rotate(90 361.272 405.025)" fill="transparent" data-orig-width="37"/>
+                    <text class="corner-name" x="493" y="345" text-anchor="middle">Rear Right</text>
+                    <text class="corner-temp" id="temp-rr" x="493" y="365" text-anchor="middle">38°C</text>
+                    <text class="corner-health" id="health-rr" x="493" y="383" text-anchor="middle">92%</text>
+                  </g>
+                  <g id="dmgOverlay" opacity="0">
+                    <rect x="137" y="456" width="300" height="28" rx="6" fill="rgba(20,20,20,0.9)" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
+                    <text id="dmgText" x="287" y="475" text-anchor="middle" fill="#fff" font-family="Inter,sans-serif" font-size="11" font-weight="600">All systems nominal</text>
+                  </g>
+                </svg>
+              </div>
+            </div>
+
+            <!-- RIGHT: Camera + Arm stack -->
+            <div class="hud-right-stack">
+
+              <!-- Camera Card -->
+              <div class="panel panel-pad">
+                <div class="panel-head">
+                  <h2 class="panel-title-muted">Camera</h2>
+                  <div class="tab-group" id="cam-tabs">
+                    <button class="tab-btn active" data-cam="normal"><span>Normal</span></button>
+                    <button class="tab-btn" data-cam="lidar"><span>LiDAR</span></button>
+                  </div>
+                </div>
+                <div class="camera-viewport" id="camera-viewport">
+                  <div class="camera-placeholder" id="cam-placeholder">
+                    <div class="cam-dot-wrap">
+                      <span class="cam-dot"></span>
+                    </div>
+                    <span style="font-size:13px;font-weight:600;color:var(--gray-400);">Live Feed</span>
+                    <span class="cam-label" id="cam-label">Waiting for camera stream...</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Arm Movement Card -->
+              <div class="panel panel-pad">
+                <div class="panel-head">
+                  <h2 class="panel-title-muted">Arm Movement</h2>
+                  <div class="wip-badge">WIP</div>
+                </div>
+                <div class="arm-visual">
+                  <div class="arm-placeholder">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--gray-600);">
+                      <path d="M18 5a4 4 0 0 0-4 4v12"/><path d="M9 5v16"/><path d="M3 5v12a4 4 0 0 0 4 4h12"/>
+                    </svg>
+                    <p class="arm-label">3D arm visualization coming soon</p>
+                    <p style="font-size:9px;color:var(--gray-600);margin-top:4px;">Will display real-time joint angles</p>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+
+    <!-- ===== MOBILE BOTTOM NAV ===== -->
+    <nav class="mobile-nav">
+      <div class="mobile-nav-inner">
+        <button class="mobile-nav-btn active" data-href="./">
+          <div class="nav-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>
+            </svg>
+          </div>
+          <span class="mobile-nav-label">Dashboard</span>
+        </button>
+        <button class="mobile-nav-btn" data-href="./calibration/">
+          <div class="nav-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
+            </svg>
+          </div>
+          <span class="mobile-nav-label">Calibrate</span>
+        </button>
+        <button class="mobile-nav-btn" data-href="./detailed/">
+          <div class="nav-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/>
+            </svg>
+          </div>
+          <span class="mobile-nav-label">Details</span>
+        </button>
+        <button class="mobile-nav-btn" data-href="./test/">
+          <div class="nav-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+          </div>
+          <span class="mobile-nav-label">Motor Test</span>
+        </button>
+        <button class="mobile-nav-btn">
+          <div class="nav-icon-wrap">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>
+            </svg>
+          </div>
+          <span class="mobile-nav-label">Status</span>
+        </button>
+      </div>
+    </nav>
+  </div>
+
+  <script src="script.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

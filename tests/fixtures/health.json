@@ -1,0 +1,321 @@
+[
+ {
+  "anomalies": [],
+  "case": "nominal",
+  "health": 100,
+  "latest": {
+   "current": 0.5,
+   "id": 1,
+   "ina_ok": true,
+   "temp": 35.0,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 12.0
+  },
+  "packet": {
+   "current": 0.5,
+   "ina_ok": true,
+   "motor": 1,
+   "speed": 128,
+   "temp": 35.0,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 12.0
+  }
+ },
+ {
+  "anomalies": [
+   "High temperature: 55.0\u00b0C",
+   "Low voltage: 11.00V",
+   "Over-current: 2.500A",
+   "Vibration spike detected"
+  ],
+  "case": "anomalies",
+  "health": 70.0,
+  "latest": {
+   "current": 2.5,
+   "id": 1,
+   "ina_ok": true,
+   "temp": 55.0,
+   "temp_valid": true,
+   "vibration": 1,
+   "vibration_valid": true,
+   "voltage": 11.0
+  },
+  "packet": {
+   "current": 2.5,
+   "ina_ok": true,
+   "motor": 1,
+   "speed": 128,
+   "temp": 55.0,
+   "temp_valid": true,
+   "vibration": 1,
+   "vibration_valid": true,
+   "voltage": 11.0
+  }
+ },
+ {
+  "anomalies": [],
+  "case": "all_invalid",
+  "health": null,
+  "latest": {
+   "current": null,
+   "id": 1,
+   "ina_ok": false,
+   "temp": null,
+   "temp_valid": false,
+   "vibration": 0,
+   "vibration_valid": false,
+   "voltage": null
+  },
+  "packet": {
+   "motor": 1,
+   "speed": 0
+  }
+ },
+ {
+  "anomalies": [
+   "Vibration spike detected"
+  ],
+  "case": "vib_only_terrible_rest",
+  "health": 95.0,
+  "latest": {
+   "current": 5.0,
+   "id": 1,
+   "ina_ok": false,
+   "temp": 80.0,
+   "temp_valid": false,
+   "vibration": 1,
+   "vibration_valid": true,
+   "voltage": 9.0
+  },
+  "packet": {
+   "current": 5.0,
+   "motor": 1,
+   "speed": 64,
+   "temp": 80.0,
+   "vibration": 1,
+   "vibration_valid": true,
+   "voltage": 9.0
+  }
+ },
+ {
+  "anomalies": [
+   "Vibration spike detected"
+  ],
+  "case": "raw_nulls_aliases",
+  "health": 95.0,
+  "latest": {
+   "current": null,
+   "id": 2,
+   "ina_ok": false,
+   "temp": 42.5,
+   "temp_valid": false,
+   "vibration": 1,
+   "vibration_valid": true,
+   "voltage": null
+  },
+  "packet": {
+   "id": 2,
+   "temperature": 42.5,
+   "vib_valid": true,
+   "vibration": 1,
+   "voltage": null
+  }
+ },
+ {
+  "anomalies": [],
+  "case": "float_speed",
+  "health": 100,
+  "latest": {
+   "current": 0.5,
+   "id": 1,
+   "ina_ok": true,
+   "temp": 35.0,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 12.0
+  },
+  "packet": {
+   "current": 0.5,
+   "ina_ok": true,
+   "motor": 1,
+   "speed": 128.0,
+   "temp": 35.0,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 12.0
+  }
+ },
+ {
+  "anomalies": [],
+  "case": "float_speed_frac",
+  "health": 100,
+  "latest": {
+   "current": 0.5,
+   "id": 1,
+   "ina_ok": true,
+   "temp": 35.0,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 12.0
+  },
+  "packet": {
+   "current": 0.5,
+   "ina_ok": true,
+   "motor": 1,
+   "speed": 64.9,
+   "temp": 35.0,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 12.0
+  }
+ },
+ {
+  "anomalies": [],
+  "case": "string_speed",
+  "health": 100,
+  "latest": {
+   "current": 0.5,
+   "id": 1,
+   "ina_ok": true,
+   "temp": 35.0,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 12.0
+  },
+  "packet": {
+   "current": 0.5,
+   "ina_ok": true,
+   "motor": 1,
+   "speed": "64",
+   "temp": 35.0,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 12.0
+  }
+ },
+ {
+  "anomalies": [],
+  "case": "string_motor",
+  "health": 100,
+  "latest": {
+   "current": 0.5,
+   "id": "4",
+   "ina_ok": true,
+   "temp": 35.0,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 12.0
+  },
+  "packet": {
+   "current": 0.5,
+   "ina_ok": true,
+   "motor": "4",
+   "speed": 128,
+   "temp": 35.0,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 12.0
+  }
+ },
+ {
+  "anomalies": [
+   "High temperature: 51.1\u00b0C"
+  ],
+  "case": "bankers_health",
+  "health": 97.8,
+  "latest": {
+   "current": 0.5,
+   "id": 1,
+   "ina_ok": true,
+   "temp": 51.125,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 12.0
+  },
+  "packet": {
+   "current": 0.5,
+   "ina_ok": true,
+   "motor": 1,
+   "speed": 128,
+   "temp": 51.125,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 12.0
+  }
+ },
+ {
+  "anomalies": [
+   "Low voltage: 9.38V"
+  ],
+  "case": "bankers_health2",
+  "health": 78.8,
+  "latest": {
+   "current": 0.5,
+   "id": 1,
+   "ina_ok": true,
+   "temp": 35.0,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 9.375
+  },
+  "packet": {
+   "current": 0.5,
+   "ina_ok": true,
+   "motor": 1,
+   "speed": 128,
+   "temp": 35.0,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 9.375
+  }
+ },
+ {
+  "anomalies": [
+   "Low voltage: 10.00V"
+  ],
+  "case": "baseline_drift",
+  "health": 79.0,
+  "latest": {
+   "current": 0.5,
+   "id": 1,
+   "ina_ok": true,
+   "temp": 46.0,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 10.0
+  },
+  "packet": {
+   "current": 0.5,
+   "ina_ok": true,
+   "motor": 1,
+   "speed": 128,
+   "temp": 46.0,
+   "temp_valid": true,
+   "vibration": 0,
+   "vibration_valid": true,
+   "voltage": 10.0
+  }
+ },
+ {
+  "anomalies": [],
+  "case": "unknown_motor",
+  "health": 100
+ }
+]

@@ -8,11 +8,14 @@
   body { font-family: system-ui, sans-serif; max-width: 560px; margin: 2em auto; padding: 0 1em; }
   .card { border: 1px solid #ccc; border-radius: 8px; padding: 1em 1.2em; margin-bottom: 1em; }
   label { display: block; margin: .6em 0 .2em; font-weight: 600; }
-  input { width: 100%; padding: .5em; font-size: 1em; box-sizing: border-box; }
+  input[type=text], input:not([type]) { width: 100%; padding: .5em; font-size: 1em; box-sizing: border-box; }
   button { margin-top: 1em; padding: .6em 1.4em; font-size: 1em; cursor: pointer; }
   #msg { margin-top: 1em; font-weight: 600; }
   .ok { color: green; } .bad { color: crimson; }
   small { color: #555; }
+  code.token { font-size: 1.1em; word-break: break-all; user-select: all; }
+  img.qr { display: block; margin-top: .8em; width: 220px; height: 220px; border: 1px solid #ccc; }
+  .row { display: flex; align-items: center; gap: .6em; margin-top: .6em; }
 </style>
 </head>
 <body>
@@ -37,6 +40,35 @@
 </div>
 
 <div class="card">
+  <h2>Phone / LAN access</h2>
+  <p><small>Off (default): this app only listens on this PC. On: other
+  devices on your WiFi can open the dashboard — every button then needs the
+  control token below. <b>Changing this needs an app restart.</b></small></p>
+  <div class="row">
+    <input type="checkbox" id="lan" style="width:auto">
+    <label for="lan" style="margin:0">Allow dashboard on the local network</label>
+  </div>
+  <button id="savelan">Save</button>
+  <div id="msgLAN"></div>
+</div>
+
+<div class="card">
+  <h2>Control token</h2>
+  <p><small>Secret required by every button that moves the rover (and by the
+  phone app). It is stored in a cookie automatically — you only need it when
+  joining a new device. Regenerating kills all existing sessions and QR codes.</small></p>
+  <div>Token: <code class="token" id="token">loading…</code></div>
+  <div class="row">
+    <button id="rotate">Regenerate token</button>
+  </div>
+  <div id="msgToken"></div>
+  <h3>Join with a phone</h3>
+  <p><small>Turn LAN access on, restart the app, then scan — the phone joins
+  with the token baked in, no typing.</small></p>
+  <img class="qr" id="qr" src="/api/setup/qr.svg" alt="QR code with the dashboard link + token">
+</div>
+
+<div class="card">
   <h2>Home WiFi (SSID) — where does that go?</h2>
   <p><small>Not here. The rover learns your home WiFi from the rover itself:
   power it on, join the <code>Rover-Setup</code> WiFi from your phone, pick your
@@ -44,15 +76,28 @@
 </div>
 
 <script>
+// Token from the page URL (phone arriving via QR) or the cookie (this PC).
+function authed(path, method) {
+  const q = new URLSearchParams(location.search).get('token');
+  const url = q ? path + '?token=' + encodeURIComponent(q) : path;
+  return fetch(url, method ? { method } : undefined);
+}
 async function refresh() {
   const r = await fetch('/api/config');
   const c = await r.json();
   document.getElementById('broker').value = c.mqtt_broker || '';
   document.getElementById('port').value = c.mqtt_port || '';
   document.getElementById('httpport').textContent = c.http_port || '';
+  document.getElementById('lan').checked = !!c.lan_access;
   const el = document.getElementById('status');
   el.textContent = c.mqtt_connected ? 'Connected to broker' : 'NOT connected to broker';
   el.className = c.mqtt_connected ? 'ok' : 'bad';
+  const t = await authed('/api/auth/token');
+  if (t.status === 200) {
+    document.getElementById('token').textContent = (await t.json()).token || '(none)';
+  } else {
+    document.getElementById('token').textContent = '(locked — open this page from the app PC)';
+  }
 }
 document.getElementById('save').onclick = async () => {
   const msg = document.getElementById('msg');
@@ -71,6 +116,35 @@ document.getElementById('save').onclick = async () => {
     : ('Error: ' + (out.detail || 'unknown'));
   msg.className = out.status === 'ok' ? 'ok' : 'bad';
   setTimeout(refresh, 1500);
+};
+document.getElementById('savelan').onclick = async () => {
+  const msg = document.getElementById('msgLAN');
+  msg.textContent = 'Saving…';
+  const r = await fetch('/api/config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ lan_access: document.getElementById('lan').checked }),
+  });
+  const out = await r.json();
+  msg.textContent = out.status === 'ok'
+    ? 'Saved — restart the app for it to take effect.'
+    : ('Error: ' + (out.detail || 'unknown'));
+  msg.className = out.status === 'ok' ? 'ok' : 'bad';
+  setTimeout(refresh, 1500);
+};
+document.getElementById('rotate').onclick = async () => {
+  const msg = document.getElementById('msgToken');
+  msg.textContent = 'Regenerating…';
+  const r = await authed('/api/auth/token', 'POST');
+  if (r.status === 200) {
+    document.getElementById('token').textContent = (await r.json()).token || '(none)';
+    document.getElementById('qr').src = '/api/setup/qr.svg?t=' + Date.now();
+    msg.textContent = 'New token active — old sessions and QR codes no longer work.';
+    msg.className = 'ok';
+  } else {
+    msg.textContent = 'Error: ' + r.status;
+    msg.className = 'bad';
+  }
 };
 refresh();
 setInterval(refresh, 5000);
