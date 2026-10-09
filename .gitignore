@@ -29,4 +29,18 @@ opencode.json
 
 # Editor / OS
 .vscode/
+.idea/
 Desktop.ini
+Thumbs.db
+*~
+*.bak
+*.swp
+
+# Tauri build output (regenerated every build - never commit)
+desktop/gen/
+
+# Transient / secret-adjacent (none exist - keep it that way)
+*.tmp
+*.pem
+*.key
+*.pfx
