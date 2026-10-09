@@ -126,7 +126,8 @@ test — nothing changed silently):
   Arduino IDE (WiFi code stays placeholder; the rover learns real credentials
   via its phone portal). Its MQTT contract (topics, payloads, timing) is the
   source of truth both sides follow.
-- `Inspiration/` holds the design references the dashboard look is based on.
+- A local `Inspiration/` folder (not committed) holds the design references
+  the dashboard look was based on.
 - History samples append to day-sharded `history/history_YYYY-MM-DD.jsonl`;
   calibration baselines persist to `calibration_baseline.json`.
 - License: MIT (see `LICENSE`). Changelog: `CHANGELOG.md`.

@@ -10,6 +10,9 @@ target/
 
 # Local BOM / budget working files - never commit
 /BOM/
+
+# Local design references (18MB, kept on disk, never commit)
+/Inspiration/
 HANDOFF.md
 LOG.md
 SESSION.md
