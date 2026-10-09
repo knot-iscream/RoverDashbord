@@ -4,9 +4,8 @@ REM What it does for you, in order:
 REM   1. Checks the Rust toolchain is installed
 REM   2. Starts the MQTT broker if nothing listens on 1883
 REM   3. Starts the Rust backend, which serves API + dashboard on ONE port: 8000
-REM Open on THIS pc:      http://localhost:8000/
-REM Open on other PCs and phones: http://YOUR-PC-IP:8000/
-REM Run "ipconfig" in CMD to find this PC's IPv4 address.
+REM Open the dashboard on THIS pc: http://localhost:8000/
+REM (localhost-only by design - no LAN mode, see README.)
 REM Full transcript of every run goes to Rover.log next to this file.
 title Rover Digital Twin 2.0
 cd /d "%~dp0"
@@ -79,7 +78,6 @@ goto startserver
 :startserver
 echo [Rover] Starting Rust backend on port 8000...
 echo [Rover] This PC:  http://localhost:8000/
-for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do echo [Rover] Also try:  http://%%a:8000/
 echo [Rover] Setup page for the broker address:  http://localhost:8000/setup/
 echo [Rover] Browser opens automatically once the backend answers...
 start "" /min cmd /c ""%~dp0bat\open_when_ready.bat""

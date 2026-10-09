@@ -43,6 +43,15 @@ pub struct Fixture {
 /// then inspect `f.*` and drain `f.rx`. No broker, no TCP.
 pub fn fixture(tag: &str) -> Fixture {
     let dir = tmpdir(tag);
+    // Point file-backed state at this test's temp dir. Process-global, so a
+    // parallel test may redirect a write into its own temp dir instead — both
+    // are cleaned up, and no test ever READS these files, so it cannot affect
+    // assertions. The repo-root files stay untouched.
+    std::env::set_var("ROVER_CONFIG", dir.join("rover_config.json"));
+    std::env::set_var("ROVER_CALIBRATION", dir.join("calibration_baseline.json"));
+    // Static pages resolve through base_dir: pin it at the package root so
+    // build_router serves the real web/ tree deterministically.
+    std::env::set_var("ROVER_HOME", env!("CARGO_MANIFEST_DIR"));
     let (bcast, rx) = broadcast::channel(256);
     let data = Arc::new(RwLock::new(DataHandler::default()));
     let history = Arc::new(RwLock::new(HistoryStore::new(&dir)));

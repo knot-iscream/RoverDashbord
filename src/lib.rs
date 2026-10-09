@@ -75,7 +75,6 @@ pub fn build_router(state: AppState) -> Router {
             "/api/auth/token",
             get(routes::get_token).post(routes::rotate_token),
         )
-        .route("/api/setup/qr.svg", get(routes::setup_qr))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             routes::require_token,
@@ -84,9 +83,11 @@ pub fn build_router(state: AppState) -> Router {
         middleware::from_fn_with_state(state.clone(), routes::require_token),
     );
 
-    // Dashboard pages vendored in ./web/ (1:1 copy of the v1 pages).
-    // WEB_ROOT env overrides for dev. Mounted LAST (fallback).
-    let web_root = std::env::var("WEB_ROOT").unwrap_or_else(|_| "web".into());
+    // Dashboard pages: WEB_ROOT env wins, else <base_dir>/web (vendored 1:1
+    // copy of the v1 pages). Mounted LAST (fallback).
+    let web_root = std::env::var("WEB_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| config::base_dir().join("web"));
     let static_svc = ServeDir::new(&web_root).append_index_html_on_directories(true);
 
     let cookie_state = state.clone();
@@ -101,7 +102,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/history/days", get(routes::history_days))
         .route("/api/history/segments", get(routes::history_segments))
         .route("/api/config", get(routes::get_config))
-        .nest_service("/setup", ServeDir::new("web/setup"))
+        .nest_service(
+            "/setup",
+            ServeDir::new(config::base_dir().join("web/setup")),
+        )
         .merge(protected)
         .merge(ws_route)
         .with_state(state)
@@ -114,4 +118,68 @@ pub fn build_router(state: AppState) -> Router {
             cookie_state,
             routes::set_token_cookie,
         ))
+}
+
+/// Logging init shared by the backend binary and the desktop shell.
+pub fn init_logging() {
+    // Crate-targeted default: our `listening on …` line always prints, while
+    // hyper/tower stay quiet unless RUST_LOG says otherwise.
+    let filter = std::env::var("RUST_LOG").unwrap_or_else(|_| "digital_twin_dashboard=info".into());
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
+        .init();
+}
+
+/// Build full app state: config, shared stores, MQTT client, presence
+/// monitor. Used by the backend binary and the desktop shell alike.
+pub async fn build_state() -> AppState {
+    // Backend-owned config: rover_config.json < env < defaults. No edits needed.
+    let cfg = AppConfig::load();
+    let (broker, broker_port) = (cfg.mqtt_broker.clone(), cfg.mqtt_port);
+
+    let (bcast, _) = tokio::sync::broadcast::channel::<Value>(256);
+    let data = Arc::new(tokio::sync::RwLock::new(DataHandler::new()));
+    let history = Arc::new(tokio::sync::RwLock::new(HistoryStore::new(
+        config::base_dir().join("history"),
+    )));
+    let cal = Arc::new(tokio::sync::RwLock::new(CalibrationManager::new()));
+    let motor_status = Arc::new(tokio::sync::RwLock::new(Value::Object(Default::default())));
+    let device = Arc::new(tokio::sync::RwLock::new(DeviceState::default()));
+    let ctx = mqtt::Ctx {
+        data: data.clone(),
+        history: history.clone(),
+        cal: cal.clone(),
+        motor_status: motor_status.clone(),
+        device: device.clone(),
+        bcast: bcast.clone(),
+    };
+    // MQTT client (auto-reconnects; resubscribes on every ConnAck).
+    let slot = mqtt::spawn_mqtt(ctx, &broker, broker_port).await;
+    let state = AppState {
+        data,
+        history,
+        cal,
+        clients: Arc::new(AtomicUsize::new(0)),
+        motor_status,
+        device,
+        mqtt: Arc::new(tokio::sync::RwLock::new(slot)),
+        bcast,
+        cfg: Arc::new(tokio::sync::RwLock::new(cfg)),
+    };
+    // Device presence monitor (broadcasts only on flip, like Python).
+    tokio::spawn(mqtt::monitor_device(state.ctx()));
+    state
+}
+
+/// Serve `state` on `addr` until `shutdown` resolves.
+pub async fn serve_forever(
+    state: AppState,
+    addr: std::net::SocketAddr,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
+) -> std::io::Result<()> {
+    let app = build_router(state);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .await
 }

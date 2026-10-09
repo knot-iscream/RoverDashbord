@@ -1,5 +1,5 @@
 [workspace]
-members = ["."]
+members = [".", "desktop"]
 # Backend stays the default so `cargo run` / `cargo test` keep working unchanged.
 default-members = ["."]
 
@@ -21,7 +21,6 @@ rust_xlsxwriter = "0.64"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rand = "0.8"
-qrcode = { version = "0.14", features = ["svg"] }
 
 [dev-dependencies]
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
@@ -33,3 +32,9 @@ criterion = "0.5"
 [[bench]]
 name = "telemetry"
 harness = false
+
+[profile.release]
+# Real-app profile: slowest build, smallest + fastest binary.
+lto = true
+codegen-units = 1
+strip = true

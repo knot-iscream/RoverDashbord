@@ -9,6 +9,32 @@ repo — no other checkout needed.
 > [`v1-python`](https://github.com/knot-iscream/RoverDashbord/releases/tag/v1-python)
 > tag, including the ESP32 firmware sources.
 
+## Performance (v1 → v2.0)
+
+Measured like-for-like in release builds, same inputs, same machine:
+
+| Workload | v1 (Python) | v2.0 (Rust) | Change |
+|---|---|---|---|
+| Ingest one telemetry packet | 3171 ns | 310 ns | **-90%** |
+| History segments, 10k rows | 66.2 ms | 19.0 ms | **-71%** |
+| Excel export, 1k rows | 172 ms | 20.0 ms | **-88%** |
+
+Reproduce the Rust side with `cargo bench`.
+
+**What that did and did not buy.** None of it is visible day to day. At the
+firmware's 16 packets/sec the backend now spends about 5 microseconds per
+second, where v1 spent about 50 — the latency you actually feel was always
+the MQTT round-trip and browser paint, never the backend.
+
+What the 90% bought is **headroom**. On v1, high-rate lidar point clouds,
+video streams and a dozen extra sensors were off the table. They are
+affordable now.
+
+That headroom is one reason v2.0 is moving to a real desktop app: the
+backend is no longer the ceiling, so lidar and camera work is no longer
+blocked by it. The rest of the app-first move — its own window, tray icon,
+background monitoring — has nothing to do with speed.
+
 ## Start here (Windows)
 
 1. Install [Rust stable](https://rustup.rs/) once (and accept the
@@ -21,26 +47,23 @@ repo — no other checkout needed.
 Something wrong? Double-click **`Doctor.bat`** — it checks everything and
 tells you what to do in plain language.
 
-## Phone / LAN access (opt-in)
+## Security: localhost-only by design
 
-By default the app listens on **this PC only** (`127.0.0.1`). To open the
-dashboard on your phone or another PC:
+The app listens on **this PC only** (`127.0.0.1`) — there is no LAN mode and
+no way to enable one. No CORS headers are ever sent.
 
-1. Open the **Setup page** (`http://localhost:8000/setup/`), tick
-   *Allow dashboard on the local network*, save, and **restart the app**.
-2. Reopen Setup, scan the **QR code** with your phone — it joins with the
-   control token baked in, no typing.
-
-Every button that moves the rover needs the token (cookie, `?token=`, or
-`Authorization: Bearer`). Read-only views (telemetry, history, export) stay
+Every button that moves the rover needs the control token (stored in a
+cookie automatically, or `?token=` / `Authorization: Bearer`). This is not
+about remote attackers — it stops any website you visit from driving the
+motors behind your back. Read-only views (telemetry, history, export) stay
 open. The Setup page can display and regenerate the token at any time.
 
 ## Settings live in the app
 
 No files or settings to edit by hand. Open the **Setup page**
 (`http://localhost:8000/setup/`) to see the connection status and change the
-broker address/port — it applies instantly, no restart. (The app port and
-LAN mode need a restart; the page says so.)
+broker address/port — it applies instantly, no restart. (The app port needs
+a restart; the page says so.)
 
 Your home WiFi is **not** entered here: power the rover on, join the
 `Rover-Setup` WiFi from your phone, pick your home network once — the rover

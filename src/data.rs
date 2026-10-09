@@ -10,6 +10,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const CALIBRATION_FILE: &str = "calibration_baseline.json";
 
+/// Baseline path: `ROVER_CALIBRATION` override if set (integration tests
+/// point it at temp dirs so the suite never touches the real file), else
+/// the CWD file.
+pub fn calibration_path() -> std::path::PathBuf {
+    std::env::var("ROVER_CALIBRATION")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| crate::config::base_dir().join(CALIBRATION_FILE))
+}
+
 /// Baseline math inputs (resolved from the stored arbitrary dict with
 /// Python's defaults: `avg_temp` 35, `avg_voltage` 12).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -293,7 +302,7 @@ impl DataHandler {
     }
 
     pub fn load_calibration(&mut self) {
-        let Ok(text) = std::fs::read_to_string(CALIBRATION_FILE) else {
+        let Ok(text) = std::fs::read_to_string(calibration_path()) else {
             return;
         };
         if let Ok(map) = serde_json::from_str::<HashMap<String, Value>>(&text) {
@@ -315,11 +324,10 @@ impl DataHandler {
             return;
         };
         // Temp file + rename: a crash mid-write must never truncate baselines.
-        let tmp = format!("{CALIBRATION_FILE}.tmp");
-        if let Err(e) =
-            std::fs::write(&tmp, text).and_then(|()| std::fs::rename(&tmp, CALIBRATION_FILE))
-        {
-            tracing::warn!("could not save {CALIBRATION_FILE}: {e}");
+        let path = calibration_path();
+        let tmp = format!("{}.tmp", path.display());
+        if let Err(e) = std::fs::write(&tmp, text).and_then(|()| std::fs::rename(&tmp, &path)) {
+            tracing::warn!("could not save {}: {e}", path.display());
         }
     }
 }

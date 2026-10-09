@@ -161,25 +161,4 @@ window.ROVER = (function () {
     }
   });
   updateIndicator();
-
-  // ===== Mobile bottom nav active =====
-  var mobileBtns = document.querySelectorAll('.mobile-nav-btn');
-  mobileBtns.forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      mobileBtns.forEach(function(b) { b.classList.remove('active'); });
-      this.classList.add('active');
-      var href = this.getAttribute('data-href');
-      if (href) window.location.href = href;
-    });
-  });
-  mobileBtns.forEach(function(btn) {
-    var href = btn.getAttribute('data-href');
-    if (href) {
-      var hrefPath = new URL(href, window.location.href).pathname;
-      if (path.indexOf(hrefPath) !== -1) {
-        mobileBtns.forEach(function(b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-      }
-    }
-  });
 })();

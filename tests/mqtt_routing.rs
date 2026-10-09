@@ -162,3 +162,50 @@ async fn second_message_within_window_broadcasts_no_presence() {
     assert_eq!(d[0]["type"], "motor_update");
     std::fs::remove_dir_all(&f.dir).ok();
 }
+
+#[tokio::test]
+async fn broker_disconnect_clears_connected_flag() {
+    // B6 regression: a broker-initiated DISCONNECT must clear `connected`
+    // promptly (Python's `_on_disconnect`), not linger. Verified mechanism:
+    // rumqttc v4 rejects an incoming DISCONNECT with `WrongPacket`, so it
+    // surfaces through the poll `Err` arm (a dedicated `Packet::Disconnect`
+    // arm was tried and proven dead code — it can never fire). Fake broker
+    // speaks just enough MQTT: CONNACK, then a v4 DISCONNECT (0xE0 0x00)
+    // with the socket held open, so only prompt clearing passes.
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let (mut sock, _) = listener.accept().await.unwrap();
+        drop(listener); // reconnects refuse; the flag must stay cleared
+        let mut buf = [0u8; 256];
+        let _ = sock.read(&mut buf).await; // CONNECT, content ignored
+        sock.write_all(&[0x20, 0x02, 0x00, 0x00]).await.ok(); // CONNACK ok
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        sock.write_all(&[0xE0, 0x00]).await.ok(); // DISCONNECT, socket stays open
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    });
+
+    let f = common::fixture("mqtt-disc");
+    let slot = mqtt::spawn_mqtt(f.ctx.clone(), "127.0.0.1", port).await;
+    for _ in 0..50 {
+        if slot.handle.is_connected() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(slot.handle.is_connected(), "ConnAck should set connected");
+    for _ in 0..25 {
+        if !slot.handle.is_connected() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(
+        !slot.handle.is_connected(),
+        "DISCONNECT must clear connected within 500ms"
+    );
+    slot.task.abort();
+    std::fs::remove_dir_all(&f.dir).ok();
+}

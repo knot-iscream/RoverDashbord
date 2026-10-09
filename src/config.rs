@@ -9,18 +9,42 @@ use serde::{Deserialize, Serialize};
 
 pub const CONFIG_FILE: &str = "rover_config.json";
 
+/// App base directory (portable layout): `ROVER_HOME` if set, else the exe's
+/// folder when it holds `web/` (packaged app), else the CWD (`cargo run`).
+/// Every data path derives from this — no bare CWD-relative paths, so a
+/// shortcut with a different "Start in" can never lose data.
+pub fn base_dir() -> std::path::PathBuf {
+    if let Ok(d) = std::env::var("ROVER_HOME") {
+        return std::path::PathBuf::from(d);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(p) = exe.parent() {
+            if p.join("web").is_dir() {
+                return p.to_path_buf();
+            }
+        }
+    }
+    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+}
+
+/// Config path: `ROVER_CONFIG` override if set (integration tests point it
+/// at temp dirs so the suite never touches the real file — a test-only
+/// `POST /api/config` once overwrote it), else the CWD file.
+pub fn config_path() -> std::path::PathBuf {
+    std::env::var("ROVER_CONFIG")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| base_dir().join(CONFIG_FILE))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub mqtt_broker: String,
     pub mqtt_port: u16,
     /// Listen port for this backend (change needs a restart to take effect).
     pub http_port: u16,
-    /// false = bind 127.0.0.1 (this PC only). true = bind 0.0.0.0, and the
-    /// token below gates every mutating endpoint + WS (needs a restart).
-    #[serde(default)]
-    pub lan_access: bool,
     /// Shared secret for mutating endpoints + WS. Always enforced (cookie,
-    /// `?token=`, or `Authorization: Bearer`), on localhost and LAN alike.
+    /// `?token=`, or `Authorization: Bearer`). The app is localhost-only, so
+    /// this defends against drive-by websites, not remote attackers.
     #[serde(default)]
     pub auth_token: String,
 }
@@ -31,7 +55,6 @@ impl Default for AppConfig {
             mqtt_broker: "localhost".into(),
             mqtt_port: 1883,
             http_port: 8000,
-            lan_access: false,
             auth_token: String::new(),
         }
     }
@@ -43,14 +66,6 @@ fn env_str(key: &str) -> Option<String> {
 
 fn env_port(key: &str) -> Option<u16> {
     env_str(key)?.parse::<u16>().ok().filter(|p| *p > 0)
-}
-
-fn env_bool(key: &str) -> Option<bool> {
-    match env_str(key)?.to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Some(true),
-        "0" | "false" | "no" | "off" => Some(false),
-        _ => None,
-    }
 }
 
 /// 32 alphanumeric chars from a CSPRNG. Generated once, then persisted —
@@ -67,7 +82,7 @@ fn new_token() -> String {
 impl AppConfig {
     pub fn load() -> Self {
         let mut cfg = Self::default();
-        if let Ok(text) = std::fs::read_to_string(CONFIG_FILE) {
+        if let Ok(text) = std::fs::read_to_string(config_path()) {
             if let Ok(file) = serde_json::from_str::<AppConfig>(&text) {
                 cfg = file;
             }
@@ -81,9 +96,6 @@ impl AppConfig {
         if let Some(p) = env_port("PORT") {
             cfg.http_port = p;
         }
-        if let Some(lan) = env_bool("ROVER_LAN") {
-            cfg.lan_access = lan;
-        }
         if cfg.auth_token.trim().is_empty() {
             cfg.auth_token = new_token();
             cfg.save();
@@ -96,10 +108,10 @@ impl AppConfig {
             return;
         };
         // Temp file + rename: a crash mid-write must never truncate config.
-        let tmp = format!("{CONFIG_FILE}.tmp");
-        if let Err(e) = std::fs::write(&tmp, text).and_then(|()| std::fs::rename(&tmp, CONFIG_FILE))
-        {
-            tracing::warn!("could not save {CONFIG_FILE}: {e}");
+        let path = config_path();
+        let tmp = format!("{}.tmp", path.display());
+        if let Err(e) = std::fs::write(&tmp, text).and_then(|()| std::fs::rename(&tmp, &path)) {
+            tracing::warn!("could not save {}: {e}", path.display());
         }
     }
 }
@@ -125,12 +137,6 @@ pub fn apply_update(cfg: &mut AppConfig, body: &serde_json::Value) -> Result<boo
             .ok_or_else(|| "mqtt_port must be 1..65535".to_string())? as u16;
         if cfg.mqtt_port != port {
             cfg.mqtt_port = port;
-            changed = true;
-        }
-    }
-    if let Some(lan) = body.get("lan_access").and_then(|v| v.as_bool()) {
-        if cfg.lan_access != lan {
-            cfg.lan_access = lan;
             changed = true;
         }
     }
@@ -166,19 +172,12 @@ mod tests {
         assert!(apply_update(&mut c, &json!({"mqtt_port": 99999})).is_err());
         assert_eq!(apply_update(&mut c, &json!({"mqtt_port": 1884})), Ok(true));
         assert_eq!(c.mqtt_port, 1884);
-        assert_eq!(apply_update(&mut c, &json!({"lan_access": true})), Ok(true));
-        assert!(c.lan_access);
-        assert_eq!(
-            apply_update(&mut c, &json!({"lan_access": true})),
-            Ok(false)
-        );
-        // Old config files (no new fields) still load: broker survives upgrade.
+        // Old config files (new fields missing) still load.
         let old: AppConfig = serde_json::from_str(
-            r#"{"mqtt_broker":"192.168.0.5","mqtt_port":1883,"http_port":8000}"#,
+            r#"{"mqtt_broker":"192.168.0.5","mqtt_port":1883,"http_port":8000,"lan_access":true}"#,
         )
         .unwrap();
         assert_eq!(old.mqtt_broker, "192.168.0.5");
-        assert!(!old.lan_access);
         assert!(old.auth_token.is_empty());
         // Tokens are 32 alphanumeric chars.
         let t = new_token();

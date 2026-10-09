@@ -232,7 +232,6 @@ async fn config_get_public_post_guarded() {
     let (r, _g) = app().await;
     let (s, v, _) = req(r, "GET", "/api/config", None, None).await;
     assert_eq!(s, StatusCode::OK);
-    assert_eq!(v["lan_access"], false);
     assert!(
         v.get("auth_token").is_none(),
         "token must never leak via config"
@@ -255,12 +254,12 @@ async fn config_get_public_post_guarded() {
         "POST",
         "/api/config",
         Some(TEST_TOKEN),
-        Some(json!({"lan_access": true})),
+        Some(json!({"mqtt_broker": "192.168.0.5"})),
     )
     .await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(v["changed"], true);
-    assert_eq!(v["lan_access"], true);
+    assert_eq!(v["mqtt_broker"], "192.168.0.5");
 }
 
 #[tokio::test]
@@ -273,15 +272,6 @@ async fn token_endpoints_locked() {
     let (s, v, _) = req(r, "GET", "/api/auth/token", Some(TEST_TOKEN), None).await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(v["token"], TEST_TOKEN);
-
-    let (r, _g) = app().await;
-    let (s, _, _) = req(r, "GET", "/api/setup/qr.svg", None, None).await;
-    assert_eq!(s, StatusCode::UNAUTHORIZED);
-
-    let (r, _g) = app().await;
-    let (s, _, h) = req(r, "GET", "/api/setup/qr.svg", Some(TEST_TOKEN), None).await;
-    assert_eq!(s, StatusCode::OK);
-    assert_eq!(h.get("content-type").unwrap(), "image/svg+xml");
 }
 
 #[tokio::test]

@@ -19,7 +19,9 @@ with a genuine reason).
   carry the pid against same-second collisions (B3).
 - Python banker's rounding replicated for health/segments/export (B4).
 - Unique MQTT client id per process; 15s keepalive for faster dead-peer
-  detection (B5, B6).
+  detection (B5, B6). Broker disconnects clear `mqtt_connected` via the poll
+  error path (verified: rumqttc v4 rejects incoming DISCONNECT, so no
+  separate arm is needed) — pinned by a fake-broker test.
 - Startup log line always prints (B7); buffered history writer (B8);
   deterministic motor order (B9); lock-free streaming export (B10); atomic
   config/baseline writes with visible errors (B11); graceful shutdown and a
@@ -33,8 +35,14 @@ with a genuine reason).
   and `/ws` via cookie / `?token=` / `Authorization: Bearer`.
 - Setup page: LAN toggle, token display + regenerate, QR join code.
 
+**Known minor divergences (documented, not fixed)**
+- `GET /api/history/segments` without `?day=` answers 400 (axum rejection);
+  v1 answered 422 (FastAPI validation). Same meaning, different code.
+- A WebSocket client too slow to keep up drops frames instead of being
+  disconnected (v1 removed dead clients). Chosen for robustness at 4 Hz.
+
 **Tests & tooling**
-- 52 tests: 21 unit + 10 API + 8 MQTT + 5 history + 4 WS + 4 golden
+- 53 tests: 21 unit + 10 API + 9 MQTT + 5 history + 4 WS + 4 golden
   fixtures captured from the original Python modules.
 - `src/lib.rs` + `build_router` so tests exercise the real route table.
 - Criterion benches with measured v1-vs-2.0 speedups (10x / 3.5x / 8.6x).

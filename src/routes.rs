@@ -193,14 +193,12 @@ pub async fn get_config(State(s): State<AppState>) -> Json<Value> {
         "mqtt_port": cfg.mqtt_port,
         "http_port": cfg.http_port,
         "http_port_note": "changing the app port needs an app restart (set PORT env or rover_config.json)",
-        "lan_access": cfg.lan_access,
-        "lan_note": "turning LAN access on/off needs an app restart; when on, control endpoints need the token",
         "mqtt_connected": s.mqtt.read().await.handle.is_connected(),
     }))
 }
 
 pub async fn post_config(State(s): State<AppState>, Json(body): Json<Value>) -> Json<Value> {
-    let (broker, port, lan, changed) = {
+    let (broker, port, changed) = {
         let mut cfg = s.cfg.write().await;
         match crate::config::apply_update(&mut cfg, &body) {
             Err(e) => return Json(json!({"status": "error", "detail": e})),
@@ -208,12 +206,7 @@ pub async fn post_config(State(s): State<AppState>, Json(body): Json<Value>) -> 
                 if changed {
                     cfg.save();
                 }
-                (
-                    cfg.mqtt_broker.clone(),
-                    cfg.mqtt_port,
-                    cfg.lan_access,
-                    changed,
-                )
+                (cfg.mqtt_broker.clone(), cfg.mqtt_port, changed)
             }
         }
     };
@@ -230,7 +223,6 @@ pub async fn post_config(State(s): State<AppState>, Json(body): Json<Value>) -> 
         "changed": changed,
         "mqtt_broker": broker,
         "mqtt_port": port,
-        "lan_access": lan,
         "mqtt_connected": s.mqtt.read().await.handle.is_connected(),
     }))
 }
@@ -366,38 +358,4 @@ pub async fn rotate_token(State(s): State<AppState>, req: Request<Body>) -> Resp
         resp.headers_mut().append(header::SET_COOKIE, v);
     }
     resp
-}
-
-/// This PC's LAN address: UDP "connect" picks the default route without
-/// sending anything, so it works offline and needs no extra crate.
-fn lan_ip() -> String {
-    std::net::UdpSocket::bind("0.0.0.0:0")
-        .and_then(|sock| {
-            sock.connect("8.8.8.8:80")?;
-            sock.local_addr()
-        })
-        .map(|a| a.ip().to_string())
-        .unwrap_or_else(|_| "localhost".into())
-}
-
-/// QR code (SVG) encoding the one-tap phone URL. Requires the token.
-pub async fn setup_qr(State(s): State<AppState>, req: Request<Body>) -> Response {
-    let (token, port) = {
-        let cfg = s.cfg.read().await;
-        (cfg.auth_token.clone(), cfg.http_port)
-    };
-    if !token_valid(&req, &token) {
-        return unauthorized();
-    }
-    let url = format!("http://{}:{port}/?token={token}", lan_ip());
-    match qrcode::QrCode::new(url.as_bytes()) {
-        Ok(code) => {
-            let svg = code
-                .render::<qrcode::render::svg::Color>()
-                .min_dimensions(220, 220)
-                .build();
-            ([(header::CONTENT_TYPE, "image/svg+xml")], svg).into_response()
-        }
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-    }
 }
