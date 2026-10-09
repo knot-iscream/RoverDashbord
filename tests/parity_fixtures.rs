@@ -154,13 +154,52 @@ fn calibration_matches_goldens() {
     );
 }
 
+/// `start_iso` is a local wall-clock rendering of `start_ts` (Python used
+/// `datetime.fromtimestamp()`, so the Rust port must too). The golden was
+/// captured on the author's UTC+6 machine, so demanding that literal string
+/// only ever passes in UTC+6 — GitHub runners are UTC and both OS jobs went
+/// red. The format is still asserted (render the fixture's own `start_ts` with
+/// the same `%H:%M:%S` on this machine), but the timezone is not baked in.
+fn assert_start_iso_local(got: &[Value], want: &[Value], case: &str) {
+    use chrono::TimeZone;
+    assert_eq!(got.len(), want.len(), "{case}: segment count");
+    for g in got {
+        let ts = g["start_ts"].as_f64().expect("segment carries start_ts");
+        let expected = chrono::Local
+            .timestamp_opt(ts as i64, 0)
+            .single()
+            .expect("valid start_ts")
+            .format("%H:%M:%S")
+            .to_string();
+        assert_eq!(
+            g["start_iso"].as_str(),
+            Some(expected.as_str()),
+            "{case}: start_iso must be %H:%M:%S local time of start_ts"
+        );
+    }
+}
+
 #[test]
 fn segments_match_goldens() {
     for c in fixture("segments") {
         let name = c["case"].as_str().unwrap();
         let rows: Vec<Value> = serde_json::from_value(c["input_rows"].clone()).unwrap();
         let got = serde_json::to_value(segments_of(&rows)).unwrap();
-        assert_norm(&got, &c["segments"], &format!("{name}.segments"));
+        assert_start_iso_local(
+            got.as_array().unwrap(),
+            c["segments"].as_array().unwrap(),
+            name,
+        );
+        // Golden compare minus the local-time field (checked above).
+        let mut got_cmp = got.clone();
+        let mut want_cmp = c["segments"].clone();
+        for v in got_cmp.as_array_mut().unwrap() {
+            v.as_object_mut().unwrap().remove("start_iso");
+        }
+        for v in want_cmp.as_array_mut().unwrap() {
+            v.as_object_mut().unwrap().remove("start_iso");
+        }
+        assert_norm(&got_cmp, &want_cmp, &format!("{name}.segments"));
     }
 }
 
