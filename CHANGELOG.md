@@ -28,12 +28,12 @@ with a genuine reason).
   readable bind-conflict message (B15). Dead code and stale comments removed.
 
 **Security**
-- Binds `127.0.0.1` by default; LAN mode is opt-in (`ROVER_LAN=1` or Setup
-  page, needs restart).
+- Localhost-only by design: binds `127.0.0.1`, no LAN mode exists.
 - Permissive CORS deleted; no CORS headers are ever sent.
 - 32-char token (generated once, persisted) gates every mutating endpoint
-  and `/ws` via cookie / `?token=` / `Authorization: Bearer`.
-- Setup page: LAN toggle, token display + regenerate, QR join code.
+  and `/ws` via cookie / `?token=` / `Authorization: Bearer`. This stops any
+  website you visit from driving the motors behind your back.
+- Setup page: token display + regenerate.
 
 **Known minor divergences (documented, not fixed)**
 - `GET /api/history/segments` without `?day=` answers 400 (axum rejection);
@@ -42,7 +42,7 @@ with a genuine reason).
   disconnected (v1 removed dead clients). Chosen for robustness at 4 Hz.
 
 **Tests & tooling**
-- 53 tests: 21 unit + 10 API + 9 MQTT + 5 history + 4 WS + 4 golden
+- 54 tests: 22 unit + 10 API + 9 MQTT + 5 history + 4 WS + 4 golden
   fixtures captured from the original Python modules.
 - `src/lib.rs` + `build_router` so tests exercise the real route table.
 - Criterion benches with measured v1-vs-2.0 speedups (10x / 3.5x / 8.6x).
