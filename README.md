@@ -30,19 +30,38 @@ What the 90% bought is **headroom**. On v1, high-rate lidar point clouds,
 video streams and a dozen extra sensors were off the table. They are
 affordable now.
 
-That headroom is one reason v2.0 is moving to a real desktop app: the
+That headroom is one reason v2.0 ships as a real desktop app: the
 backend is no longer the ceiling, so lidar and camera work is no longer
 blocked by it. The rest of the app-first move — its own window, tray icon,
 background monitoring — has nothing to do with speed.
 
-## Start here (Windows)
+## Run the app (Windows)
+
+Double-click **`dist\RoverDash\roverdash.exe`** — built once with
+`package.bat` (needs a Rust toolchain, slow first build). Splash, native
+window, dashboard. No browser, no address bar, no console.
+
+- X minimizes to the tray instead of quitting; quit from the tray menu.
+  A second launch just focuses the running window.
+- The app brings its own MQTT broker and starts it when nothing listens
+  on 1883. Your data (`rover_config.json`, `history/`) lives beside the
+  exe, so the whole folder is portable — copy it to back up or move PCs.
+- First launch: Windows SmartScreen warns on the unsigned exe
+  (More info → Run anyway, one time).
+
+Prefer the old way, or developing? Double-click **`Rover.bat`** — it starts
+the packaged app if present, else runs the backend from source and opens
+your browser. Something wrong? **`Doctor.bat`** checks everything and tells
+you what to do in plain language.
+
+## Start here, from source (developers)
 
 1. Install [Rust stable](https://rustup.rs/) once (and accept the
    Visual Studio Build Tools install it suggests).
 2. Install [Mosquitto](https://mosquitto.org/download/) on this PC once
-   (the message broker between rover and app).
-3. Double-click **`Rover.bat`** — it starts the broker if needed, starts the
-   app, and opens the dashboard by itself: `http://localhost:8000/`
+   (the message broker between rover and app) — only needed for
+   source runs; the packaged app bundles its own.
+3. `cargo run` serves the dashboard at `http://localhost:8000/`
 
 Something wrong? Double-click **`Doctor.bat`** — it checks everything and
 tells you what to do in plain language.
@@ -91,7 +110,7 @@ test — nothing changed silently):
 ## For developers
 
 - Backend: `cargo run` (port `PORT` env, default `8000`), tests: `cargo test`
-  (52: unit + API + WS + MQTT + history + golden fixtures), benches:
+  (54: 22 unit + 10 API + 9 MQTT + 5 history + 4 WS + 4 golden fixtures), benches:
   `cargo bench`. CI runs fmt, clippy (`-D warnings`), and tests on
   Windows + Linux.
 - Measured vs v1 (release, like-for-like): ingest 3171ns → 310ns (~10x),
@@ -102,7 +121,7 @@ test — nothing changed silently):
   integration tests exercise the real route table; `tests/fixtures/` holds
   golden outputs captured from the original Python modules.
 - API + WebSocket protocol mirror the old Python server 1:1; dashboard pages
-  are served untouched from `web/`.
+  live in `web/` (v1 copy minus the mobile bottom nav — see CHANGELOG).
 - ESP32 firmware (C++) lives in `firmware/ESP32-WROOM-32/` — flash it from the
   Arduino IDE (WiFi code stays placeholder; the rover learns real credentials
   via its phone portal). Its MQTT contract (topics, payloads, timing) is the

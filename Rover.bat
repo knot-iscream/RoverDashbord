@@ -40,7 +40,9 @@ if exist "C:\Program Files\mosquitto\mosquitto.exe" start "" /min "C:\Program Fi
 :devrun
 echo [Rover] Dev mode: backend from source, dashboard at http://localhost:8000/
 echo [Rover] (Run package.bat once for the native window.)
-start "" /min cmd /c "cargo run >> "%LOG%" 2>&1"
+REM Bare filename (we cd'd to the repo root above): zero inner quotes, so
+REM cmd parses this identically with or without a console attached.
+start "" /min cmd /s /c "cargo run >> Rover.log 2>&1"
 set /a TRIES=0
 
 :waitup
@@ -48,7 +50,8 @@ curl.exe -s -m 2 http://localhost:8000/api/health >nul 2>&1
 if not errorlevel 1 goto openit
 set /a TRIES+=1
 if %TRIES% GEQ 30 goto openanyway
-timeout /t 2 /nobreak >nul
+REM ping-delay, not timeout.exe: works with or without a console attached.
+ping -n 3 127.0.0.1 >nul
 goto waitup
 
 :openanyway

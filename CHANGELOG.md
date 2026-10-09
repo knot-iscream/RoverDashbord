@@ -49,6 +49,18 @@ with a genuine reason).
 - CI (fmt, clippy `-D warnings`, tests) on Windows + Linux; MIT license.
 - `/api/health` reports `version` + `build` (git hash via `build.rs`).
 
+**Desktop app (new)**
+- Tauri v2 shell (`roverdash.exe`): native window (min 1200x800), backend
+  in-process, splash while starting, tray icon (X minimizes, quit from the
+  menu), single-instance. WebView loads the same `http://127.0.0.1:8000`.
+- Portable folder `dist/RoverDash/` (built by `package.bat`, gitignored):
+  exe + `web/` + bundled Mosquitto sidecar. Data lives beside the exe.
+  `Rover.bat` starts the packaged app, with a `cargo run` dev fallback.
+- Supervisor: bundled broker auto-starts iff 1883 is free (external broker
+  wins); graceful exit stops exactly the sidecar it started.
+- Vendored pages minus the mobile bottom nav and its CSS/JS (dead above
+  the 1200px window floor — documented here, not silently dropped).
+
 ## v1-python — original Python backend
 
 Preserved as-is under the `v1-python` tag (FastAPI + paho-mqtt + openpyxl,
