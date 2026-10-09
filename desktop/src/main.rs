@@ -19,20 +19,37 @@ use tauri::Manager;
 
 type ChildSlot = Arc<Mutex<Option<std::process::Child>>>;
 
-/// Where the sidecar broker lives: next to the exe when bundled (portable
-/// layout), else `desktop/binaries/` for `cargo run` dev.
-fn sidecar_paths() -> (PathBuf, PathBuf) {
+/// Where the sidecar broker lives: `<dir>/mosquitto-*.exe` with its DLLs
+/// beside it. Searches the exe folder, then up to 3 ancestors, then the CWD
+/// the same way — covers the packaged layout (beside the exe), a dev
+/// double-click from `target/debug` (via `desktop/binaries` two up), and
+/// `cargo run` from anywhere in the checkout.
+fn sidecar_paths() -> Option<(PathBuf, PathBuf)> {
     const EXE: &str = "mosquitto-x86_64-pc-windows-msvc.exe";
+    let mut roots = vec![];
     if let Ok(me) = std::env::current_exe() {
-        if let Some(dir) = me.parent() {
-            let exe = dir.join(EXE);
-            if exe.is_file() {
-                return (exe, dir.to_path_buf());
-            }
+        if let Some(d) = me.parent() {
+            roots.push(d.to_path_buf());
         }
     }
-    let dev = PathBuf::from("desktop").join("binaries");
-    (dev.join(EXE), dev)
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.push(cwd);
+    }
+    for root in roots {
+        let mut dir = Some(root.as_path());
+        for _ in 0..4 {
+            let Some(d) = dir else { break };
+            if d.join(EXE).is_file() {
+                return Some((d.join(EXE), d.to_path_buf()));
+            }
+            let dev = d.join("desktop").join("binaries");
+            if dev.join(EXE).is_file() {
+                return Some((dev.join(EXE), dev));
+            }
+            dir = d.parent();
+        }
+    }
+    None
 }
 
 async fn tcp_open(addr: &str) -> bool {
@@ -47,14 +64,12 @@ fn ensure_broker() -> Option<std::process::Child> {
         tracing::info!("broker already on 1883, sidecar not started");
         return None;
     }
-    let (exe, workdir) = sidecar_paths();
-    if !exe.is_file() {
+    let Some((exe, workdir)) = sidecar_paths() else {
         tracing::warn!(
-            "no broker on 1883 and no sidecar at {} — dashboard will show NOT connected",
-            exe.display()
+            "no broker on 1883 and no sidecar found — dashboard will show NOT connected"
         );
         return None;
-    }
+    };
     let mut cmd = std::process::Command::new(&exe);
     cmd.current_dir(&workdir)
         .stdout(Stdio::piped())

@@ -10,17 +10,22 @@ use serde::{Deserialize, Serialize};
 pub const CONFIG_FILE: &str = "rover_config.json";
 
 /// App base directory (portable layout): `ROVER_HOME` if set, else the exe's
-/// folder when it holds `web/` (packaged app), else the CWD (`cargo run`).
-/// Every data path derives from this — no bare CWD-relative paths, so a
-/// shortcut with a different "Start in" can never lose data.
+/// folder or its ancestors when one holds `web/` (packaged app, or a dev
+/// double-click from `target/debug` — two levels below the repo root), else
+/// the CWD (`cargo run`). Every data path derives from this — no bare
+/// CWD-relative paths, so a shortcut with a different "Start in" can never
+/// lose data or serve a 404.
 pub fn base_dir() -> std::path::PathBuf {
     if let Ok(d) = std::env::var("ROVER_HOME") {
         return std::path::PathBuf::from(d);
     }
     if let Ok(exe) = std::env::current_exe() {
-        if let Some(p) = exe.parent() {
-            if p.join("web").is_dir() {
-                return p.to_path_buf();
+        let mut dir = exe.parent().map(|p| p.to_path_buf());
+        for _ in 0..4 {
+            match dir {
+                Some(d) if d.join("web").is_dir() => return d,
+                Some(d) => dir = d.parent().map(|p| p.to_path_buf()),
+                None => break,
             }
         }
     }
@@ -184,5 +189,16 @@ mod tests {
         assert_eq!(t.len(), 32);
         assert!(t.chars().all(|c| c.is_ascii_alphanumeric()));
         assert_ne!(t, new_token());
+    }
+
+    #[test]
+    fn base_dir_prefers_rover_home() {
+        let prev = std::env::var("ROVER_HOME").ok();
+        std::env::set_var("ROVER_HOME", "/tmp/rover-home-test");
+        assert_eq!(base_dir(), std::path::PathBuf::from("/tmp/rover-home-test"));
+        match prev {
+            Some(v) => std::env::set_var("ROVER_HOME", v),
+            None => std::env::remove_var("ROVER_HOME"),
+        }
     }
 }

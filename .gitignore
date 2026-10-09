@@ -2,6 +2,9 @@
 /target/
 target/
 
+# Packaged portable app (rebuilt by package.bat, never commit)
+/dist/
+
 # Local session workflow (per AGENTS.md) - never commit
 /backups/
 
@@ -10,6 +13,7 @@ target/
 HANDOFF.md
 LOG.md
 SESSION.md
+AGENTS.md
 
 # Runtime state - created on boot / via the Setup page
 rover_config.json
