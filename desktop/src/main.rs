@@ -122,6 +122,37 @@ fn drain_logs(mut child: Option<std::process::Child>) -> Option<std::process::Ch
     child
 }
 
+/// Ask the Windows compositor (DWM) to round this window's corners. This is
+/// how custom-frame apps get native-looking rounding with zero transparency,
+/// zero CSS tricks and zero GPU compositing cost: the DWM clips the window
+/// shape no matter what the page paints. Persists for the window lifetime
+/// (hide/show/maximize need no re-apply). Failures only log — the app stays
+/// usable with square corners.
+#[cfg(windows)]
+fn round_window_corners(win: &tauri::WebviewWindow) {
+    use windows::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+    };
+    let Ok(hwnd) = win.hwnd() else {
+        tracing::warn!("no HWND, DWM corner rounding skipped");
+        return;
+    };
+    let pref = DWMWCP_ROUND;
+    let hr = unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &pref as *const _ as *const std::ffi::c_void,
+            std::mem::size_of_val(&pref) as u32,
+        )
+    };
+    if hr.is_err() {
+        tracing::warn!("DWM corner rounding failed: {hr:?}");
+    } else {
+        tracing::info!("DWM corner rounding applied");
+    }
+}
+
 /// Boot order: broker → backend → navigate + show main, close splash.
 /// Runs to completion once; failures leave the splash up with the log.
 async fn bring_up(handle: tauri::AppHandle, port: u16, broker: ChildSlot) {
@@ -140,6 +171,8 @@ async fn bring_up(handle: tauri::AppHandle, port: u16, broker: ChildSlot) {
     }
     if let Some(win) = handle.get_webview_window("main") {
         let _ = win.navigate(url);
+        #[cfg(windows)]
+        round_window_corners(&win);
         let _ = win.show();
     }
     if let Some(splash) = handle.get_webview_window("splash") {

@@ -3266,6 +3266,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "windows",
 ]
 
 [[package]]

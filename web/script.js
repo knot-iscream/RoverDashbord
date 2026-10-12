@@ -488,7 +488,7 @@ window.ROVER = (function () {
     bar.innerHTML =
       '<button type="button" class="win-btn" data-win="min" title="Minimize" aria-label="Minimize">' + SVG_MIN + '</button>' +
       '<button type="button" class="win-btn" data-win="max" title="Maximize" aria-label="Maximize">' + SVG_MAX + '</button>' +
-      '<button type="button" class="win-btn win-close" data-win="close" title="Close" aria-label="Close">' + SVG_CLOSE + '</button>';
+      '<button type="button" class="win-btn" data-win="close" title="Close" aria-label="Close">' + SVG_CLOSE + '</button>';
     slot.appendChild(bar);
   });
 

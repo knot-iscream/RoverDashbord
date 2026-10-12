@@ -241,7 +241,7 @@
     });
     document.getElementById('t-health-bar').style.width = '0%';
     document.getElementById('t-health-bar').classList.remove('low');
-    sysStatus.className = 'test-sys-ok';
+    sysStatus.className = 'test-sys-ok test-sys-wait';
     sysStatus.textContent = 'No live data \u2014 awaiting ' + MOTOR_NAMES[selectedMotor - 1] + ' stream\u2026';
   }
 

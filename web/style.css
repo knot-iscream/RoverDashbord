@@ -215,17 +215,41 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 
 /* ===== NATIVE WINDOW CONTROLS (Tauri frameless shell) ===== */
 /* Injected by script.js only when window.__TAURI__ exists — browsers
-   never see these. Sharp corners echo the skewed-button brand. */
-.win-controls { display: flex; align-items: stretch; gap: 2px; margin-right: -8px; }
+   never see these. Skewed bodies echo the brand buttons; the glyph stays
+   upright the same way .btn-content does. */
+.win-controls { display: flex; align-items: center; gap: 4px; margin-right: 0; }
+/* Inverted header-cta (Reanime Sign In): calm dark chamfers at rest, the
+   full CTA look arrives on hover. Orange is a reward, not a billboard. */
 .win-btn {
+  position: relative;
   display: flex; align-items: center; justify-content: center;
   width: 44px; height: 32px;
   color: var(--gray-400);
-  transition: background 0.15s ease, color 0.15s ease;
+  background: var(--bg-black-60);
+  border: 1px solid rgba(255,255,255,0.12);
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
-.win-btn svg { width: 12px; height: 12px; }
-.win-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
-.win-btn.win-close:hover { background: #e81123; color: #fff; }
+.win-btn svg { width: 14px; height: 14px; }
+/* Traffic-light hovers: min orange, max yellow, close red. */
+.win-btn[data-win="min"]:hover {
+  color: #04140a;
+  background: var(--primary);
+  border-color: color-mix(in oklch, var(--primary) 55%, white);
+  filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5));
+}
+.win-btn[data-win="max"]:hover {
+  color: #04140a;
+  background: var(--dot-yellow);
+  border-color: color-mix(in oklch, var(--dot-yellow) 55%, white);
+  filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5));
+}
+.win-btn[data-win="close"]:hover {
+  color: #fff;
+  background: #e81123;
+  border-color: color-mix(in oklch, #e81123 55%, white);
+  filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5));
+}
 
 .logo-link {
   display: flex; align-items: center;
@@ -1699,6 +1723,7 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   font-size: 12px; font-weight: 600; color: var(--dot-green);
 }
 .test-sys-alert { color: var(--dot-red); }
+.test-sys-wait { color: var(--dot-yellow); }
 
 .test-health-bar-wrap {
   height: 6px; border-radius: 9999px;
