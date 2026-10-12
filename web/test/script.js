@@ -5,7 +5,9 @@
   // Same backend that served this page — works from any PC/phone.
   var WS_URL = (window.ROVER && window.ROVER.wsUrl) || 'ws://localhost:8000/ws';
   var API_BASE = (window.ROVER && window.ROVER.apiBase) || 'http://localhost:8000';
-  var MOTOR = 4;                 // RR (Rear Right)
+  var MOTOR_NAMES = ['FL', 'FR', 'RL', 'RR'];
+  var MOTOR_FULL = ['Front Left', 'Front Right', 'Rear Left', 'Rear Right'];
+  var selectedMotor = 4;         // default RR (preserves previous behavior)
 
   // ── State ─────────────────────────────────────────────
   var ws = null;
@@ -26,14 +28,14 @@
   var rampIndex = 0;
   var rampStepStart = 0;
 
-  // Data freshness — only real motor-4 packets count as "live".
-  var lastRxAt = null;         // performance.now() of last fresh RR sample
-  var lastSample = null;       // last real telemetry payload
+  // Data freshness — per-motor live samples only.
+  var lastRxAt = { 1: null, 2: null, 3: null, 4: null }; // motorId -> performance.now()
+  var lastSample = { 1: null, 2: null, 3: null, 4: null }; // motorId -> last payload
   var freshTimer = null;
   var FRESH_LIVE_MS = 5000;    // live while samples arrive within this window
   var FRESH_TIMEOUT_MS = 60000; // after this, drop back to placeholders
 
-  // Health is only meaningful once motor 4 has a calibrated baseline.
+  // Health is only meaningful once the selected motor has a calibrated baseline.
   var hasBaseline = false;
 
   // ── DOM refs ──────────────────────────────────────────
@@ -42,10 +44,13 @@
   var teleDot = document.getElementById('tele-dot');
   var runStatus = document.getElementById('run-status');
   var sysStatus = document.getElementById('sys-status');
-  var slider = document.getElementById('motor-slider-4');
-  var valEl = document.getElementById('motor-val-4');
-  var row = document.querySelector('[data-motor-row="4"]');
-  var offBtn = document.querySelector('[data-off="4"]');
+  var slider = document.getElementById('motor-slider');
+  var valEl = document.getElementById('motor-val');
+  var row = document.querySelector('[data-motor-row]');
+  var offBtn = document.querySelector('[data-off]');
+  var motorTitle = document.getElementById('test-motor-title');
+  var motorName = document.getElementById('test-motor-name');
+  var motorTabs = document.querySelectorAll('#test-motor-tabs .detail-motor-tab');
   var guard = document.getElementById('test-guard');
   var rampBtn = document.getElementById('ramp-btn');
   var rampStatus = document.getElementById('ramp-status');
@@ -95,11 +100,13 @@
 
   function handleWSMessage(msg) {
     if (msg.type === 'motor_update') {
-      if (msg.motor === MOTOR) {
-        lastRxAt = performance.now();
-        lastSample = msg;
-        renderTelemetry(msg);
-        if (calibrating) renderRealStatus();
+      if (msg.motor >= 1 && msg.motor <= 4) {
+        lastRxAt[msg.motor] = performance.now();
+        lastSample[msg.motor] = msg;
+        if (msg.motor === selectedMotor) {
+          renderTelemetry(msg);
+          if (calibrating) renderRealStatus();
+        }
       }
     } else if (msg.type === 'snapshot') {
       // Cached history replay — intentionally ignored. Only fresh
@@ -115,23 +122,17 @@
     }
   }
 
+  // Corner badge shows device presence only (Online/Offline). Server link
+  // state lives in the guard chips below, telemetry freshness in the panel.
   function setConnectionStatus(connected) {
     chipConn.style.background = connected ? 'var(--dot-green)' : 'var(--dot-red)';
     chipConnLabel.textContent = connected ? 'Server connected' : 'Disconnected';
-    if (!connected) {
-      statusDot.className = 'status-dot dot-red';
-      statusLabel.textContent = 'Offline';
-      teleDot.className = 'status-dot dot-red';
-      runStatus.className = 'cal-motor-status idle';
-      runStatus.textContent = 'Offline';
-    }
   }
 
   function applyDeviceStatus(online) {
     deviceOnline = online === true;
-    statusDot.className = 'status-dot ' + (deviceOnline ? 'dot-green' : 'dot-red');
-    statusLabel.textContent = deviceOnline ? 'Live' : 'Offline';
-    teleDot.className = 'status-dot dot-green' + (deviceOnline ? ' pulse' : '');
+    statusDot.className = 'status-dot ' + (deviceOnline ? 'dot-green pulse' : 'dot-red');
+    statusLabel.textContent = deviceOnline ? 'Online' : 'Offline';
     if (!deviceOnline) {
       runStatus.className = 'cal-motor-status idle';
       runStatus.textContent = 'Offline';
@@ -165,7 +166,7 @@
     document.getElementById('t-health').textContent =
       h === null ? '--' : h.toFixed(1) + '%';
 
-    var spd = (typeof d.speed === 'number') ? d.speed : motorSpeeds[MOTOR - 1];
+    var spd = (typeof d.speed === 'number') ? d.speed : motorSpeeds[selectedMotor - 1];
     document.getElementById('t-speed').textContent = spd;
 
     renderVib(d.vibration, d.vibration_valid);
@@ -177,7 +178,7 @@
   }
 
   function renderRealStatus() {
-    var spd = motorSpeeds[MOTOR - 1];
+    var spd = motorSpeeds[selectedMotor - 1];
     runStatus.className = 'cal-motor-status ' + (spd ? 'collecting' : 'idle');
     runStatus.textContent = spd ? 'Sweeping' : 'Idle';
   }
@@ -235,17 +236,19 @@
   function blankTelemetry() {
     sensorValueEls().forEach(function (el) {
       el.textContent = el.id === 't-speed'
-        ? String(motorSpeeds[MOTOR - 1])
+        ? String(motorSpeeds[selectedMotor - 1])
         : '--';
     });
     document.getElementById('t-health-bar').style.width = '0%';
     document.getElementById('t-health-bar').classList.remove('low');
     sysStatus.className = 'test-sys-ok';
-    sysStatus.textContent = 'No live data \u2014 awaiting RR stream\u2026';
+    sysStatus.textContent = 'No live data \u2014 awaiting ' + MOTOR_NAMES[selectedMotor - 1] + ' stream\u2026';
   }
 
   function updateFreshness() {
-    var age = lastRxAt ? (performance.now() - lastRxAt) / 1000 : null;
+    var rxAt = lastRxAt[selectedMotor];
+    var age = rxAt ? (performance.now() - rxAt) / 1000 : null;
+    var label = MOTOR_NAMES[selectedMotor - 1];
     var state = 'waiting';
     if (age !== null) {
       state = age <= FRESH_LIVE_MS ? 'live'
@@ -263,7 +266,7 @@
     } else if (stale) {
       tAgeEl.textContent = 'Stale \u00b7 ' + Math.round(age) + 's ago';
     } else {
-      tAgeEl.textContent = 'Waiting for RR stream\u2026';
+      tAgeEl.textContent = 'Waiting for ' + label + ' stream\u2026';
     }
 
     sensorValueEls().forEach(function (el) {
@@ -273,8 +276,8 @@
     if (state === 'waiting') {
       blankTelemetry();
       renderVib(false);
-    } else if (live && lastSample) {
-      renderSysStatus(lastSample);
+    } else if (live && lastSample[selectedMotor]) {
+      renderSysStatus(lastSample[selectedMotor]);
     } else if (stale) {
       sysStatus.className = 'test-sys-ok test-sys-alert';
       sysStatus.textContent = 'Telemetry stale \u2014 last sample ' +
@@ -288,7 +291,7 @@
     var xhr = new XMLHttpRequest();
     xhr.open('POST', API_BASE + '/api/motor/control', true);
     xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.send(JSON.stringify({ motor: MOTOR, speed: speed }));
+    xhr.send(JSON.stringify({ motor: selectedMotor, speed: speed }));
   }
 
   function scheduleSend(value) {
@@ -319,7 +322,7 @@
     revLabel.classList.toggle('on', value < 0);
     fwdLabel.classList.toggle('on', value > 0);
 
-    motorSpeeds[MOTOR - 1] = value;
+    motorSpeeds[selectedMotor - 1] = value;
   }
 
   function easeOutExpo(t) {
@@ -351,7 +354,29 @@
     slider.disabled = !enabled;
     offBtn.disabled = !enabled;
     presetBtns.forEach(function (b) { b.disabled = !enabled; });
+    motorTabs.forEach(function (t) { t.disabled = !enabled; });
     row.classList.toggle('disabled', !enabled);
+  }
+
+  // ── Motor tab switching (same pattern as the detailed page) ──
+  function selectMotor(id) {
+    if (id === selectedMotor) return;
+    if (rampRunning) cancelRamp();
+    selectedMotor = id;
+    motorTabs.forEach(function (t) {
+      t.classList.toggle('active', parseInt(t.getAttribute('data-motor'), 10) === id);
+    });
+    if (motorTitle) motorTitle.innerHTML = 'Motor ' + MOTOR_NAMES[id - 1] + ' &middot; #' + id;
+    if (motorName) motorName.textContent = MOTOR_FULL[id - 1];
+    if (row) row.setAttribute('data-motor-row', id);
+    if (slider) slider.setAttribute('data-motor', id);
+    if (offBtn) offBtn.setAttribute('data-off', id);
+    slider.value = motorSpeeds[id - 1];
+    updateMotorUI(motorSpeeds[id - 1]);
+    blankTelemetry();
+    if (lastSample[id]) renderTelemetry(lastSample[id]);
+    updateFreshness();
+    fetchBaseline();
   }
 
   // ── Ramp test ─────────────────────────────────────────
@@ -430,7 +455,7 @@
       if (xhr.status !== 200) return;
       try {
         var bl = (JSON.parse(xhr.responseText).baselines) || {};
-        hasBaseline = !!(bl[String(MOTOR)] || bl[MOTOR]);
+        hasBaseline = !!(bl[String(selectedMotor)] || bl[selectedMotor]);
       } catch (e) { hasBaseline = false; }
     };
     xhr.send();
@@ -460,6 +485,12 @@
   }
 
   // ── Event listeners ───────────────────────────────────
+  motorTabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      selectMotor(parseInt(tab.getAttribute('data-motor'), 10));
+    });
+  });
+
   slider.addEventListener('input', function () {
     if (rampRunning) cancelRamp();
     updateMotorUI(parseInt(slider.value, 10));
@@ -487,6 +518,12 @@
   });
 
   // ── Init ──────────────────────────────────────────────
+  // Deep-link: ?motor=1-4 preselects the tab (search palette, bookmarks).
+  // Invalid or missing values keep the RR default; nothing else changes.
+  try {
+    var deepMotor = parseInt(new URLSearchParams(window.location.search).get('motor'), 10);
+    if (deepMotor >= 1 && deepMotor <= 4) selectMotor(deepMotor);
+  } catch (e) { /* ignore, defaults stand */ }
   buildBeats();
   updateMotorUI(0);
   setControlsEnabled(true);

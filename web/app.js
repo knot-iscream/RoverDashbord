@@ -209,18 +209,12 @@
   var HOME_API = (window.ROVER && window.ROVER.apiBase) || 'http://localhost:8000';
 
   function applyDeviceStatus(online) {
-    var badges = [
-      { dot: 'home-live-dot', label: 'home-live-label', on: 'Live' },
-      { dot: 'home-rt-dot', label: 'home-rt-label', on: 'Real-time' }
-    ];
-    badges.forEach(function (b) {
-      var dot = document.getElementById(b.dot);
-      var label = document.getElementById(b.label);
-      if (dot) {
-        dot.className = online ? 'status-dot dot-green pulse' : 'status-dot dot-red';
-      }
-      if (label) label.textContent = online ? b.on : 'Offline';
-    });
+    var dot = document.getElementById('home-rt-dot');
+    var label = document.getElementById('home-rt-label');
+    if (dot) {
+      dot.className = online ? 'status-dot dot-green pulse' : 'status-dot dot-red';
+    }
+    if (label) label.textContent = online ? 'Online' : 'Offline';
   }
 
   function pollDeviceStatus() {

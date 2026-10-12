@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
 </head>
 <body style="background:#050505">
   <div class="app-wrap">
@@ -26,7 +27,8 @@
               <path d="M18 14l8 8-8 8" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.6"/>
             </svg>
           </a>
-          <div class="search-bar">
+        </div>
+        <div class="search-bar">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="search-icon">
               <circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/>
             </svg>
@@ -36,7 +38,6 @@
               <kbd>K</kbd>
             </div>
           </div>
-        </div>
         <div class="header-actions">
         </div>
       </div>
@@ -56,7 +57,7 @@
     </div>
 
     <!-- ===== NAV DOCK ===== -->
-    <aside class="nav-dock dock-hidden" id="nav-dock">
+    <aside class="nav-dock" id="nav-dock">
       <div class="dock-inner">
         <div class="dock-indicator" id="dock-indicator"><div class="dock-accent"></div></div>
         <button class="dock-item active" data-href="./" title="Home">
@@ -87,18 +88,11 @@
           <!-- Page header -->
           <div class="page-header">
             <div>
-              <div style="display:flex;align-items:center;gap:12px;">
-                <h1 class="page-h1">Dashboard</h1>
-                <span class="page-badge" id="home-live-badge">
-                  <span class="status-dot dot-green pulse" id="home-live-dot"></span>
-                  <span id="home-live-label">Live</span>
-                </span>
-              </div>
-              <p class="page-sub">Vehicle telemetry &amp; diagnostics</p>
+              <h1 class="page-h1">Dashboard</h1>
             </div>
             <div class="live-badge" id="home-rt-badge">
-              <span class="status-dot dot-green pulse" id="home-rt-dot"></span>
-              <span id="home-rt-label">Real-time</span>
+              <span class="status-dot dot-red" id="home-rt-dot"></span>
+              <span id="home-rt-label">Offline</span>
             </div>
           </div>
 

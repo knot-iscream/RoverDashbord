@@ -287,13 +287,27 @@
     });
   });
 
+  // Deep-link: ?motor=1-4 preselects the tab (search palette, bookmarks).
+  // Invalid or missing values keep the FL default; nothing else changes.
+  (function () {
+    try {
+      var m = parseInt(new URLSearchParams(window.location.search).get('motor'), 10);
+      if (m >= 1 && m <= 4 && m !== currentMotor) {
+        currentMotor = m;
+        tabs.forEach(function (t) {
+          t.classList.toggle('active', parseInt(t.getAttribute('data-motor'), 10) === m);
+        });
+      }
+    } catch (e) { /* ignore, defaults stand */ }
+  })();
+
   // ===== Device presence (real ESP32 heartbeat via backend) =====
   function applyDeviceStatus(online) {
     deviceOnline = online === true;
     var dot = document.getElementById('detail-live-dot');
     var label = document.getElementById('detail-live-label');
     if (dot) dot.className = deviceOnline ? 'status-dot dot-green pulse' : 'status-dot dot-red';
-    if (label) label.textContent = deviceOnline ? 'Live' : 'Offline';
+    if (label) label.textContent = deviceOnline ? 'Online' : 'Offline';
   }
 
   function pollDeviceStatus() {

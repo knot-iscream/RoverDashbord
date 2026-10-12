@@ -19,8 +19,6 @@
   var FRESH_LIVE_MS = 5000;
   var isPaused = false;
   var deviceOnline = false;       // ESP32 presence (real heartbeat, not server WS)
-  var statusCls = 'status-dot dot-green';
-  var statusText = 'Ready';
 
   // ── DOM refs ──────────────────────────────────────────
   var startBtn = document.getElementById('cal-start-btn');
@@ -40,7 +38,6 @@
   var connBanner = document.getElementById('conn-lost-banner');
   var motorGrid = document.getElementById('cal-motor-grid');
   var motorControlGrid = document.getElementById('motor-control-grid');
-  var motorControlHint = document.getElementById('motor-control-hint');
   var modeToggleBtn = document.getElementById('mode-toggle-btn');
   var modeToggleLabel = document.getElementById('mode-toggle-label');
   var sweepStatusRow = document.getElementById('sweep-status-row');
@@ -128,12 +125,9 @@
     }
   }
 
-  function setStatusBadge(cls, text) {
-    statusCls = cls;
-    statusText = text;
-    renderStatusBadge();
-  }
-
+  // Corner badge shows device presence only (Online/Offline). Calibration
+  // phase already lives in the card's phase chip, so the badge never mixes
+  // the two.
   function renderStatusBadge() {
     if (!statusDot || !statusLabel) return;
     if (!deviceOnline) {
@@ -141,8 +135,8 @@
       statusLabel.textContent = 'Offline';
       return;
     }
-    statusDot.className = statusCls;
-    statusLabel.textContent = statusText;
+    statusDot.className = 'status-dot dot-green pulse';
+    statusLabel.textContent = 'Online';
   }
 
   function applyDeviceStatus(online) {
@@ -156,8 +150,7 @@
       connBanner.style.display = 'none';
     } else {
       connLabel.textContent = 'Disconnected from server';
-      statusDot.className = 'status-dot dot-red';
-      statusLabel.textContent = 'Disconnected';
+      renderStatusBadge();
     }
   }
 
@@ -185,7 +178,6 @@
 
       phaseLabel.textContent = 'Warming up — no data recorded';
       setStartPauseBtn(true);
-      setStatusBadge('status-dot dot-yellow pulse', 'Warming up ' + pct + '%');
     } else if (calState === 'sweep') {
       warmupRow.style.display = 'none';
       collectRow.style.display = 'none';
@@ -203,7 +195,6 @@
 
       phaseLabel.textContent = 'Sweeping speeds — recording data';
       setStartPauseBtn(true);
-      setStatusBadge('status-dot dot-green pulse', 'Sweeping ' + spd + '%');
     } else {
       // idle
       warmupRow.style.display = 'none';
@@ -211,7 +202,6 @@
       sweepStatusRow.style.display = 'none';
       phaseLabel.textContent = 'Press Start to begin';
       setStartPauseBtn(false);
-      setStatusBadge('status-dot dot-green', 'Ready');
     }
 
     samplesLabel.textContent = samplesCollected + ' samples recorded';
@@ -232,11 +222,6 @@
     modeToggleLabel.textContent = calibrating ? 'AUTO' : mode.toUpperCase();
     modeToggleBtn.classList.toggle('mode-on', showSliders);
     modeToggleBtn.disabled = calibrating;
-    motorControlHint.textContent = calibrating
-      ? 'Motors auto-run during calibration'
-      : (showSliders
-          ? 'Sliders send speed to the ESP32 (L298N)'
-          : 'AUTO mode — press Start to run the sweep');
     setMotorControlsEnabled(showSliders);
   }
 
@@ -577,7 +562,6 @@
     collectRow.style.display = 'none';
     phaseLabel.textContent = 'Press Start to begin';
     setStartPauseBtn(false);
-    setStatusBadge('status-dot dot-green', 'Ready');
     samplesLabel.textContent = '0 samples collected';
     calState = 'idle';
     samplesCollected = 0;
@@ -867,8 +851,7 @@
 
   function updateTodayBtn() {
     if (!histToday) return;
-    histToday.style.display =
-      dateStr(histDay) === dateStr(new Date()) ? 'none' : '';
+    histToday.classList.toggle('show', dateStr(histDay) !== dateStr(new Date()));
   }
 
   function nowLabel() {

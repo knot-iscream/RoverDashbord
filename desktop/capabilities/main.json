@@ -1,0 +1,14 @@
+{
+  "identifier": "main-capability",
+  "description": "Frameless shell: window controls, drag and resize events for the main window. Remote scope needed because main.rs navigates the window to the http://127.0.0.1 backend URL, which Tauri evaluates as remote content.",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:*", "http://localhost:*"] },
+  "permissions": [
+    "core:event:allow-listen",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-is-maximized",
+    "core:window:allow-start-dragging"
+  ]
+}

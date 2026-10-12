@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../style.css">
+  <link rel="icon" type="image/svg+xml" href="../favicon.svg">
 </head>
 <body style="background:#050505">
   <div class="app-wrap">
@@ -24,7 +25,8 @@
               <path d="M18 14l8 8-8 8" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.6"/>
             </svg>
           </a>
-          <div class="search-bar">
+        </div>
+        <div class="search-bar">
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="search-icon">
               <circle cx="11" cy="11" r="8"/><path d="m21 21-4.34-4.34"/>
             </svg>
@@ -34,7 +36,6 @@
               <kbd>K</kbd>
             </div>
           </div>
-        </div>
         <div class="header-actions">
         </div>
       </div>
@@ -50,7 +51,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
       </a>
     </div>
-    <aside class="nav-dock dock-hidden" id="nav-dock">
+    <aside class="nav-dock" id="nav-dock">
       <div class="dock-inner">
         <div class="dock-indicator" id="dock-indicator"><div class="dock-accent"></div></div>
         <button class="dock-item" data-href="../" title="Home">
@@ -78,12 +79,17 @@
           <div class="page-header">
             <div>
               <h1 class="page-h1">Motor Test</h1>
-              <p class="page-sub">Single-motor bench test — Rear Right</p>
             </div>
             <div class="live-badge">
-              <span class="status-dot dot-green" id="test-status-dot"></span>
-              <span id="test-status-label">Disconnected</span>
+              <span class="status-dot dot-red" id="test-status-dot"></span>
+              <span id="test-status-label">Offline</span>
             </div>
+          </div>
+          <div class="detail-motor-tabs" id="test-motor-tabs">
+            <button class="detail-motor-tab" data-motor="1">FL Motor</button>
+            <button class="detail-motor-tab" data-motor="2">FR Motor</button>
+            <button class="detail-motor-tab" data-motor="3">RL Motor</button>
+            <button class="detail-motor-tab active" data-motor="4">RR Motor</button>
           </div>
 
           <div class="hud-layout">
@@ -95,15 +101,15 @@
               <span class="hud-vents" aria-hidden="true"></span>
               <div class="hud-content">
                 <div class="panel-head">
-                  <h2 class="panel-title-muted">Motor RR &middot; #4</h2>
+                  <h2 class="panel-title-muted" id="test-motor-title">Motor RR &middot; #4</h2>
                   <span class="cal-motor-status idle" id="run-status">Idle</span>
                 </div>
 
                 <div class="motor-control-row test-hero" data-motor-row="4">
                   <div class="motor-control-head">
-                    <span class="cal-motor-name">Rear Right</span>
+                    <span class="cal-motor-name" id="test-motor-name">Rear Right</span>
                     <div class="motor-control-meta">
-                      <span class="motor-control-val test-hero-val" id="motor-val-4">0</span>
+                      <span class="motor-control-val test-hero-val" id="motor-val">0</span>
                       <button class="btn-off" type="button" data-off="4" title="Stop motor"><span class="btn-off-label">OFF</span></button>
                     </div>
                   </div>
@@ -111,7 +117,7 @@
                     <div class="motor-control-groove"></div>
                     <div class="motor-control-fill"></div>
                     <div class="motor-control-tick"></div>
-                    <input type="range" class="motor-control-input" min="-255" max="255" step="1" value="0" id="motor-slider-4" data-motor="4">
+                    <input type="range" class="motor-control-input" min="-255" max="255" step="1" value="0" id="motor-slider" data-motor="4">
                   </div>
                   <div class="motor-control-labels">
                     <span class="motor-label" data-side="rev">REV</span>

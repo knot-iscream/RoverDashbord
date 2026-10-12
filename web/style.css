@@ -51,6 +51,53 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fade-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
+/* ===== PAGE TRANSITIONS — app-style dock switching ===== */
+/* Native cross-document View Transitions (Chromium / WebView2 app shell):
+   dock switches, links and back/forward animate. Browsers without the API
+   ignore this block and keep instant navigation, with the .no-vt fade-in
+   fallback below (flagged in script.js). */
+@view-transition { navigation: auto; }
+
+/* Reanime wipe: old content skews out left while the new page sweeps in
+   behind it, echoing the skewed button sweep-shine language. */
+::view-transition-old(root) {
+  animation: vt-wipe-out 0.32s var(--ease-out-expo) both;
+}
+::view-transition-new(root) {
+  animation: vt-wipe-in 0.32s var(--ease-out-expo) both;
+}
+@keyframes vt-wipe-out {
+  from { opacity: 1; transform: translateX(0) skewX(0deg); }
+  to { opacity: 0; transform: translateX(-48px) skewX(-6deg); }
+}
+@keyframes vt-wipe-in {
+  from {
+    opacity: 0; transform: translateX(64px) skewX(-6deg);
+    clip-path: polygon(12% 0, 100% 0, 100% 100%, 0 100%);
+  }
+  to {
+    opacity: 1; transform: translateX(0) skewX(0deg);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+  }
+}
+
+/* Persistent chrome: header + dock stay fixed, only page content morphs. */
+.header { view-transition-name: site-header; }
+.nav-dock { view-transition-name: nav-dock; }
+.dock-edge { view-transition-name: dock-edge; }
+
+/* Fallback for browsers without the API: gentle fade-in on load using the
+   shared keyframe. Never runs alongside the native transition. */
+.no-vt .content-wrap { animation: fade-in 0.25s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition { navigation: none; }
+  .no-vt .content-wrap { animation: none; }
+  .day-today { transition: none; }
+  .btn-primary:hover .btn-sweep-inner { animation: none; }
+  .cmdk-panel { animation: none; }
+}
+
 /* ===== HEADER — Reanime.to style ===== */
 .header {
   position: fixed;
@@ -93,10 +140,92 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 
 .header-inner {
   position: relative; z-index: 10;
-  display: flex; align-items: center; justify-content: space-between;
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
   width: 100%;
   padding: 12px 16px 12px 24px;
 }
+.header-inner > div:first-child { justify-self: start; }
+.search-bar { justify-self: center; }
+.header-actions { justify-self: end; }
+
+/* ===== COMMAND PALETTE (Ctrl+K) — Reanime.to style ===== */
+.cmdk-backdrop {
+  display: none;
+  position: fixed; inset: 0; z-index: 20000;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.cmdk-backdrop.open { display: block; }
+.cmdk-panel {
+  width: min(560px, 92vw);
+  margin: 18vh auto 0;
+  border-radius: 12px;
+  background: var(--zinc-900);
+  border: 1px solid var(--border-white-01);
+  box-shadow: 0 25px 80px rgba(0,0,0,0.6), 0 0 40px rgba(var(--primary-rgb), 0.08);
+  overflow: hidden;
+  animation: fade-in 0.15s ease-out both;
+}
+.cmdk-input-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  color: var(--gray-400);
+}
+.cmdk-input-row input {
+  flex: 1; min-width: 0;
+  background: none; border: none; outline: none;
+  color: #fff; font: inherit; font-size: 14px; font-weight: 500;
+}
+.cmdk-input-row input::placeholder { color: var(--gray-600); }
+.cmdk-input-row kbd, .cmdk-foot kbd {
+  border-radius: 4px;
+  border: 1px solid var(--border-white-02);
+  background: var(--bg-white-10);
+  padding: 2px 8px;
+  font-size: 10px; font-weight: 500; color: var(--gray-500);
+  font-family: inherit;
+}
+.cmdk-list { max-height: 320px; overflow-y: auto; padding: 8px; }
+.cmdk-group {
+  padding: 8px 12px 4px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--gray-600);
+}
+.cmdk-row {
+  display: flex; align-items: center;
+  width: 100%; text-align: left;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 13px; font-weight: 500; color: var(--gray-300);
+}
+.cmdk-row:hover, .cmdk-row.selected {
+  background: rgba(var(--primary-rgb), 0.12);
+  color: #fff;
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+.cmdk-empty { padding: 20px; text-align: center; font-size: 13px; color: var(--gray-500); }
+.cmdk-foot {
+  display: flex; align-items: center; gap: 16px;
+  padding: 10px 16px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  font-size: 11px; color: var(--gray-500);
+}
+
+/* ===== NATIVE WINDOW CONTROLS (Tauri frameless shell) ===== */
+/* Injected by script.js only when window.__TAURI__ exists — browsers
+   never see these. Sharp corners echo the skewed-button brand. */
+.win-controls { display: flex; align-items: stretch; gap: 2px; margin-right: -8px; }
+.win-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 44px; height: 32px;
+  color: var(--gray-400);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.win-btn svg { width: 12px; height: 12px; }
+.win-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.win-btn.win-close:hover { background: #e81123; color: #fff; }
 
 .logo-link {
   display: flex; align-items: center;
@@ -259,7 +388,22 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   border-radius: 9999px;
   border: 1px solid rgba(255,255,255,0.05);
   background: rgba(255,255,255,0.08);
-  transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform 0.32s var(--ease-out-expo);
+  /* Named for the snapshot morph so the highlight glides tab-to-tab as part
+     of the page transition instead of fighting it (see guard below). */
+  view-transition-name: dock-indicator;
+}
+/* While a page transition runs, the snapshot owns all motion: the CSS glide
+   and the dock show/hide transition are parked so the highlight cannot stall
+   midway. Outside transitions everything behaves exactly as before. */
+:active-view-transition .dock-indicator,
+:active-view-transition .nav-dock {
+  transition: none;
+}
+/* Land the highlight glide together with the 0.32s page wipe. */
+::view-transition-group(dock-indicator) {
+  animation-duration: 0.32s;
+  animation-timing-function: var(--ease-out-expo);
 }
 .dock-indicator .dock-accent {
   position: absolute;
@@ -467,16 +611,20 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   display: flex; width: 100%; height: 100%; overflow: hidden;
 }
 .btn-sweep-inner {
-  position: relative; height: 100%; width: 48px;
+  position: absolute; top: 0; bottom: 0; left: 0;
+  height: 100%; width: 35%;
   background: rgba(255,255,255,0.4);
   filter: blur(2px);
-  transform: translateX(-150%);
+  transform: translateX(-110%);
   transition: none;
 }
-.btn-primary:hover .btn-sweep-inner { animation: sweep-shine 1s ease-in-out; }
+/* Travel is measured in fractions of the band so the glow always enters past
+   the left edge and exits past the right edge, on any button width. Linear
+   timing keeps a constant shine velocity instead of dwelling at the edges. */
+.btn-primary:hover .btn-sweep-inner { animation: sweep-shine 0.85s linear; }
 @keyframes sweep-shine {
-  0% { transform: translateX(-150%); }
-  100% { transform: translateX(150%); }
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(310%); }
 }
 .btn-content {
   position: relative; z-index: 10;
@@ -1097,14 +1245,17 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   opacity: 0.6;
 }
 
-/* Day navigation header */
+/* Day navigation header: fixed chevrons at both ends, dates structurally
+   centered in the flexible middle column, today chip in its own auto column
+   so it can unfurl without ever moving the dates. */
 .sched-head {
-  display: flex; align-items: center; justify-content: space-between;
+  display: grid; grid-template-columns: 36px 1fr auto 36px;
+  align-items: center;
   gap: 12px; padding-bottom: 14px;
   border-bottom: 1px solid rgba(255,255,255,0.06);
   margin-bottom: 14px;
 }
-.sched-days { display: flex; align-items: center; gap: 6px; }
+.sched-days { display: flex; align-items: center; gap: 6px; justify-self: center; }
 
 /* 24h activity strip */
 .sched-strip {
@@ -1158,12 +1309,26 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   background: var(--dot-green);
 }
 
-/* Jump-to-today chip (visible only when browsing a non-today day) */
+/* Jump-to-today chip (visible only when browsing a non-today day).
+   Collapses instead of display:none so it unfurls and dismisses smoothly.
+   It owns its own grid column, so the dates stay centered either way. */
 .day-today {
   justify-content: center;
-  height: 36px; min-width: 36px;
+  height: 36px; min-width: 0;
+  max-width: 0; padding-left: 0; padding-right: 0;
+  border-width: 0; margin: 0;
+  opacity: 0; transform: scale(0.85);
+  overflow: hidden; white-space: nowrap; pointer-events: none;
   border-color: rgba(255,255,255,0.12);
   color: var(--gray-400);
+  transition: max-width 0.28s var(--ease-out-expo), opacity 0.2s ease,
+    transform 0.28s var(--ease-out-expo), padding 0.28s var(--ease-out-expo),
+    border-width 0.28s ease;
+}
+.day-today.show {
+  max-width: 72px; min-width: 36px; padding-left: 8px; padding-right: 8px;
+  border-width: 1px; margin: 0;
+  opacity: 1; transform: scale(1); pointer-events: auto;
 }
 .day-today:hover {
   border-color: var(--primary); color: var(--primary);
