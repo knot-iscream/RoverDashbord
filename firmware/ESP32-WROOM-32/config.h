@@ -67,15 +67,14 @@
 // ============================================================
 
 // DS18B20 temperature — one dedicated OneWire bus PER MOTOR (pin = motor).
-// Only RR (GPIO 4) is wired today; the firmware keeps a 4-slot structure so
-// the future 2x ESP32 split only changes these pin defines. Each wired pin
-// should have a 4.7k pull-up to 3.3V (external recommended; the ESP32 internal
-// INPUT_PULLUP also runs for insurance). Probe VCC must be 3.3V — GPIO 4 is
-// NOT 5V-tolerant. -1 = pin not wired (slot stays disabled -> temp_valid:0).
-#define DS18B20_PIN_1 (-1)  // Motor 1 (FL) — future 2nd ESP32
-#define DS18B20_PIN_2 (-1)  // Motor 2 (FR) — future 2nd ESP32
-#define DS18B20_PIN_3 (-1)  // Motor 3 (RL) — future 2nd ESP32
-#define DS18B20_PIN_4 4     // Motor 4 (RR) — lone bench probe (2026-08-12)
+// Full build: all four probes wired, one per pin below. Each pin needs a
+// 4.7k pull-up to 3.3V (external recommended; the ESP32 internal
+// INPUT_PULLUP also runs for insurance). Probe VCC must be 3.3V — these
+// GPIOs are NOT 5V-tolerant. -1 = slot disabled -> temp_valid:0.
+#define DS18B20_PIN_1 5   // Motor 1 (FL)
+#define DS18B20_PIN_2 26  // Motor 2 (FR)
+#define DS18B20_PIN_3 2   // Motor 3 (RL)
+#define DS18B20_PIN_4 4   // Motor 4 (RR)
 #define DS18B20_RESOLUTION 12
 
 // SW-420 vibration (NC = normally closed). Input-only GPIOs.

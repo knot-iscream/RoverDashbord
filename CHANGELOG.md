@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — docs + full-build wiring
+
+- `README.md` rebuilt as a single expanded doc: architecture, prerequisites,
+  full pinout, per-motor DS18B20, I2C jumpers, L298N, INA219 series, power,
+  wiring order, phone portal, ESP32 flash steps, calibration, MQTT topics,
+  localhost-only security, file tree (`src/` + `web/` + `firmware/`).
+  Replaces the stale shared-GPIO4 claim with the per-motor design and the
+  full MQTT payloads with validity flags.
+- Firmware `config.h`: DS18B20 full build `5/26/2/4` (was `-1/-1/-1/4`
+  bench). Each pin needs its own 4.7k pull-up to 3.3V. Re-flash and
+  bench-check pending (all 4 motors `temp_valid:1`).
+
 ## 2.0 (2026-10-09) — Rust port, hardened
 
 Full 1:1 port of the v1 Python backend (Axum + rumqttc + rust_xlsxwriter),
