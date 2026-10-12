@@ -144,9 +144,8 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   width: 100%;
   padding: 12px 16px 12px 24px;
 }
-.header-inner > div:first-child { justify-self: start; }
-.search-bar { justify-self: center; }
-.header-actions { justify-self: end; }
+.search-bar { grid-column: 2; justify-self: center; }
+.header-actions { grid-column: 3; justify-self: end; }
 
 /* ===== COMMAND PALETTE (Ctrl+K) — Reanime.to style ===== */
 .cmdk-backdrop {
@@ -250,17 +249,6 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   border-color: color-mix(in oklch, #e81123 55%, white);
   filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5));
 }
-
-.logo-link {
-  display: flex; align-items: center;
-  margin: 0 -8px;
-}
-.logo-svg {
-  height: 48px; width: auto;
-  transition: transform 0.3s ease;
-}
-.logo-link:hover .logo-svg { transform: scale(1.02); }
-@media (min-width: 640px) { .logo-svg { height: 56px; } }
 
 .search-bar {
   display: none;
