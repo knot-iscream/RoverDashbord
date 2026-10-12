@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rover Rust View (live)</title>
+<!--
+  RUST-OWNED page (NOT legacy dashboard). Served from web/ only because
+  Tauri frontendDist is ../web. Rendered inside the debug-only "rust-view"
+  window created by desktop/src/viewer.rs. Content is pushed by Rust over
+  Tauri events ("rust-telemetry") at ~2Hz from real AppState (no fetch,
+  no simulateData, no localhost dependency). Opened in a plain browser it
+  shows a static hint, nothing more.
+-->
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0d10; color: #e8e8e8;
+    font-family: ui-monospace, Consolas, monospace; }
+  .wrap { padding: 18px 20px; max-width: 720px; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  .sub { font-size: 12px; color: #8a8f98; margin-bottom: 14px; }
+  .grid { display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; font-size: 13px; }
+  .k { color: #8a8f98; }
+  .v { color: #fff; }
+  .ok { color: #3fd68c; } .bad { color: #ff5d5d; }
+  #frames { color: #ffb020; }
+  pre { background: #11141a; border: 1px solid #22262e; border-radius: 8px;
+    padding: 10px 12px; font-size: 12px; overflow: auto; max-height: 220px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Rover Rust View <span id="frames">#0</span></h1>
+  <div class="sub">Rust-pushed live state (real data only). Legacy dashboard stays frozen in the main window.</div>
+  <div class="grid">
+    <div class="k">device</div><div class="v" id="f-device">…</div>
+    <div class="k">ws clients</div><div class="v" id="f-clients">…</div>
+    <div class="k">motors seen</div><div class="v" id="f-motors">…</div>
+    <div class="k">updated</div><div class="v" id="f-ts">…</div>
+  </div>
+  <p class="sub">payload preview (first motor frame):</p>
+  <pre id="f-raw">waiting for Rust events…</pre>
+  <p class="sub" id="f-hint"></p>
+</div>
+<script>
+(function () {
+  'use strict';
+  var framesEl = document.getElementById('frames');
+  var devEl = document.getElementById('f-device');
+  var cliEl = document.getElementById('f-clients');
+  var motEl = document.getElementById('f-motors');
+  var tsEl = document.getElementById('f-ts');
+  var rawEl = document.getElementById('f-raw');
+  var hintEl = document.getElementById('f-hint');
+  function render(p) {
+    framesEl.textContent = '#' + p.frames;
+    var online = !!p.online;
+    devEl.innerHTML = online
+      ? '<span class="ok">ONLINE</span> last_seen ' + (p.last_seen || '?')
+      : '<span class="bad">OFFLINE</span> (rover not publishing)';
+    devEl.className = 'v';
+    cliEl.textContent = String(p.clients);
+    motEl.textContent = p.motors + ' motor frame(s)';
+    tsEl.textContent = p.ts || '';
+    try { rawEl.textContent = JSON.stringify(p.sample, null, 1) || '(empty)'; }
+    catch (e) { rawEl.textContent = '(unparseable)'; }
+  }
+  async function boot() {
+    try {
+      var tauri = window.__TAURI__;
+      if (!tauri || !tauri.event || !tauri.event.listen) throw new Error('no tauri');
+      await tauri.event.listen('rust-telemetry', function (ev) { render(ev.payload); });
+      hintEl.textContent = 'listening for Rust events…';
+    } catch (e) {
+      hintEl.textContent = 'No Tauri runtime here. Run cargo run -p roverdash (debug) to see this live.';
+      rawEl.textContent = '(open via the Rover Rust View debug window)';
+    }
+  }
+  boot();
+})();
+</script>
+</body>
+</html>

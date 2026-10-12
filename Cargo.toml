@@ -33,6 +33,11 @@ criterion = "0.5"
 name = "telemetry"
 harness = false
 
+[profile.dev]
+# Iteration profile: fastest links for the `cargo run -p roverdash` debug
+# loop (line tables only). Release stays LTO below; never iterate on it.
+debug = 1
+
 [profile.release]
 # Real-app profile: slowest build, smallest + fastest binary.
 lto = true

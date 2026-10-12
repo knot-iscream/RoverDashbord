@@ -6,9 +6,13 @@
 //! Supervisor duties (this file): start the bundled Mosquitto sidecar when
 //! nothing listens on 1883, start the backend, wait for health, then swap the
 //! splash window for the main one. The sidecar is killed on app exit.
-//! (Tray + single-instance arrive next.)
+//! Debug builds also open a second "Rover Rust View" window (see
+//! `viewer.rs`): live `AppState` pushed by Rust at ~2Hz, real data only.
+//! Release builds keep the single main window.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod viewer;
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -197,10 +201,13 @@ fn main() {
             build_tray(app.handle())?;
             let port = digital_twin_dashboard::config::AppConfig::load().http_port;
             let handle = app.handle().clone();
+            let viewer_handle = handle.clone();
             let broker: ChildSlot = Arc::new(Mutex::new(None));
             app.manage(broker.clone());
             tauri::async_runtime::spawn(async move {
                 let state = build_state().await;
+                #[cfg(debug_assertions)]
+                viewer::spawn_rust_view(&viewer_handle, state.clone());
                 let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
                 tracing::info!("backend listening on {addr}");
                 let _ = serve_forever(state, addr, std::future::pending::<()>()).await;

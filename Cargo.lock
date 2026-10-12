@@ -3257,7 +3257,9 @@ dependencies = [
 name = "roverdash"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "digital-twin-dashboard",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-single-instance",

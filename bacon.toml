@@ -1,0 +1,20 @@
+# bacon config — fast native iteration loop (Windows).
+# `bacon` watches files and re-runs jobs. Install once: `cargo install bacon`.
+# Default job: debug desktop with the Rust live view (NOT release LTO).
+# web/ is frozen legacy: edits there need only a window reload, no rebuild.
+
+default_job = "dev"
+
+[jobs.check]
+command = ["cargo", "check", "-p", "roverdash"]
+need_stdout = false
+
+[jobs.dev]
+command = ["cargo", "run", "-p", "roverdash"]
+need_stdout = true
+watch = ["src", "desktop/src", "desktop/Cargo.toml", "Cargo.toml", "web/rust-view.html"]
+
+[jobs.test]
+command = ["cargo", "test"]
+need_stdout = true
+watch = ["src", "tests"]
