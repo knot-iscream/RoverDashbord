@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0 (2026-10-14) — full Rust UI, portable release
+
+- All four dashboard pages ported to Leptos WASM (`frontend-wasm/`):
+  home (live telemetry with sim fallback), detailed, motor test, calibration
+  (warmup/sweep, manual rows, history timeline). Shared shell: dock,
+  Ctrl+K palette, Tauri frameless controls. Vanilla fallback deleted;
+  `/`, `/detailed/`, `/test/`, `/calibration/` and `/next/*` serve the
+  Rust bundle (`style.css`, setup page, splash kept).
+- WASM bundle fixed at ~2.3MB (`.cargo/config.toml` pins `-C
+  strip=symbols` for the wasm target; dev bundle ships).
+- Portable `dist/RoverDash/` (~5.7MB zipped): release exe + bundle +
+  sidecar broker. Desktop main window opens the dashboard root.
+- GitHub Pages deployment removed (site unpublished).
+
 ## Unreleased — docs + full-build wiring
 
 - `README.md` rebuilt as a single expanded doc: architecture, prerequisites,

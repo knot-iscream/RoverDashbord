@@ -39,6 +39,13 @@ harness = false
 # loop (line tables only). Release stays LTO below; never iterate on it.
 debug = 1
 
+# The WASM bundle must NOT carry debug info: rustc emits a 60MB+ `name`
+# section into wasm for debuginfo>0 and trunk's wasm-opt keeps it. The
+# backend keeps line tables; the dashboard keeps none (browser traces stay
+# numeric, panic messages intact). Without this the bundle is ~64MB.
+[profile.dev.package.frontend-wasm]
+debug = false
+
 [profile.release]
 # Real-app profile: slowest build, smallest + fastest binary.
 lto = true

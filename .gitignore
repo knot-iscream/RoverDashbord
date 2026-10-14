@@ -47,3 +47,10 @@ desktop/gen/
 *.pem
 *.key
 *.pfx
+
+# Release zips + temp archives (built per release, never commit)
+*.zip
+
+# KiCad generated files (the .kicad_* sources stay tracked)
+*-backups/
+*.lck

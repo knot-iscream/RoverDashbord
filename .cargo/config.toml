@@ -1,0 +1,6 @@
+# WASM-only rustflags: strip symbols so rustc never emits the 60MB+ `name`
+# section (Leptos/tachys monomorphized symbol names run to kilobytes each,
+# and trunk's wasm-opt keeps them). MSVC backend builds are untouched.
+# Panic messages still work; browser stack traces stay numeric.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "strip=symbols"]
