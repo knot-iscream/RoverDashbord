@@ -15,29 +15,33 @@ jobs:
         with:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
-      - name: Install trunk (prebuilt)
-        shell: bash
-        run: |
-          TRUNK_VER=0.21.14
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            curl -sSL -o trunk.zip "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VER}/trunk-x86_64-pc-windows-msvc.zip"
-            7z x trunk.zip -otrunk-bin > /dev/null
-            # GITHUB_PATH is consumed by later steps (pwsh on Windows), so it
-            # needs the native D:\ form, not the git-bash /d/ form.
-            echo "$(cygpath -w "$PWD/trunk-bin")" >> "$GITHUB_PATH"
-          else
-            curl -sSL -o trunk.tar.gz "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VER}/trunk-x86_64-unknown-linux-gnu.tar.gz"
-            mkdir -p trunk-bin && tar xzf trunk.tar.gz -C trunk-bin
-            echo "$PWD/trunk-bin" >> "$GITHUB_PATH"
-          fi
-          ls trunk-bin
-      # NOTE: $GITHUB_PATH takes effect in the NEXT step only, so this step
-      # must not call trunk itself; the build step below is the first caller.
       # The dashboard root serves the trunk bundle (gitignored): build it
       # before any test that hits `/` or `/next/*`, or ServeFile 404s.
+      # Single self-contained step (no PATH passing between shells): fetch
+      # the prebuilt binary to RUNNER_TEMP, locate it inside the archive,
+      # and invoke it by absolute path.
       - name: Build frontend bundle
-        run: trunk build
+        shell: bash
         working-directory: frontend-wasm
+        run: |
+          TRUNK_VER=0.21.14
+          TRUNK_DIR="$RUNNER_TEMP/trunk-bin"
+          mkdir -p "$TRUNK_DIR"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            curl -sSL -o "$TRUNK_DIR/dl.zip" "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VER}/trunk-x86_64-pc-windows-msvc.zip"
+            7z x "$TRUNK_DIR/dl.zip" -o"$TRUNK_DIR/x" > /dev/null
+            BIN=$(find "$TRUNK_DIR/x" -name 'trunk.exe' | head -1)
+            test -n "$BIN" || { echo "trunk.exe not found in archive"; find "$TRUNK_DIR/x"; exit 1; }
+            mv "$BIN" "$TRUNK_DIR/trunk.exe"
+            "$TRUNK_DIR/trunk.exe" build
+          else
+            curl -sSL -o "$TRUNK_DIR/dl.tar.gz" "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VER}/trunk-x86_64-unknown-linux-gnu.tar.gz"
+            mkdir -p "$TRUNK_DIR/x" && tar xzf "$TRUNK_DIR/dl.tar.gz" -C "$TRUNK_DIR/x"
+            BIN=$(find "$TRUNK_DIR/x" -name 'trunk' -type f | head -1)
+            test -n "$BIN" || { echo "trunk binary not found in archive"; find "$TRUNK_DIR/x"; exit 1; }
+            mv "$BIN" "$TRUNK_DIR/trunk"
+            "$TRUNK_DIR/trunk" build
+          fi
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       # No broker needed: integration tests use a dead-port client, temp dirs,
