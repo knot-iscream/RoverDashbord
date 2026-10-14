@@ -57,3 +57,6 @@ web/splash.html
 # KiCad generated files (the .kicad_* sources stay tracked)
 *-backups/
 *.lck
+
+# Editor backup history inside hardware sources
+PCB/Motors/.history/

@@ -1101,7 +1101,7 @@ dependencies = [
 
 [[package]]
 name = "digital-twin-dashboard"
-version = "0.1.0"
+version = "2.0.2"
 dependencies = [
  "axum",
  "chrono",
@@ -1465,14 +1465,13 @@ dependencies = [
 
 [[package]]
 name = "frontend-wasm"
-version = "0.1.0"
+version = "2.0.2"
 dependencies = [
  "console_error_panic_hook",
  "gloo-net",
  "gloo-timers",
  "js-sys",
  "leptos",
- "leptos_router",
  "serde",
  "serde_json",
  "wasm-bindgen",
@@ -2612,41 +2611,6 @@ dependencies = [
  "server_fn_macro",
  "syn 3.0.6",
  "uuid",
-]
-
-[[package]]
-name = "leptos_router"
-version = "0.8.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f92787ebcb5f25af6a67513dacfd75cbffce5bda3f361e2e947c3fc4e3adc14b"
-dependencies = [
- "any_spawner",
- "either_of",
- "futures",
- "gloo-net",
- "js-sys",
- "leptos",
- "leptos_router_macro",
- "or_poisoned",
- "reactive_graph",
- "rustc_version",
- "send_wrapper",
- "tachys",
- "thiserror 2.0.21",
- "url",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "leptos_router_macro"
-version = "0.8.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bb5c81012dcab0d5cc032a2da0a364a18ce74a0fbeb88f091e9b53a0679bc85"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]
@@ -3926,7 +3890,7 @@ dependencies = [
 
 [[package]]
 name = "roverdash"
-version = "0.1.0"
+version = "2.0.2"
 dependencies = [
  "chrono",
  "digital-twin-dashboard",
@@ -6369,7 +6333,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "2.0.2"
 
 [[package]]
 name = "xxhash-rust"

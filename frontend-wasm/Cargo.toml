@@ -1,12 +1,11 @@
 [package]
 name = "frontend-wasm"
-version = "0.1.0"
+version = "2.0.2"
 edition = "2021"
 
 [dependencies]
 leptos = { version = "0.8", features = ["csr"] }
-leptos_router = "0.8"
-gloo-net = { version = "0.6", features = ["websocket", "http"] }
+gloo-net = { version = "0.6", features = ["http"] }
 gloo-timers = { version = "0.3", features = ["futures"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
