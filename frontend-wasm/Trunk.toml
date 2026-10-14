@@ -1,0 +1,6 @@
+[build]
+target = "index.html"
+dist = "../dist/next"
+# Assets must resolve under the Axum `/next` mount (ServeDir on dist/next),
+# not the web root — vanilla owns `/`.
+public_url = "/next/"

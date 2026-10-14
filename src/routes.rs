@@ -311,7 +311,7 @@ pub async fn set_token_cookie(
 ) -> Response {
     let is_entry = req.method() == Method::GET && {
         let p = req.uri().path();
-        ENTRY_PATHS.contains(&p) || p == "/setup"
+        ENTRY_PATHS.contains(&p) || p == "/setup" || p.starts_with("/next")
     };
     let token = s.cfg.read().await.auth_token.clone();
     let has_cookie = cookie_token(req.headers()).is_some_and(|t| t.as_str() == token);

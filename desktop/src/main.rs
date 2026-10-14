@@ -155,6 +155,8 @@ fn round_window_corners(win: &tauri::WebviewWindow) {
 
 /// Boot order: broker → backend → navigate + show main, close splash.
 /// Runs to completion once; failures leave the splash up with the log.
+/// The main window opens the dashboard root, which serves the Rust UI
+/// (vanilla fallback deleted — see HANDOFF).
 async fn bring_up(handle: tauri::AppHandle, port: u16, broker: ChildSlot) {
     if let Some(child) = drain_logs(ensure_broker()) {
         *broker.lock().unwrap() = Some(child);

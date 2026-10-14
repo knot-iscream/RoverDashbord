@@ -16,11 +16,11 @@ use std::sync::Arc;
 
 use axum::{
     middleware,
-    routing::{get, post},
+    routing::{get, get_service, post},
     Router,
 };
 use serde_json::Value;
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 
 use calibration::CalibrationManager;
 use config::AppConfig;
@@ -90,6 +90,17 @@ pub fn build_router(state: AppState) -> Router {
         .unwrap_or_else(|_| config::base_dir().join("web"));
     let static_svc = ServeDir::new(&web_root).append_index_html_on_directories(true);
 
+    // Rust UI (Phase B, opt-in): Leptos WASM build output from
+    // `frontend-wasm/` via trunk (`dist/next/`). The SPA bundle answers
+    // the four root routes AND /next/* (client picks the view from the
+    // path); vanilla pages are deleted, no fallback remains. Static files
+    // (style.css, favicon, splash, setup/) still resolve via the fallback.
+    // Missing dir (trunk not built yet) serves 404s on these routes.
+    let next_root = config::base_dir().join("dist").join("next");
+    let next_index = next_root.join("index.html");
+    let next_svc = ServeDir::new(&next_root).append_index_html_on_directories(true);
+    let next_page = get_service(ServeFile::new(&next_index));
+
     let cookie_state = state.clone();
     Router::new()
         .route("/api/health", get(routes::health))
@@ -106,6 +117,17 @@ pub fn build_router(state: AppState) -> Router {
             "/setup",
             ServeDir::new(config::base_dir().join("web/setup")),
         )
+        .route("/", next_page.clone())
+        .route("/detailed", next_page.clone())
+        .route("/detailed/", next_page.clone())
+        .route("/test", next_page.clone())
+        .route("/test/", next_page.clone())
+        .route("/calibration", next_page.clone())
+        .route("/calibration/", next_page.clone())
+        .route("/next/test", next_page.clone())
+        .route("/next/detailed", next_page.clone())
+        .route("/next/calibration", next_page)
+        .nest_service("/next", next_svc)
         .merge(protected)
         .merge(ws_route)
         .with_state(state)
