@@ -22,12 +22,15 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then
             curl -sSL -o trunk.zip "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VER}/trunk-x86_64-pc-windows-msvc.zip"
             7z x trunk.zip -otrunk-bin > /dev/null
-            echo "$PWD/trunk-bin" >> "$GITHUB_PATH"
+            # GITHUB_PATH is consumed by later steps (pwsh on Windows), so it
+            # needs the native D:\ form, not the git-bash /d/ form.
+            echo "$(cygpath -w "$PWD/trunk-bin")" >> "$GITHUB_PATH"
           else
             curl -sSL -o trunk.tar.gz "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VER}/trunk-x86_64-unknown-linux-gnu.tar.gz"
             mkdir -p trunk-bin && tar xzf trunk.tar.gz -C trunk-bin
             echo "$PWD/trunk-bin" >> "$GITHUB_PATH"
           fi
+          ls trunk-bin
       # NOTE: $GITHUB_PATH takes effect in the NEXT step only, so this step
       # must not call trunk itself; the build step below is the first caller.
       # The dashboard root serves the trunk bundle (gitignored): build it
