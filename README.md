@@ -55,7 +55,7 @@ background monitoring — has nothing to do with speed.
 ## Run the app (Windows)
 
 Double-click **`dist\RoverDash\roverdash.exe`** — built once with
-`package.bat` (needs a Rust toolchain, slow first build). Splash, native
+`cargo pack` (needs a Rust toolchain, slow first build). Splash, native
 window, dashboard. No browser, no address bar, no console.
 
 - X minimizes to the tray instead of quitting; quit from the tray menu.
@@ -68,9 +68,9 @@ window, dashboard. No browser, no address bar, no console.
 - Window floor is 1200x800. The vendored pages ship without the old
   mobile bottom nav, which only mattered below that width.
 
-Prefer the old way, or developing? Double-click **`Rover.bat`** — it starts
+Prefer the old way, or developing? **`cargo launch`** — it starts
 the packaged app if present, else runs the backend from source and opens
-your browser. Something wrong? **`Doctor.bat`** checks everything and tells
+your browser. Something wrong? **`cargo doctor`** checks everything and tells
 you what to do in plain language.
 
 ## Start here, from source (developers)
@@ -82,14 +82,14 @@ you what to do in plain language.
    source runs; the packaged app bundles its own.
 3. `cargo run` serves the dashboard at `http://localhost:8000/`
 
-Iterate natively (debug, real data): double-click **`Rover-dev.bat`**
+Iterate natively (debug, real data): **`cargo dev`**
 (or `cargo run -p roverdash`, or `bacon` for auto-rebuild). Opens the main
 window plus a second **Rover Rust View** window pushed live by Rust at ~2Hz
 (device presence, WS clients, motor frames — no simulation). `web/` legacy
 pages are frozen; future Rust views (lidar 3D as a `wgpu` canvas) land in
-the Rust view. Release (`package.bat`) stays single-window.
+the Rust view. Release (`cargo pack`) stays single-window.
 
-Something wrong? Double-click **`Doctor.bat`** — it checks everything and
+Something wrong? **`cargo doctor`** — it checks everything and
 tells you what to do in plain language.
 
 ## Prerequisites (full build)
@@ -268,7 +268,7 @@ Mosquitto sidecar and starts it whenever nothing listens on 1883.
 ## Calibration mode
 
 1. Power all 4 motors.
-2. Open `http://localhost:8000/calibration/` (via `Rover.bat` or the app).
+2. Open `http://localhost:8000/calibration/` (via `cargo launch` or the app).
 3. Press **Start** (button changes to **Pause**).
 4. Motors warm up for **2 minutes** (countdown shown), then data
    collection starts automatically.

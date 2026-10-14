@@ -15,7 +15,10 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 
 use axum::{
+    body::Body,
+    http::{header, Method, Request},
     middleware,
+    response::IntoResponse,
     routing::{get, get_service, post},
     Router,
 };
@@ -140,6 +143,40 @@ pub fn build_router(state: AppState) -> Router {
             cookie_state,
             routes::set_token_cookie,
         ))
+        .layer(middleware::from_fn(cache_headers))
+}
+
+/// Cache policy (stale-bundle class fix, Oct 2026: a heuristically cached
+/// index.html pointing at deleted hashed files boots to a black screen).
+/// Entry HTML is never stored; content-hashed bundle assets are immutable
+/// for a year (safe: the hash changes with the bytes). Everything else
+/// keeps tower/Axum defaults.
+async fn cache_headers(req: Request<Body>, next: middleware::Next) -> axum::response::Response {
+    // Only cacheable verbs, never the JSON API or the WS handshake: those
+    // must always run live, and POST responses are never stored anyway.
+    let cacheable = (req.method() == Method::GET || req.method() == Method::HEAD)
+        && !req.uri().path().starts_with("/api/");
+    let path = req.uri().path().to_string();
+    let mut resp = next.run(req).await.into_response();
+    if !cacheable {
+        return resp;
+    }
+    let last = path.rsplit('/').next().unwrap_or("");
+    let is_html =
+        path == "/" || path.ends_with('/') || path.ends_with(".html") || !last.contains('.');
+    let is_hashed_asset =
+        path.starts_with("/next/") && (path.ends_with(".js") || path.ends_with(".wasm"));
+    let value = if is_hashed_asset {
+        "public, max-age=31536000, immutable"
+    } else if is_html {
+        "no-store"
+    } else {
+        return resp;
+    };
+    if let Ok(v) = value.parse() {
+        resp.headers_mut().insert(header::CACHE_CONTROL, v);
+    }
+    resp
 }
 
 /// Logging init shared by the backend binary and the desktop shell.

@@ -4,3 +4,11 @@
 # Panic messages still work; browser stack traces stay numeric.
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "strip=symbols"]
+
+# Repo task aliases (see xtask/): `cargo launch | dev | doctor | package`.
+[alias]
+xtask = "run -p xtask --"
+launch = "run -p xtask -- launch"
+dev = "run -p roverdash"
+doctor = "run -p xtask -- doctor"
+pack = "run -p xtask -- package"

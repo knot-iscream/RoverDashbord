@@ -1,0 +1,9 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2021"
+
+# Repo task runner: `cargo launch | dev | doctor | package`.
+# Replaces Rover.bat / Rover-dev.bat / Doctor.bat / package.bat with one
+# language and real control flow (no console/no-console divergence, no
+# ping-delay hacks, unit-tested parsers). Deliberately zero dependencies.

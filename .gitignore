@@ -42,6 +42,9 @@ Thumbs.db
 # Tauri build output (regenerated every build - never commit)
 desktop/gen/
 
+# Generated boot splash (desktop/build.rs writes it from a Rust const)
+web/splash.html
+
 # Transient / secret-adjacent (none exist - keep it that way)
 *.tmp
 *.pem
