@@ -28,7 +28,8 @@ jobs:
             mkdir -p trunk-bin && tar xzf trunk.tar.gz -C trunk-bin
             echo "$PWD/trunk-bin" >> "$GITHUB_PATH"
           fi
-          trunk --version
+      # NOTE: $GITHUB_PATH takes effect in the NEXT step only, so this step
+      # must not call trunk itself; the build step below is the first caller.
       # The dashboard root serves the trunk bundle (gitignored): build it
       # before any test that hits `/` or `/next/*`, or ServeFile 404s.
       - name: Build frontend bundle
