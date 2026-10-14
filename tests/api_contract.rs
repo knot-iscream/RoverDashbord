@@ -294,6 +294,18 @@ async fn static_pages_and_cookie_plant() {
     let (s, _, _) = req(r, "GET", "/setup/", None, None).await;
     assert_eq!(s, StatusCode::OK);
 
+    // SPA routes serve the trunk bundle (built in CI before tests).
+    for path in [
+        "/next/",
+        "/next/detailed",
+        "/next/test",
+        "/next/calibration",
+    ] {
+        let (r, _g) = app().await;
+        let (s, _, _) = req(r, "GET", path, None, None).await;
+        assert_eq!(s, StatusCode::OK, "SPA route {path}");
+    }
+
     // API responses plant nothing.
     let (r, _g) = app().await;
     let (_, _, h) = req(r, "GET", "/api/health", None, None).await;

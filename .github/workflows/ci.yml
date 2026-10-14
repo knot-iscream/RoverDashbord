@@ -14,6 +14,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - name: Install trunk (prebuilt)
+        shell: bash
+        run: |
+          TRUNK_VER=0.21.14
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            curl -sSL -o trunk.zip "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VER}/trunk-x86_64-pc-windows-msvc.zip"
+            7z x trunk.zip -otrunk-bin > /dev/null
+            echo "$PWD/trunk-bin" >> "$GITHUB_PATH"
+          else
+            curl -sSL -o trunk.tar.gz "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VER}/trunk-x86_64-unknown-linux-gnu.tar.gz"
+            mkdir -p trunk-bin && tar xzf trunk.tar.gz -C trunk-bin
+            echo "$PWD/trunk-bin" >> "$GITHUB_PATH"
+          fi
+          trunk --version
+      # The dashboard root serves the trunk bundle (gitignored): build it
+      # before any test that hits `/` or `/next/*`, or ServeFile 404s.
+      - name: Build frontend bundle
+        run: trunk build
+        working-directory: frontend-wasm
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       # No broker needed: integration tests use a dead-port client, temp dirs,
