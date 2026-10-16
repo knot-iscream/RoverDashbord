@@ -45,8 +45,11 @@
     "targets": "all",
     "resources": [
       "binaries/mosquitto-x86_64-pc-windows-msvc.exe",
-      "binaries/mosquitto.dll",
-      "binaries/pthreadVC3.dll"
+      "binaries/mosquitto_common.dll",
+      "binaries/libcrypto-3-x64.dll",
+      "binaries/libssl-3-x64.dll",
+      "binaries/libmicrohttpd-dll.dll",
+      "binaries/cjson.dll"
     ],
     "icon": [
       "icons/32x32.png",

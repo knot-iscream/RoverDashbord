@@ -49,6 +49,7 @@ struct CalSample {
     voltage: Option<f64>,
     current: Option<f64>,
     vibration: bool,
+    vib_mag: Option<f64>,
     health: Option<f64>,
     vib_valid: bool,
     ina_ok: bool,
@@ -219,10 +220,11 @@ fn render_motor_cards(st: &Shared) {
         };
         let vib_str = match (live, d) {
             (true, Some(x)) if x.vib_valid => {
-                if x.vibration {
-                    "YES".to_string()
-                } else {
-                    "no".to_string()
+                match x.vib_mag {
+                    Some(g) if g.is_finite() => format!("{g:.2}g"),
+                    // Old firmware sent the bool only.
+                    _ if x.vibration => "YES".to_string(),
+                    _ => "no".to_string(),
                 }
             }
             (true, _) => "NO SIGNAL".to_string(),
@@ -1296,6 +1298,7 @@ fn connect_cal_ws(st: Shared) {
                         vibration: vib.as_bool().unwrap_or(false)
                             || vib.as_u64().is_some_and(|x| x == 1)
                             || vib.as_str().is_some_and(|x| x == "1"),
+                        vib_mag: v.get("vib_mag").and_then(|x| x.as_f64()),
                         health: v.get("health").and_then(|x| x.as_f64()),
                         vib_valid: v
                             .get("vibration_valid")

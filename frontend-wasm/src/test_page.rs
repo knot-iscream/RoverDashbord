@@ -172,21 +172,31 @@ fn paint_motor_ui(ctx: &Ctx, value: i32) {
     ctx.speeds.update(|arr| arr[m] = value);
 }
 
-/// `renderVib` verbatim + range suffix: NO SIGNAL / YES 1.8g / no 1.0g.
+/// `renderVib` verbatim + range readout: NO SIGNAL / `1.83g` + bars scaled
+/// to the level (2px calm -> 22px at 1.5g deviation), flat gray with none.
 fn render_vib(ctx: &Ctx, active: bool, valid: bool, mag: Option<f64>) {
     let no_signal = !valid;
+    let level = match mag {
+        Some(g) if g.is_finite() => (g - 1.0).abs().clamp(0.0, 1.5) / 1.5,
+        _ => 0.0,
+    };
     let suffix = match mag {
-        Some(g) if g.is_finite() => format!(" {g:.2}g"),
+        Some(g) if g.is_finite() => format!("{g:.2}g"),
         _ => String::new(),
     };
     if let Some(read) = ctx.vib_read.get() {
         let el: &Element = read.as_ref();
         let text = if no_signal {
             "NO SIGNAL".to_string()
-        } else if active {
-            format!("YES{suffix}")
+        } else if suffix.is_empty() {
+            // Old firmware sent the bool only.
+            if active {
+                "YES".to_string()
+            } else {
+                "no".to_string()
+            }
         } else {
-            format!("no{suffix}")
+            suffix.clone()
         };
         read.set_text_content(Some(&text));
         el.set_attribute(
@@ -206,13 +216,17 @@ fn render_vib(ctx: &Ctx, active: bool, valid: bool, mag: Option<f64>) {
         for i in 0..kids.length() {
             if let Some(n) = kids.item(i) {
                 if let Ok(b) = n.dyn_into::<web_sys::HtmlSpanElement>() {
-                    let h = if active {
-                        12.0 + js_random() * 10.0
+                    // Bar height follows the measured level; a small
+                    // per-bar jitter keeps the row alive without faking
+                    // data (same 2-22px visual language as before).
+                    let h = if no_signal {
+                        2.0
                     } else {
-                        2.0 + js_random() * 5.0
+                        let j = ((i as f64 * 37.0) % 10.0) / 10.0; // 0..1 deterministic
+                        2.0 + level * 20.0 * (0.85 + 0.15 * j)
                     };
                     b.set_attribute("style", &format!("--h:{h:.1}px")).ok();
-                    toggle(b.as_ref(), "on", active);
+                    toggle(b.as_ref(), "on", valid && active);
                 }
             }
         }

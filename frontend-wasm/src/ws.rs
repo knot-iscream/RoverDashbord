@@ -94,6 +94,10 @@ pub struct MotorSample {
     pub temp_valid: bool,
     #[serde(default = "default_true")]
     pub ina_ok: bool,
+    #[serde(default)]
+    pub vib_mag: Option<f64>,
+    #[serde(default = "default_true")]
+    pub vib_valid: bool,
 }
 
 fn default_true() -> bool {

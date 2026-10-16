@@ -22,12 +22,14 @@ const MOTOR_NAMES: [&str; 4] = ["FL Motor", "FR Motor", "RL Motor", "RR Motor"];
 const MOTOR_SHORT: [&str; 4] = ["FL", "FR", "RL", "RR"];
 
 /// Pinned chart ranges (verbatim from vanilla): [min, max] per metric.
+/// Vibration rests at ~1.0g, so its window centers there.
 fn chart_range(metric: usize) -> (f64, f64) {
     match metric {
         0 => (20.0, 80.0), // temp °C
         1 => (10.0, 14.0), // voltage V
         2 => (0.0, 3.0),   // current A
-        _ => (0.0, 100.0), // health %
+        3 => (0.0, 100.0), // health %
+        _ => (0.5, 2.0),   // vibration g
     }
 }
 
@@ -36,7 +38,8 @@ fn chart_color(metric: usize) -> &'static str {
         0 => "#f97316",
         1 => "#22c55e",
         2 => "#3b82f6",
-        _ => "#a855f7",
+        3 => "#a855f7",
+        _ => "#ef4444",
     }
 }
 
@@ -96,6 +99,22 @@ fn card_state(
                 (format!("{c:.3}"), badge.into(), dot)
             } else {
                 ("--".into(), "no chip".into(), "dot-red")
+            }
+        }
+        4 => {
+            if s.vib_valid && is_real(s.vib_mag) {
+                let g = s.vib_mag.unwrap();
+                let dev = (g - 1.0).abs();
+                let (badge, dot) = if dev < 0.25 {
+                    ("calm", "dot-green")
+                } else if dev < 0.5 {
+                    ("elevated", "dot-yellow")
+                } else {
+                    ("shaking", "dot-red")
+                };
+                (format!("{g:.2}"), badge.into(), dot)
+            } else {
+                ("--".into(), "no signal".into(), "dot-red")
             }
         }
         _ => {
@@ -249,6 +268,11 @@ fn connect_ws(ctx: WsCtx) {
                             .and_then(|x| x.as_bool())
                             .unwrap_or(true),
                         ina_ok: v.get("ina_ok").and_then(|x| x.as_bool()).unwrap_or(true),
+                        vib_mag: v.get("vib_mag").and_then(|x| x.as_f64()),
+                        vib_valid: v
+                            .get("vibration_valid")
+                            .and_then(|x| x.as_bool())
+                            .unwrap_or(true),
                     };
                     ctx.samples.update(|arr| arr[idx] = sample);
                     ctx.last_rx
@@ -272,6 +296,7 @@ fn connect_ws(ctx: WsCtx) {
                         push(1, sample.voltage, sample.ina_ok);
                         push(2, sample.current, sample.ina_ok);
                         push(3, sample.health, true);
+                        push(4, sample.vib_mag, sample.vib_valid);
                     });
                     (ctx.redraw)();
                 }
@@ -324,17 +349,18 @@ fn DetailedPage() -> impl IntoView {
     let hist: RwSignal<Vec<Vec<Vec<f64>>>> =
         RwSignal::new(vec![
             vec![Vec::new(), Vec::new(), Vec::new(), Vec::new()];
-            4
+            5
         ]);
 
     let temp_ref = NodeRef::<leptos::html::Canvas>::new();
     let volt_ref = NodeRef::<leptos::html::Canvas>::new();
     let curr_ref = NodeRef::<leptos::html::Canvas>::new();
     let health_ref = NodeRef::<leptos::html::Canvas>::new();
+    let vib_ref = NodeRef::<leptos::html::Canvas>::new();
 
     let redraw = move || {
         let m = (current_motor.get() as usize).saturating_sub(1).min(3);
-        let refs = [temp_ref, volt_ref, curr_ref, health_ref];
+        let refs = [temp_ref, volt_ref, curr_ref, health_ref, vib_ref];
         let h = hist.get();
         for (metric, r) in refs.iter().enumerate() {
             if let Some(c) = r.get() {
@@ -347,7 +373,7 @@ fn DetailedPage() -> impl IntoView {
                 let now = js_sys::Date::now();
                 let rx = last_rx.get();
                 let stale = stale_of(rx[m], now);
-                let units = ["°C", "V", "A", "%"];
+                let units = ["°C", "V", "A", "%", "g"];
                 if stale {
                     draw_chart(
                         &c,
@@ -449,8 +475,8 @@ fn DetailedPage() -> impl IntoView {
                             <span style="margin-left:8px;">{move || { let m = current_motor.get() as usize; format!("· {} #{}", MOTOR_SHORT[m-1], m) }}</span>
                         </div>
                         <div class="detail-values-grid" id="value-cards" style="margin-bottom:24px;">
-                            {(0usize..4usize).map(|metric| {
-                                let titles = ["Temperature (°C)", "Voltage (V)", "Current (A)", "Health (%)"];
+                            {(0usize..5usize).map(|metric| {
+                                let titles = ["Temperature (°C)", "Voltage (V)", "Current (A)", "Health (%)", "Vibration (g)"];
                                 view! {
                                     <div class="value-card">
                                         <div class="value-label">{titles[metric]}</div>
@@ -494,6 +520,7 @@ fn DetailedPage() -> impl IntoView {
                             <div class="chart-card"><div class="chart-title">"Voltage "</div><canvas class="chart-canvas" id="chart-voltage" node_ref=volt_ref></canvas></div>
                             <div class="chart-card"><div class="chart-title">"Current "</div><canvas class="chart-canvas" id="chart-current" node_ref=curr_ref></canvas></div>
                             <div class="chart-card"><div class="chart-title">"Health "</div><canvas class="chart-canvas" id="chart-health" node_ref=health_ref></canvas></div>
+                            <div class="chart-card"><div class="chart-title">"Vibration "</div><canvas class="chart-canvas" id="chart-vib" node_ref=vib_ref></canvas></div>
                         </div>
                     </div>
                 </main>

@@ -363,10 +363,16 @@ fn cmd_package() -> i32 {
     if !cp(exe, "roverdash.exe") {
         return 1;
     }
+    // Sidecar set must match the exe's real imports (see dumpbin
+    // /dependents): the old mosquitto.dll/pthreadVC3.dll pair belonged to
+    // a different build and the broker never started without these five.
     for f in [
         "mosquitto-x86_64-pc-windows-msvc.exe",
-        "mosquitto.dll",
-        "pthreadVC3.dll",
+        "mosquitto_common.dll",
+        "libcrypto-3-x64.dll",
+        "libssl-3-x64.dll",
+        "libmicrohttpd-dll.dll",
+        "cjson.dll",
     ] {
         if !cp(bin.join(f), f) {
             return 1;
