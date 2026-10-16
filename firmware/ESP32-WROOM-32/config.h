@@ -77,18 +77,32 @@
 #define DS18B20_PIN_4 4   // Motor 4 (RR)
 #define DS18B20_RESOLUTION 12
 
-// SW-420 vibration (NC = normally closed). Input-only GPIOs.
-#define SW420_PIN_1 34  // Motor 1 vibration
-#define SW420_PIN_2 35  // Motor 2 vibration
-#define SW420_PIN_3 36  // Motor 3 vibration
-#define SW420_PIN_4 39  // Motor 4 vibration
+// ADXL345 vibration (GY-291) — 4x range sensors via TCA9548A mux.
+// One bus cannot hold 4x ADXL345 natively (only 2 I2C addresses:
+// 0x53 ALT-LOW / 0x1D ALT-HIGH). All four breakouts stay at 0x53 with
+// SDO->GND; the mux puts each on its own channel. Solder A0-A2 on the
+// TCA board all open -> mux at 0x70. Shares SDA=21/SCL=22 with INA226.
+#define ADXL345_ADDR 0x53
+#define TCA9548A_ADDR 0x70
+#define ADXL345_CH_1 0   // Motor 1 (FL) on mux channel 0
+#define ADXL345_CH_2 1   // Motor 2 (FR) on mux channel 1
+#define ADXL345_CH_3 2   // Motor 3 (RL) on mux channel 2
+#define ADXL345_CH_4 3   // Motor 4 (RR) on mux channel 3
+// |mag - 1g| above this counts as vibration (at rest mag ~= 1g gravity).
+#define VIB_THRESHOLD_G 0.25f
 
-// INA219 I2C addresses (each needs unique ADDR pin config)
+// INA226 I2C addresses (each needs unique ADDR pin config).
 // I2C bus: SDA = GPIO 21, SCL = GPIO 22
-#define INA219_ADDR_1 0x41
-#define INA219_ADDR_2 0x44
-#define INA219_ADDR_3 0x45
-#define INA219_ADDR_4 0x40
+#define INA226_ADDR_1 0x41
+#define INA226_ADDR_2 0x44
+#define INA226_ADDR_3 0x45
+#define INA226_ADDR_4 0x40
+
+// INA226 calibration — 10 mOhm 1 W shunt (stock R100 replaced).
+// P = I^2*R -> 1 W / 0.01 ohm = 10 A max; firmware caps at 4 A
+// (2x the L298N 2 A channel limit) for finer current_LSB resolution.
+#define INA226_SHUNT_OHM 0.01f
+#define INA226_MAX_A     4.0f
 
 // ============================================================
 // MQTT topics

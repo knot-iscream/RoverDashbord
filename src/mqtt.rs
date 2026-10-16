@@ -17,7 +17,7 @@ use crate::data::DataHandler;
 use crate::history::HistoryStore;
 
 pub const DEVICE_OFFLINE_TIMEOUT_S: i64 = 8;
-const SUB_TOPICS: [&str; 2] = ["rover/motor/#", "rover/calibration/status"];
+const SUB_TOPICS: [&str; 3] = ["rover/motor/#", "rover/mid/#", "rover/calibration/status"];
 
 /// The shared pieces the ingest loop needs. `AppState` (main.rs) builds one
 /// via `ctx()`; this breaks the state-needs-slot / slot-task-needs-state cycle.
@@ -184,7 +184,40 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
         return;
     }
 
+    // ── MID driver status (ESP-2, blind middles): broadcast with source
+    // tag so pages can tell it apart; never merged into the corners cache.
+    if topic.starts_with("rover/mid/status") {
+        let mut payload = json!({"type": "motor_status", "source": "mid"});
+        if let Value::Object(map) = data {
+            if let Value::Object(out) = &mut payload {
+                out.extend(map);
+            }
+        }
+        broadcast(ctx, payload);
+        return;
+    }
+
     // ── Motor telemetry ──
+    // ESP-2 publishes mid motor 1-2; remap to backend ids 5-6 so they can
+    // never collide with the four corners on rover/motor/1..4.
+    if topic.starts_with("rover/mid/") {
+        let remapped = match data
+            .get("motor")
+            .or_else(|| data.get("id"))
+            .and_then(|m| m.as_i64())
+        {
+            Some(1) => json!(5),
+            Some(2) => json!(6),
+            _ => data
+                .get("motor")
+                .or_else(|| data.get("id"))
+                .cloned()
+                .unwrap_or(json!(0)),
+        };
+        if let Value::Object(map) = &mut data {
+            map.insert("motor".into(), remapped);
+        }
+    }
     let running = crate::data::coerce_i64(data.get("speed")) != 0;
     let cal_state = ctx.cal.read().await.state.clone();
     let calibrating = cal_state == CalState::Warmup || cal_state == CalState::Sweep;
@@ -224,6 +257,10 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
             "current": if ina_ok { data.get("current").cloned().unwrap_or(Value::Null) } else { Value::Null },
             "temp": if temp_valid { data.get("temp").or_else(|| data.get("temperature")).cloned().unwrap_or(Value::Null) } else { Value::Null },
             "speed": data.get("speed").cloned().unwrap_or(json!(0)),
+            "vib_mag": data.get("vib_mag").cloned().unwrap_or(Value::Null),
+            "ax": data.get("ax").cloned().unwrap_or(Value::Null),
+            "ay": data.get("ay").cloned().unwrap_or(Value::Null),
+            "az": data.get("az").cloned().unwrap_or(Value::Null),
             "health": health.health,
             "anomalies": health.anomalies,
         }),

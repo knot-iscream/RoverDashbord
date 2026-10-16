@@ -48,6 +48,18 @@ pub struct MotorSample {
     pub voltage: Option<f64>,
     pub current: Option<f64>,
     pub temp: Option<f64>,
+    /// ADXL345 range extension (None when the sender omits it, e.g. MID
+    /// blind slots or old firmware). Display-only: health still uses the
+    /// `vibration` bool so the penalty math stays 1:1. Skipped when absent
+    /// so the parity goldens keep their exact shape.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub vib_mag: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ax: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ay: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub az: Option<f64>,
     pub timestamp: f64,
 }
 
@@ -198,6 +210,10 @@ impl DataHandler {
                 voltage: raw_num(data.get("voltage")),
                 current: raw_num(data.get("current")),
                 temp: raw_num(data.get("temp").or_else(|| data.get("temperature"))),
+                vib_mag: raw_num(data.get("vib_mag")),
+                ax: raw_num(data.get("ax")),
+                ay: raw_num(data.get("ay")),
+                az: raw_num(data.get("az")),
                 timestamp: now_secs(),
             },
         );
@@ -458,6 +474,21 @@ mod tests {
         assert_eq!(s.voltage, None); // raw null preserved, not 0.0
                                      // ina missing + temp invalid → only vibration valid → 100-5
         assert_eq!(health.health, Some(95.0));
+    }
+
+    #[test]
+    fn vib_mag_stored_without_affecting_health() {
+        let mut h = DataHandler::new();
+        let pkt = json!({
+            "motor": 1, "speed": 128, "vibration": 0, "vibration_valid": true,
+            "ina_ok": true, "temp_valid": true, "voltage": 12.0, "current": 0.5,
+            "temp": 35.0, "vib_mag": 1.83, "ax": 0.11, "ay": -0.05, "az": 0.98
+        });
+        let health = h.process_motor_data(&pkt);
+        let s = &h.latest[&1];
+        assert_eq!(s.vib_mag, Some(1.83));
+        assert_eq!(s.az, Some(0.98));
+        assert_eq!(health.health, Some(100.0));
     }
 
     #[test]

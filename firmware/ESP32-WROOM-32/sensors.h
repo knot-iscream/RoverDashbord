@@ -1,19 +1,21 @@
 #ifndef SENSORS_H
 #define SENSORS_H
 
+#include <Wire.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <Adafruit_INA219.h>
+#include <INA226.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_ADXL345_U.h>
 #include "config.h"
 
 #define NUM_MOTORS 4
 #define DS18B20_CONVERSION_MS 750
 
-// A vibration reading is only trusted if the SW-420 pin has been observed
-// HIGH within this window. A wired module pulls DO HIGH when quiet; a
-// disconnected/floating input-only GPIO (34-39, no internal pull-up) reads
-// LOW forever -> vibration_valid goes false and vibration is reported as 0.
-#define VIB_VALID_WINDOW_MS 10000
+// ADXL345 mux channels, index = motor slot.
+static const uint8_t ADXL345_CH[NUM_MOTORS] = {
+  ADXL345_CH_1, ADXL345_CH_2, ADXL345_CH_3, ADXL345_CH_4
+};
 
 // One dedicated OneWire bus per motor (pin = motor slot). Indexing by motor
 // means no ROM matching: whichever probe is on that pin reports as that motor.
@@ -24,13 +26,16 @@ static const int DS18B20_PINS[NUM_MOTORS] = {
 
 struct MotorSensorData {
   int motor_id;
-  bool vibration;
-  bool vibration_valid;
+  bool vibration;          // contract bool: |mag-1g| > VIB_THRESHOLD_G
+  bool vibration_valid;    // contract bool: ADXL present + fresh read
   bool ina_ok;
   float voltage;
   float current;
   float temperature;
   bool temp_valid;
+  // Range extension (additive, backend ignores when NaN):
+  float vib_mag_g;         // acceleration magnitude in g (rest ~= 1.0)
+  float ax_g, ay_g, az_g;  // per-axis acceleration in g
 };
 
 class SensorManager {
@@ -54,13 +59,23 @@ class SensorManager {
     static const int MAX_READ_RETRIES = 3;  // getTempC() native retries
     static const int MAX_BAD_STREAK = 3;    // hysteresis: clear valid after N
 
-    Adafruit_INA219* ina_sensors[NUM_MOTORS];
-    int vib_pins[NUM_MOTORS];
+    INA226* ina_sensors[NUM_MOTORS];
     uint8_t ina_addresses[NUM_MOTORS];
     bool ina_ok[NUM_MOTORS];
-    unsigned long vib_last_high[NUM_MOTORS];
-    unsigned long last_ina_check;   // last time INA219 presence was re-verified
+    unsigned long last_ina_check;   // last time INA226 presence was re-verified
     static const unsigned long INA_RECHECK_MS = 5000;
+
+    // Vibration — single ADXL345 object shared across mux channels.
+    // All four breakouts sit at ADXL345_ADDR; the TCA9548A routes one
+    // channel at a time, so select-then-read addresses the right chip.
+    Adafruit_ADXL345_Unified accel = Adafruit_ADXL345_Unified(12345);
+    bool adxl_ok[NUM_MOTORS];
+
+    void tcaSelect(uint8_t ch) {
+      Wire.beginTransmission(TCA9548A_ADDR);
+      Wire.write((uint8_t)(1 << ch));
+      Wire.endTransmission();
+    }
 
     void requestConversion() {
       bool any = false;
@@ -103,19 +118,19 @@ class SensorManager {
       }
     }
 
-    // Re-run begin() on each INA219 so a chip unplugged AFTER boot is
-    // detected (begin() fails when the chip vanishes from the I2C bus).
+    // Re-probe each INA226 so a chip unplugged AFTER boot is detected
+    // (isConnected fails when the chip vanishes from the I2C bus).
     void recheckIna() {
       for (int i = 0; i < NUM_MOTORS; i++) {
         if (ina_sensors[i]) {
-          ina_ok[i] = ina_sensors[i]->begin();
+          ina_ok[i] = ina_sensors[i]->isConnected();
         }
       }
     }
 
   public:
     SensorManager() : conversion_pending(false), conversion_start(0),
-                      last_reauth(0), last_ina_check(0) {
+                      last_ina_check(0), last_reauth(0) {
       for (int i = 0; i < NUM_MOTORS; i++) {
         one_wire[i] = nullptr;
         ds18b20[i] = nullptr;
@@ -124,28 +139,53 @@ class SensorManager {
         temp_cache[i] = NAN;
         temp_valid[i] = false;
         bad_read_streak[i] = 0;
-        vib_last_high[i] = 0;
+        ina_sensors[i] = nullptr;
         ina_ok[i] = false;
+        adxl_ok[i] = false;
       }
     }
 
-    void begin(int vib_pins_arr[NUM_MOTORS], uint8_t ina_addrs[NUM_MOTORS]) {
+    void begin(uint8_t ina_addrs[NUM_MOTORS]) {
+      Wire.begin(21, 22);
+
       for (int i = 0; i < NUM_MOTORS; i++) {
-        vib_pins[i] = vib_pins_arr[i];
         ina_addresses[i] = ina_addrs[i];
 
-        pinMode(vib_pins[i], INPUT);
-
-        ina_sensors[i] = new Adafruit_INA219(ina_addresses[i]);
-        ina_ok[i] = ina_sensors[i]->begin();
-        if (!ina_ok[i]) {
-          Serial.print("[Sensors] INA219 on addr 0x");
-          Serial.print(ina_addresses[i], HEX);
-          Serial.println(" not found!");
-        } else {
-          Serial.print("[Sensors] INA219 on addr 0x");
+        ina_sensors[i] = new INA226(ina_addresses[i]);
+        bool found = ina_sensors[i]->begin();
+        if (found) {
+          // 10 mOhm shunt, 4 A cap (see config.h). Mandatory: without it
+          // getCurrent() returns uncalibrated garbage.
+          ina_sensors[i]->setMaxCurrentShunt(INA226_MAX_A, INA226_SHUNT_OHM);
+          ina_ok[i] = true;
+          Serial.print("[Sensors] INA226 on addr 0x");
           Serial.print(ina_addresses[i], HEX);
           Serial.println(" initialized");
+        } else {
+          ina_ok[i] = false;
+          Serial.print("[Sensors] INA226 on addr 0x");
+          Serial.print(ina_addresses[i], HEX);
+          Serial.println(" not found!");
+        }
+      }
+
+      // ADXL345 — one chip per mux channel, all at ADXL345_ADDR.
+      for (int i = 0; i < NUM_MOTORS; i++) {
+        tcaSelect(ADXL345_CH[i]);
+        delay(2);
+        if (accel.begin(ADXL345_ADDR)) {
+          accel.setRange(ADXL345_RANGE_4_G);
+          accel.setDataRate(ADXL345_DATARATE_100_HZ);
+          adxl_ok[i] = true;
+          Serial.print("[Sensors] ADXL345 motor ");
+          Serial.print(i + 1);
+          Serial.print(" on mux ch ");
+          Serial.println(ADXL345_CH[i]);
+        } else {
+          adxl_ok[i] = false;
+          Serial.print("[Sensors] WARNING: motor ");
+          Serial.print(i + 1);
+          Serial.println(" - no ADXL345 found (check mux/wiring)");
         }
       }
 
@@ -190,7 +230,7 @@ class SensorManager {
     void update() {
       unsigned long now = millis();
 
-      // Periodically re-verify INA219 presence (detects unplug mid-run).
+      // Periodically re-verify INA226 presence (detects unplug mid-run).
       if (now - last_ina_check >= INA_RECHECK_MS) {
         last_ina_check = now;
         recheckIna();
@@ -238,43 +278,55 @@ class SensorManager {
       MotorSensorData data;
       data.motor_id = motor_idx + 1;
 
-      // Vibration — digital read from SW-420 (NC = normally closed)
-      // SW-420 outputs LOW when vibration detected. Only trusted if the
-      // pin has read HIGH recently (proves the module is wired); a floating
-      // disconnected pin reads LOW forever and must NOT count as vibration.
-      bool vib_pin_low = (digitalRead(vib_pins[motor_idx]) == LOW);
-      unsigned long now = millis();
-      if (!vib_pin_low) {
-        vib_last_high[motor_idx] = now;
+      // Vibration — ADXL345 magnitude. At rest mag ~= 1g (gravity);
+      // shaking/jam adds acceleration and pushes mag off 1g. A missing
+      // chip reports vibration_valid=false and mag NaN ("--" upstream).
+      data.vibration = false;
+      data.vibration_valid = false;
+      data.vib_mag_g = NAN;
+      data.ax_g = data.ay_g = data.az_g = NAN;
+      if (adxl_ok[motor_idx]) {
+        tcaSelect(ADXL345_CH[motor_idx]);
+        sensors_event_t event;
+        accel.getEvent(&event);
+        float ax = event.acceleration.x / 9.80665f;
+        float ay = event.acceleration.y / 9.80665f;
+        float az = event.acceleration.z / 9.80665f;
+        if (ax == ax && ay == ay && az == az) {  // NaN guard
+          float mag = sqrtf(ax * ax + ay * ay + az * az);
+          data.vib_mag_g = mag;
+          data.ax_g = ax;
+          data.ay_g = ay;
+          data.az_g = az;
+          data.vibration_valid = true;
+          data.vibration = (fabsf(mag - 1.0f) > VIB_THRESHOLD_G);
+        }
       }
-      data.vibration_valid = (vib_last_high[motor_idx] != 0) &&
-                             (now - vib_last_high[motor_idx]) < VIB_VALID_WINDOW_MS;
-      data.vibration = data.vibration_valid && vib_pin_low;
 
       // Temperature from this motor's dedicated DS18B20 cache. Disabled
       // pins / lost probes publish NAN -> temp_valid:0 -> dashboard "--".
       data.temperature = temp_cache[motor_idx];
       data.temp_valid = temp_valid[motor_idx];
 
-      // Voltage and current from INA219. Only trusted when the chip is
+      // Voltage and current from INA226. Only trusted when the chip is
       // present (ina_ok) AND producing sane numbers. A chip that begins
       // but reports NaN current, or bus voltage way out of range, means no
       // shunt/load is actually wired — treat the whole reading as
       // unreliable (report NAN so the backend/UI render "--").
       data.ina_ok = ina_ok[motor_idx];
-      float shunt_v = 0.0f, bus_v = 0.0f, current_mA = 0.0f;
+      float shunt_mV = 0.0f, bus_v = 0.0f, current_mA = 0.0f;
       if (data.ina_ok) {
-        shunt_v = ina_sensors[motor_idx]->getShuntVoltage_mV();
-        bus_v = ina_sensors[motor_idx]->getBusVoltage_V();
+        shunt_mV = ina_sensors[motor_idx]->getShuntVoltage_mV();
+        bus_v = ina_sensors[motor_idx]->getBusVoltage();
         current_mA = ina_sensors[motor_idx]->getCurrent_mA();
       }
       bool bad_current = (current_mA != current_mA);   // NaN
-      bool bad_bus = !(bus_v > 3.0f && bus_v < 16.0f); // out of sane range
+      bool bad_bus = !(bus_v > 3.0f && bus_v < 36.0f); // INA226: 36 V max
       if (data.ina_ok && (bad_current || bad_bus)) {
         data.ina_ok = false;
       }
 
-      data.voltage = data.ina_ok ? (bus_v + (shunt_v / 1000.0)) : NAN;
+      data.voltage = data.ina_ok ? (bus_v + (shunt_mV / 1000.0)) : NAN;
       data.current = data.ina_ok ? (current_mA / 1000.0) : NAN;
       if (data.voltage != data.voltage) data.voltage = NAN;
       if (data.current != data.current) data.current = NAN;

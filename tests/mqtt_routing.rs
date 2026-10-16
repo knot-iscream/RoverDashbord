@@ -164,6 +164,67 @@ async fn second_message_within_window_broadcasts_no_presence() {
 }
 
 #[tokio::test]
+async fn mid_telemetry_remapped_to_5_and_6() {
+    // ESP-2 publishes mid motor 1-2; backend ids must be 5-6 so they can
+    // never collide with the four corners.
+    let mut f = common::fixture("mqtt-mid");
+    mqtt::on_mqtt_message(&f.ctx, "rover/mid/1", pkt(1, 128)).await;
+    mqtt::on_mqtt_message(&f.ctx, "rover/mid/2", pkt(2, 0)).await;
+    let cache = f.data.read().await;
+    assert!(cache.latest.contains_key(&5), "mid 1 -> motor 5");
+    assert!(cache.latest.contains_key(&6), "mid 2 -> motor 6");
+    assert!(!cache.latest.contains_key(&1), "corners untouched by mid");
+    drop(cache);
+    let d = common::drain(&mut f.rx);
+    let updates: Vec<_> = d.iter().filter(|m| m["type"] == "motor_update").collect();
+    assert_eq!(updates.len(), 2);
+    assert!(updates.iter().any(|m| m["motor"] == 5));
+    assert!(updates.iter().any(|m| m["motor"] == 6));
+    std::fs::remove_dir_all(&f.dir).ok();
+}
+
+#[tokio::test]
+async fn mid_status_broadcast_with_source_not_merged() {
+    // MID status must not pollute the corners motor_status cache.
+    let mut f = common::fixture("mqtt-midstat");
+    mqtt::on_mqtt_message(&f.ctx, "rover/mid/status", json!({"speed": [10, 20]})).await;
+    assert!(
+        f.motor_status.read().await.get("speed").is_none(),
+        "corners cache untouched"
+    );
+    let d = common::drain(&mut f.rx);
+    let st = d
+        .iter()
+        .find(|m| m["type"] == "motor_status")
+        .expect("mid status broadcast");
+    assert_eq!(st["source"], "mid");
+    std::fs::remove_dir_all(&f.dir).ok();
+}
+
+#[tokio::test]
+async fn vib_mag_passes_through_without_changing_health() {
+    // Range fields are display-only: health still follows the bool.
+    let mut f = common::fixture("mqtt-vibmag");
+    let mut p = pkt(1, 128);
+    p["vib_mag"] = json!(1.83);
+    p["ax"] = json!(0.11);
+    p["ay"] = json!(-0.05);
+    p["az"] = json!(0.98);
+    mqtt::on_mqtt_message(&f.ctx, "rover/motor/1", p).await;
+    let s = f.data.read().await.latest.get(&1).cloned().unwrap();
+    assert_eq!(s.vib_mag, Some(1.83));
+    assert_eq!(s.ax, Some(0.11));
+    let d = common::drain(&mut f.rx);
+    let u = d
+        .iter()
+        .find(|m| m["type"] == "motor_update")
+        .expect("motor_update");
+    assert_eq!(u["vib_mag"], 1.83);
+    assert_eq!(u["health"], 100.0, "vibration bool 0 -> no penalty");
+    std::fs::remove_dir_all(&f.dir).ok();
+}
+
+#[tokio::test]
 async fn broker_disconnect_clears_connected_flag() {
     // B6 regression: a broker-initiated DISCONNECT must clear `connected`
     // promptly (Python's `_on_disconnect`), not linger. Verified mechanism:

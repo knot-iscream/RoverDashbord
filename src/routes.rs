@@ -55,16 +55,35 @@ pub async fn motor_control(State(s): State<AppState>, Json(body): Json<Value>) -
     let motor_raw = body.get("motor").cloned().unwrap_or(json!(0));
     let motor = coerce_motor(body.get("motor"));
     let speed = coerce_i64(body.get("speed")).clamp(-255, 255);
-    let sent = s
-        .mqtt
-        .read()
-        .await
-        .handle
-        .publish(
-            "rover/motor/command",
-            &json!({"motor": motor, "speed": speed}),
-        )
-        .await;
+    // Motors 5-6 live on ESP-2 MID (own namespace); 0 = all six.
+    let guard = s.mqtt.read().await;
+    let sent = if motor == 0 {
+        let a = guard
+            .handle
+            .publish("rover/motor/command", &json!({"motor": 0, "speed": speed}))
+            .await;
+        let b = guard
+            .handle
+            .publish("rover/mid/command", &json!({"motor": 0, "speed": speed}))
+            .await;
+        a || b
+    } else if motor == 5 || motor == 6 {
+        guard
+            .handle
+            .publish(
+                "rover/mid/command",
+                &json!({"motor": motor - 4, "speed": speed}),
+            )
+            .await
+    } else {
+        guard
+            .handle
+            .publish(
+                "rover/motor/command",
+                &json!({"motor": motor, "speed": speed}),
+            )
+            .await
+    };
     if sent {
         Json(json!({"status": "ok", "motor": motor_raw, "speed": speed, "sent": true}))
     } else {

@@ -1,6 +1,6 @@
 //! Motor Test page (`/next/test`) — 1:1 port of `web/test/`.
 //!
-//! Covers: 4-motor tabs (RR default), slider + OFF + presets + ramp,
+//! Covers: 6-motor tabs (RR default; ML/MR are blind MID slots), slider + OFF + presets + ramp,
 //! live telemetry panel, vibration beats, sys alerts, calibration guard,
 //! freshness gates, `?motor=` deep-link. Vanilla stays default at `/test/`.
 
@@ -12,8 +12,15 @@ use web_sys::{Element, HtmlInputElement};
 use crate::shell::app_shell;
 use crate::ws::{fetch_device_online, get_json, motor_param, now_ms, post_motor, ws_url};
 
-const MOTOR_SHORT: [&str; 4] = ["FL", "FR", "RL", "RR"];
-const MOTOR_FULL: [&str; 4] = ["Front Left", "Front Right", "Rear Left", "Rear Right"];
+const MOTOR_SHORT: [&str; 6] = ["FL", "FR", "RL", "RR", "ML", "MR"];
+const MOTOR_FULL: [&str; 6] = [
+    "Front Left",
+    "Front Right",
+    "Rear Left",
+    "Rear Right",
+    "Middle Left",
+    "Middle Right",
+];
 
 const RAMP_SEQ: [i32; 9] = [64, 128, 191, 255, -255, -191, -128, -64, 0];
 const RAMP_STEP_MS: f64 = 4000.0;
@@ -31,6 +38,7 @@ struct TestSample {
     speed: Option<i64>,
     vib_active: bool,
     vib_valid: bool,
+    vib_mag: Option<f64>,
     temp_valid: bool,
     ina_ok: bool,
 }
@@ -96,9 +104,9 @@ fn fresh_of(last_rx: Option<f64>, now: f64) -> (Fresh, Option<f64>) {
 #[derive(Clone)]
 struct Ctx {
     selected: RwSignal<u8>,
-    speeds: RwSignal<[i32; 4]>,
-    samples: RwSignal<[TestSample; 4]>,
-    last_rx: RwSignal<[Option<f64>; 4]>,
+    speeds: RwSignal<[i32; 6]>,
+    samples: RwSignal<[TestSample; 6]>,
+    last_rx: RwSignal<[Option<f64>; 6]>,
     device_online: RwSignal<bool>,
     calibrating: RwSignal<bool>,
     cal_name: RwSignal<String>,
@@ -134,7 +142,7 @@ struct Ctx {
 /// drive). Clamps, paints fill/labels/val, stores per-motor speed memory.
 fn paint_motor_ui(ctx: &Ctx, value: i32) {
     let value = value.clamp(-255, 255);
-    let m = (ctx.selected.get() as usize).saturating_sub(1).min(3);
+    let m = (ctx.selected.get() as usize).saturating_sub(1).min(5);
     let mag = value.abs() as f64 / 255.0;
     if let Some(row) = ctx.row.get() {
         let el: &Element = row.as_ref();
@@ -164,18 +172,23 @@ fn paint_motor_ui(ctx: &Ctx, value: i32) {
     ctx.speeds.update(|arr| arr[m] = value);
 }
 
-/// `renderVib` verbatim: NO SIGNAL / YES / no + 20 re-randomized beat bars.
-fn render_vib(ctx: &Ctx, active: bool, valid: bool) {
+/// `renderVib` verbatim + range suffix: NO SIGNAL / YES 1.8g / no 1.0g.
+fn render_vib(ctx: &Ctx, active: bool, valid: bool, mag: Option<f64>) {
     let no_signal = !valid;
+    let suffix = match mag {
+        Some(g) if g.is_finite() => format!(" {g:.2}g"),
+        _ => String::new(),
+    };
     if let Some(read) = ctx.vib_read.get() {
         let el: &Element = read.as_ref();
-        read.set_text_content(Some(if no_signal {
-            "NO SIGNAL"
+        let text = if no_signal {
+            "NO SIGNAL".to_string()
         } else if active {
-            "YES"
+            format!("YES{suffix}")
         } else {
-            "no"
-        }));
+            format!("no{suffix}")
+        };
+        read.set_text_content(Some(&text));
         el.set_attribute(
             "style",
             if no_signal {
@@ -216,8 +229,12 @@ fn paint_health_bar(ctx: &Ctx, h: Option<f64>) {
     }
 }
 
-/// The 5 verbatim sys-status strings + alert gating.
-fn sys_text(s: &TestSample) -> (bool, &'static str) {
+/// The 5 verbatim sys-status strings + alert gating. Blind MID slots (5-6)
+/// carry no sensors by design: steady "drive only" line, never an alarm.
+fn sys_text(s: &TestSample, blind: bool) -> (bool, &'static str) {
+    if blind {
+        return (false, "Blind slot \u{2014} drive only, no sensors");
+    }
     let vib_on = s.vib_active;
     let alert = (s.temp_valid && s.temp.is_some_and(|t| t > 50.0))
         || (s.ina_ok && s.voltage.is_some_and(|v| v > 0.0 && v < 11.5))
@@ -225,9 +242,9 @@ fn sys_text(s: &TestSample) -> (bool, &'static str) {
         || !s.ina_ok
         || !s.temp_valid;
     let text = if !s.ina_ok && !s.temp_valid {
-        "ALARM \u{2014} INA219 & temp probe not found"
+        "ALARM \u{2014} INA226 & temp probe not found"
     } else if !s.ina_ok {
-        "ALARM \u{2014} INA219 not found"
+        "ALARM \u{2014} INA226 not found"
     } else if !s.temp_valid {
         "ALARM \u{2014} temp probe not found"
     } else if alert {
@@ -336,7 +353,7 @@ fn connect_test_ws(ctx: Ctx) {
             match v.get("type").and_then(|x| x.as_str()).unwrap_or("") {
                 "motor_update" => {
                     let m = v.get("motor").and_then(|x| x.as_u64()).unwrap_or(0) as usize;
-                    if !(1..=4).contains(&m) {
+                    if !(1..=6).contains(&m) {
                         return;
                     }
                     let vib = &v["vibration"];
@@ -353,6 +370,7 @@ fn connect_test_ws(ctx: Ctx) {
                             .get("vibration_valid")
                             .and_then(|x| x.as_bool())
                             .unwrap_or(true),
+                        vib_mag: v.get("vib_mag").and_then(|x| x.as_f64()),
                         temp_valid: v
                             .get("temp_valid")
                             .and_then(|x| x.as_bool())
@@ -363,7 +381,7 @@ fn connect_test_ws(ctx: Ctx) {
                     ctx.last_rx.update(|arr| arr[m - 1] = Some(now_ms()));
                     if m as u8 == ctx.selected.get() {
                         paint_health_bar(&ctx, sample.health);
-                        render_vib(&ctx, sample.vib_active, sample.vib_valid);
+                        render_vib(&ctx, sample.vib_active, sample.vib_valid, sample.vib_mag);
                     }
                 }
                 "snapshot" => {
@@ -417,9 +435,9 @@ type FrameCell = std::rc::Rc<std::cell::RefCell<Option<Closure<dyn FnMut(f64)>>>
 #[component]
 pub fn TestPage() -> impl IntoView {
     let selected = RwSignal::new(motor_param(4));
-    let speeds = RwSignal::new([0i32, 0, 0, 0]);
-    let samples = RwSignal::new([TestSample::default(); 4]);
-    let last_rx = RwSignal::new([None, None, None, None]);
+    let speeds = RwSignal::new([0i32, 0, 0, 0, 0, 0]);
+    let samples = RwSignal::new([TestSample::default(); 6]);
+    let last_rx = RwSignal::new([None, None, None, None, None, None]);
     let device_online = RwSignal::new(false);
     let calibrating = RwSignal::new(false);
     let cal_name = RwSignal::new("Calibration idle".to_string());
@@ -643,7 +661,7 @@ pub fn TestPage() -> impl IntoView {
                 (ctx.cancel_ramp)(false);
             }
             ctx.selected.set(id);
-            let m = (id as usize).saturating_sub(1).min(3);
+            let m = (id as usize).saturating_sub(1).min(5);
             let spd = ctx.speeds.get()[m];
             if let Some(s) = ctx.slider.get() {
                 s.set_value(&spd.to_string());
@@ -655,7 +673,7 @@ pub fn TestPage() -> impl IntoView {
             let live = ctx.last_rx.get()[m].is_some_and(|t| now_ms() - t <= FRESH_LIVE_MS);
             if live {
                 paint_health_bar(&ctx, cached.health);
-                render_vib(&ctx, cached.vib_active, cached.vib_valid);
+                render_vib(&ctx, cached.vib_active, cached.vib_valid, cached.vib_mag);
             }
             fetch_baseline(&ctx);
         }
@@ -735,10 +753,10 @@ pub fn TestPage() -> impl IntoView {
                 c.tick.update(|t| *t += 1);
                 // Vanilla updateFreshness side effects beyond text: re-render
                 // idle/stale beat bars every second.
-                let m = (c.selected.get() as usize).saturating_sub(1).min(3);
+                let m = (c.selected.get() as usize).saturating_sub(1).min(5);
                 let (fresh, _) = fresh_of(c.last_rx.get()[m], now_ms());
                 if !matches!(fresh, Fresh::Live) {
-                    render_vib(&c, false, false);
+                    render_vib(&c, false, false, None);
                 }
             });
             _iv.forget();
@@ -756,7 +774,7 @@ pub fn TestPage() -> impl IntoView {
     // ---- reactive derivations (mirror the vanilla render call sites) ----
     let fresh = move || {
         let _ = tick.get();
-        let m = (selected.get() as usize).saturating_sub(1).min(3);
+        let m = (selected.get() as usize).saturating_sub(1).min(5);
         fresh_of(last_rx.get()[m], now_ms())
     };
     let tele_dot_cls = move || {
@@ -768,7 +786,7 @@ pub fn TestPage() -> impl IntoView {
         }
     };
     let age_txt = move || {
-        let m = (selected.get() as usize).saturating_sub(1).min(3);
+        let m = (selected.get() as usize).saturating_sub(1).min(5);
         match fresh() {
             (Fresh::Live, Some(age)) => format!("Live \u{b7} {age:.1}s ago"),
             (Fresh::Stale, Some(age)) => format!("Stale \u{b7} {}s ago", age.round() as i64),
@@ -778,7 +796,7 @@ pub fn TestPage() -> impl IntoView {
     // Sensor values: waiting -> '--' (blankTelemetry), else validity-gated.
     let val_txt = move |metric: usize| {
         let _ = tick.get();
-        let m = (selected.get() as usize).saturating_sub(1).min(3);
+        let m = (selected.get() as usize).saturating_sub(1).min(5);
         let s = samples.get()[m];
         let (f, _) = fresh_of(last_rx.get()[m], now_ms());
         if matches!(f, Fresh::Waiting) {
@@ -825,7 +843,7 @@ pub fn TestPage() -> impl IntoView {
     };
     let stale_cls = move |base: &'static str| {
         let _ = tick.get();
-        let m = (selected.get() as usize).saturating_sub(1).min(3);
+        let m = (selected.get() as usize).saturating_sub(1).min(5);
         let (f, _) = fresh_of(last_rx.get()[m], now_ms());
         if matches!(f, Fresh::Stale) {
             format!("{base} stale")
@@ -835,12 +853,13 @@ pub fn TestPage() -> impl IntoView {
     };
     let sys_cls = move || {
         let _ = tick.get();
-        let m = (selected.get() as usize).saturating_sub(1).min(3);
+        let m = (selected.get() as usize).saturating_sub(1).min(5);
         match fresh_of(last_rx.get()[m], now_ms()).0 {
             Fresh::Waiting => "test-sys-ok test-sys-wait".to_string(),
             Fresh::Stale => "test-sys-ok test-sys-alert".to_string(),
             Fresh::Live => {
-                let (alert, _) = sys_text(&samples.get()[m]);
+                let blind = selected.get() > 4;
+                let (alert, _) = sys_text(&samples.get()[m], blind);
                 if alert {
                     "test-sys-ok test-sys-alert".to_string()
                 } else {
@@ -851,7 +870,7 @@ pub fn TestPage() -> impl IntoView {
     };
     let sys_txt = move || {
         let _ = tick.get();
-        let m = (selected.get() as usize).saturating_sub(1).min(3);
+        let m = (selected.get() as usize).saturating_sub(1).min(5);
         match fresh_of(last_rx.get()[m], now_ms()).0 {
             Fresh::Waiting => {
                 format!(
@@ -866,7 +885,9 @@ pub fn TestPage() -> impl IntoView {
                     age.unwrap_or(0)
                 )
             }
-            Fresh::Live => sys_text(&samples.get()[m]).1.to_string(),
+            Fresh::Live => sys_text(&samples.get()[m], selected.get() > 4)
+                .1
+                .to_string(),
         }
     };
     // run-status: Offline > Ramp > calibrating ? Sweeping : live sample ?
@@ -880,13 +901,13 @@ pub fn TestPage() -> impl IntoView {
             return "Ramp";
         }
         if calibrating.get() {
-            return if speeds.get()[(selected.get() as usize).saturating_sub(1).min(3)] != 0 {
+            return if speeds.get()[(selected.get() as usize).saturating_sub(1).min(5)] != 0 {
                 "Sweeping"
             } else {
                 "Idle"
             };
         }
-        let m = (selected.get() as usize).saturating_sub(1).min(3);
+        let m = (selected.get() as usize).saturating_sub(1).min(5);
         let (f, _) = fresh_of(last_rx.get()[m], now_ms());
         if matches!(f, Fresh::Live) {
             if samples.get()[m].speed.unwrap_or(0) != 0 {
@@ -988,7 +1009,7 @@ pub fn TestPage() -> impl IntoView {
                             </div>
                         </div>
                         <div class="detail-motor-tabs" id="test-motor-tabs">
-                            {(1u8..=4u8).map(|m| {
+                            {(1u8..=6u8).map(|m| {
                                 let ot = on_tab.clone();
                                 view! {
                                     <button
@@ -1017,7 +1038,7 @@ pub fn TestPage() -> impl IntoView {
                                     <div class="motor-control-row test-hero" data-motor-row={move || selected.get().to_string()}>
                                         <div class="motor-control-head">
                                             <span class="cal-motor-name" id="test-motor-name">
-                                                {move || MOTOR_FULL[(selected.get() as usize).saturating_sub(1).min(3)].to_string()}
+                                                {move || MOTOR_FULL[(selected.get() as usize).saturating_sub(1).min(5)].to_string()}
                                             </span>
                                             <div class="motor-control-meta">
                                                 <span class="motor-control-val test-hero-val" id="motor-val" node_ref=val>"0"</span>

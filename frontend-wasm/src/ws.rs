@@ -58,7 +58,7 @@ pub fn ws_url() -> String {
     format!("{ws}/ws")
 }
 
-/// `?motor=N` deep-link (1-4), else `default`.
+/// `?motor=N` deep-link (1-6), else `default`.
 pub fn motor_param(default: u8) -> u8 {
     let Some(window) = web_sys::window() else {
         return default;
@@ -71,7 +71,7 @@ pub fn motor_param(default: u8) -> u8 {
     if let Some(p) = params {
         if let Some(v) = p.get("motor") {
             if let Ok(n) = v.parse::<u8>() {
-                if (1..=4).contains(&n) {
+                if (1..=6).contains(&n) {
                     return n;
                 }
             }

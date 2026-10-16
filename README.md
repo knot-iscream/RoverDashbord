@@ -97,36 +97,39 @@ tells you what to do in plain language.
 | Item | Detail |
 |------|--------|
 | PC/laptop | Runs backend + broker + dashboard |
-| ESP32-WROOM-32 dev board + USB cable | Firmware target |
+| ESP32-WROOM-32 dev board + USB cable | Firmware target (x2 for the 6-motor build: corners + middles) |
 | 4x DS18B20 waterproof probes + 4x 4.7kΩ resistors | One probe per motor, 3.3V, pull-up per pin |
-| 4x SW-420 vibration modules | 3.3V only, sensitivity pot per module |
-| 4x INA219 current/voltage modules | Unique I2C address per module via A0/A1 jumpers |
-| 2x L298N H-bridge boards | One board per two motors |
-| 4x 37GB 12V 100RPM gear motors + 12V supply | Load side |
+| 4x ADXL345 accelerometer modules (GY-291) + 1x TCA9548A I2C mux | Range vibration per corner motor; mux required (all 4 ADXL345 share address 0x53) |
+| 4x INA226 current/voltage modules, 10mΩ 1W shunts fitted | Unique I2C address per module via A0/A1 jumpers; stock 0.1Ω shunt replaced |
+| 3x L298N H-bridge boards | Two boards for the 4 corners, one for the 2 blind middles |
+| 6x 37GB 12V 100RPM gear motors + 12V supply | 4 corners monitored, 2 middles blind |
 | Arduino IDE + ESP32 core | Firmware flash (libraries listed below) |
 | Rust stable + Mosquitto | Backend + broker for source runs |
 
 ## Hardware wiring
 
-Full build: all four motors instrumented. Pin map is authoritative in
-`firmware/ESP32-WROOM-32/config.h`. Do not reuse GPIO 6-11 (tied to
-internal SPI flash). GPIO 1/3 are UART0. GPIO 34-39 are input-only.
+Full build: 4 corner motors instrumented on ESP-1, 2 blind middle motors
+on ESP-2. Pin map is authoritative in
+`firmware/ESP32-WROOM-32/config.h` (corners) and
+`firmware/ESP32-WROOM-32-MID/config.h` (middles). Do not reuse GPIO 6-11
+(tied to internal SPI flash). GPIO 1/3 are UART0. GPIO 34-39 are
+input-only.
 
-### Pinout table
+### Pinout table (ESP-1 corners)
 
-| Motor | SW-420 (DO) | INA219 (addr) | DS18B20 (OneWire) | L298N channel |
-|-------|-------------|---------------|-------------------|---------------|
-| 1 (FL) | GPIO 34 | 0x41 | GPIO 5 | L298N #1 A (ENA=13, IN1=15, IN2=14) |
-| 2 (FR) | GPIO 35 | 0x44 | GPIO 26 | L298N #1 B (ENB=18, IN3=19, IN4=23) |
-| 3 (RL) | GPIO 36 | 0x45 | GPIO 2 | L298N #2 A (ENA=32, IN1=33, IN2=27) |
-| 4 (RR) | GPIO 39 | 0x40 | GPIO 4 | L298N #2 B (ENB=25, IN3=17, IN4=16) |
+| Motor | ADXL345 (mux ch) | INA226 (addr) | DS18B20 (OneWire) | L298N channel |
+|-------|------------------|---------------|-------------------|---------------|
+| 1 (FL) | ch 0 | 0x41 | GPIO 5 | L298N #1 A (ENA=13, IN1=15, IN2=14) |
+| 2 (FR) | ch 1 | 0x44 | GPIO 26 | L298N #1 B (ENB=18, IN3=19, IN4=23) |
+| 3 (RL) | ch 2 | 0x45 | GPIO 2 | L298N #2 A (ENA=32, IN1=33, IN2=27) |
+| 4 (RR) | ch 3 | 0x40 | GPIO 4 | L298N #2 B (ENB=25, IN3=17, IN4=16) |
 
 - Motor PWM is 8-bit (0-255) at 1kHz. Speed command range is -255..255
   (negative = reverse, 0 = active brake with both IN pins LOW).
-- SW-420 uses input-only GPIOs 34/35/36/39. A reading counts as valid
-  only if the pin was seen HIGH within the last 10s; a floating or
-  disconnected pin reads LOW forever and shows as NO SIGNAL, never as
-  vibration.
+- ADXL345 reports a range (magnitude in g, rest ~= 1.0g). A reading
+  counts as vibration when |mag - 1g| exceeds `VIB_THRESHOLD_G` (0.25g
+  default, tune on the bench). A missing chip reports `vib_valid:0` and
+  the dashboard shows NO SIGNAL, never a fake value.
 - Other boards go in sibling `firmware/<board>/` folders. Re-verify the
   pin map against that board before reuse.
 
@@ -143,15 +146,17 @@ motor.
   3-strike hysteresis). A missing or failed probe reports `temp_valid:0`
   and the dashboard shows `--`. Replug self-heals within ~10s, no reboot.
 
-### I2C bus (INA219, all 4 share this)
+### I2C bus (INA226 + TCA9548A + ADXL345, all share this)
 
 | I2C pin | ESP32 GPIO |
 |---------|-----------|
 | SDA | GPIO 21 |
 | SCL | GPIO 22 |
 
-All 4 INA219 modules connect to the same SDA/SCL lines in parallel.
-Each must have a **unique I2C address** set via its A0/A1 solder jumpers:
+All 4 INA226 modules, the TCA9548A mux, and (through the mux) the 4
+ADXL345 modules connect to the same SDA/SCL lines in parallel.
+Each INA226 must have a **unique I2C address** set via its A0/A1 solder
+jumpers:
 
 | Address | A0 jumper | A1 jumper | Motor |
 |---------|-----------|-----------|-------|
@@ -160,8 +165,14 @@ Each must have a **unique I2C address** set via its A0/A1 solder jumpers:
 | 0x44 | GND | VCC | 2 (FR) |
 | 0x45 | VCC | VCC | 3 (RL) |
 
+The TCA9548A stays at its default `0x70` (A0-A2 open). All four ADXL345
+breakouts are strapped SDO→GND so each answers at `0x53`; the mux puts
+one on the bus at a time (motor 1→ch 0 … motor 4→ch 3). This is
+mandatory: the ADXL345 has only two addresses (0x53/0x1D), so four
+cannot share one bus without the mux.
+
 Presence is re-checked every 5s. A chip that answers but returns NaN, or
-a bus voltage outside 3-16V, counts as `ina_ok:false` and voltage/current
+a bus voltage outside 3-36V, counts as `ina_ok:false` and voltage/current
 show as `--`.
 
 ### L298N wiring (motor drivers)
@@ -170,41 +181,60 @@ Two L298N boards drive the four motors (one board per two motors):
 
 - **12V motor supply** goes to L298N `VS` (both boards share it).
 - **Common ground is critical**: tie ESP32 GND, both L298N `GND`,
-  all INA219 GND, and the 12V supply GND together. Without it the logic
+  all INA226 GND, and the 12V supply GND together. Without it the logic
   inputs float and motors misbehave.
 - L298N `ENA`/`ENB` and `IN1`-`IN4` go to the ESP32 GPIOs in the pinout
   table. The inputs are high-impedance, so 3.3V ESP32 logic drives them.
 - The L298N onboard 5V regulator can power its own logic, but **do not**
   back-feed it into the ESP32 5V pin while the ESP32 is powered.
 
-### INA219 current sensing (per motor)
+### INA226 current sensing (per motor)
 
-Place each INA219 **in series with one motor lead, between the L298N
+Place each INA226 **in series with one motor lead, between the L298N
 output and the motor terminal**, so it measures the actual load current.
-The 12V supply goes to L298N `VS`, not through the INA219.
+The 12V supply goes to L298N `VS`, not through the INA226.
 
 - Never wire VIN+/VIN- across the motor in parallel. That puts 12V
-  across the 0.1Ω shunt and burns it open (seen on the bench: chip alive,
+  across the shunt and burns it open (seen on the bench: chip alive,
   ~7V coupled through, ~0A forever).
-- Stock INA219 tops out at ±3.2A. Reverse drive reads negative current;
-  that is normal and not a fault.
+- The stock 0.1Ω shunt is replaced with a **10mΩ 1W shunt** (10A
+  thermal max). Firmware calibrates for 0.01Ω with a 4A cap (2x the
+  L298N 2A channel limit) — see `INA226_SHUNT_OHM` / `INA226_MAX_A` in
+  `config.h`. Reverse drive reads negative current; that is normal.
+- Bus range is 36V max (was 16V on the old INA219).
 
 ### Power connections
 
 - **DS18B20**: VCC to 3.3V, GND to GND, DATA to its motor pin with a
   4.7kΩ pull-up to 3.3V. Tape the probe to the motor casing with thermal
   paste.
-- **SW-420**: VCC to 3.3V (never 5V), GND to GND, DO to its motor GPIO.
-  Set the sensitivity pot per module; the module rests HIGH when quiet.
-- **INA219**: VCC to 3.3V, GND to GND, SDA/SCL to 21/22.
+- **ADXL345 + TCA9548A**: all VCC to 3.3V (never 5V), all GND to GND,
+  all SDA/SCL to 21/22 in parallel. ADXL345 SDO→GND on every board
+  (all answer at 0x53); mux channels 0-3 go to motors 1-4.
+- **INA226**: VCC to 3.3V, GND to GND, SDA/SCL to 21/22.
 
 ### Wiring order
 
-1. Wire all INA219 modules to the I2C bus first (SDA/SCL + addresses).
+1. Wire all INA226 modules + the TCA9548A to the I2C bus first
+   (SDA/SCL + addresses, 10mΩ shunts fitted).
 2. Connect each DS18B20 DATA pin with its own 4.7kΩ pull-up.
-3. Connect each SW-420 DO pin to its GPIO.
-4. Wire both L298N boards (VS 12V, IN/ENA to ESP32) and the common GND.
-5. Run each motor lead through its INA219 in series, then to the L298N output.
+3. Connect the 4 ADXL345 boards through the mux (SDO→GND each).
+4. Wire both corner L298N boards (VS 12V, IN/ENA to ESP-1) and the common GND.
+5. Run each corner motor lead through its INA226 in series, then to the L298N output.
+
+### ESP-2 middles (blind, second ESP32)
+
+One more L298N on a second board drives the 2 middle motors with no
+sensors. Firmware: `firmware/ESP32-WROOM-32-MID/rover_mid.ino`.
+
+| MID motor | Backend id | L298N pins |
+|-----------|-----------|------------|
+| Mid 1 | 5 | ENA=13, IN1=15, IN2=14 |
+| Mid 2 | 6 | ENB=18, IN3=19, IN4=23 |
+
+Same 12V supply and common GND as the corners. Own MQTT namespace
+`rover/mid/*` (portal AP `Rover-Setup-MID`), so the two boards never
+fight over motor commands.
 
 ## Rover WiFi setup (phone portal, no USB cable, no re-flash)
 
@@ -234,7 +264,8 @@ Manage Libraries…**:
 
 - **OneWire** (Paul Stoffregen)
 - **DallasTemperature** (Miles Burton)
-- **Adafruit INA219** (+ **Adafruit BusIO**, its dependency)
+- **INA226** (RobTillaart) — INA226 current/voltage
+- **Adafruit ADXL345** (+ **Adafruit Unified Sensor**, its dependency)
 - **PubSubClient** (knolleary)
 - **ArduinoJson** (Benoit Blanchon)
 - **WiFiManager** (tzapu) — phone setup portal
@@ -248,7 +279,7 @@ Leave the WiFi/MQTT lines in `firmware/ESP32-WROOM-32/config.h` at their
 placeholder values. They are fallback defaults only; real credentials live
 in flash after the phone setup above. Flash straight from this repo.
 
-In Arduino IDE:
+In Arduino IDE (corners):
 
 1. File → Open → `firmware/ESP32-WROOM-32/rover_dashboard.ino`
 2. Tools → Board → ESP32 Dev Module
@@ -257,6 +288,13 @@ In Arduino IDE:
 5. Open Serial Monitor (115200 baud) and power the rover: expect
    `[Portal] Trying saved WiFi...`, then `[WiFi] Connected` or the
    `Rover-Setup` portal flow above, then `[MQTT] Connected`.
+
+Then the middles board:
+
+1. File → Open → `firmware/ESP32-WROOM-32-MID/rover_mid.ino`
+2. Same board + port steps, Upload
+3. Serial Monitor (115200 baud): expect the `Rover-Setup-MID` portal on
+   first boot, then `[Setup] MID ready` and `rover/mid/*` traffic.
 
 ## MQTT broker
 

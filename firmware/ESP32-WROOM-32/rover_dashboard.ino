@@ -9,8 +9,7 @@ MQTTManager mqtt;
 MotorDriver driver;
 
 // Pin assignments
-int vib_pins[4] = {SW420_PIN_1, SW420_PIN_2, SW420_PIN_3, SW420_PIN_4};
-uint8_t ina_addrs[4] = {INA219_ADDR_1, INA219_ADDR_2, INA219_ADDR_3, INA219_ADDR_4};
+uint8_t ina_addrs[4] = {INA226_ADDR_1, INA226_ADDR_2, INA226_ADDR_3, INA226_ADDR_4};
 
 unsigned long last_sample = 0;
 int current_motor = 0;
@@ -131,7 +130,7 @@ void setup() {
   delay(500);
   Serial.println("\n===== Rover Digital Twin - ESP32 =====");
 
-  sensors.begin(vib_pins, ina_addrs);
+  sensors.begin(ina_addrs);
   driver.begin();
 
   // Phone WiFi setup: tries saved network, else opens the Rover-Setup AP
@@ -170,7 +169,8 @@ void loop() {
     mqtt.publishMotorData(
       data.motor_id, data.vibration, data.vibration_valid,
       data.voltage, data.current, data.temperature,
-      data.ina_ok, data.temp_valid, driver.getSpeed(current_motor)
+      data.ina_ok, data.temp_valid, driver.getSpeed(current_motor),
+      data.vib_mag_g, data.ax_g, data.ay_g, data.az_g
     );
 
     current_motor = (current_motor + 1) % 4;

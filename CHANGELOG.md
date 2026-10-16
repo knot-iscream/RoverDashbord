@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — 6-motor sensors (INA226 + ADXL345 + ESP-2 MID)
+
+- ESP-1 corners: INA219 → INA226 (10mΩ 1W shunts, 4A calibration cap),
+  SW-420 → 4x ADXL345 (GY-291) via TCA9548A mux, all at 0x53 on channels
+  0-3. Telemetry gains additive `vib_mag/ax/ay/az` (health math
+  unchanged, still gated on the `vibration` bool).
+- New `firmware/ESP32-WROOM-32-MID/`: ESP-2 drives the 2 blind middle
+  motors on `rover/mid/*` (backend ids 5-6, commands routed by
+  `POST /api/motor`). No sensors: validity flags 0, readings `--`.
+- Motor Test page gains ML/MR tabs (motors 5-6); other pages stay
+  4-corner until hardware day proves the middles.
+- README wiring rewritten for the new sensors + MID board.
+
 ## 2.0.2 (2026-10-14) — bug-free cutover release
 
 - Cache headers kill the black-screen class: entry HTML `no-store`,

@@ -149,14 +149,16 @@ class MQTTManager {
     void publishMotorData(int motor_id, bool vibration, bool vibration_valid,
                           float voltage, float current,
                           float temperature, bool ina_ok, bool temp_valid,
-                          int motor_speed = 0) {
+                          int motor_speed = 0, float vib_mag_g = NAN,
+                          float ax_g = NAN, float ay_g = NAN,
+                          float az_g = NAN) {
       unsigned long now = millis();
       if (now - last_publish < 250) return;
       last_publish = now;
 
       if (!mqtt_client.connected()) return;
 
-      StaticJsonDocument<256> doc;
+      StaticJsonDocument<384> doc;
       doc["motor"] = motor_id;
       doc["vibration"] = vibration ? 1 : 0;
       doc["vib_valid"] = vibration_valid ? 1 : 0;
@@ -166,11 +168,17 @@ class MQTTManager {
       doc["current"] = current;
       doc["temp"] = temperature;
       doc["speed"] = motor_speed;   // signed duty (-255..255)
+      // Range extension: only sent when the ADXL345 produced a reading.
+      // Old backends ignore unknown fields, so this stays compatible.
+      if (vib_mag_g == vib_mag_g) doc["vib_mag"] = vib_mag_g;
+      if (ax_g == ax_g) doc["ax"] = ax_g;
+      if (ay_g == ay_g) doc["ay"] = ay_g;
+      if (az_g == az_g) doc["az"] = az_g;
 
       char topic[32];
       snprintf(topic, sizeof(topic), "%s/%d", topic_prefix, motor_id);
 
-      char buffer[256];
+      char buffer[384];
       size_t n = serializeJson(doc, buffer);
 
       if (mqtt_client.publish(topic, buffer, n)) {
