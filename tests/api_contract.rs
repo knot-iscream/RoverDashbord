@@ -27,6 +27,44 @@ impl Drop for PathBufGuard {
     }
 }
 
+#[tokio::test]
+async fn env_and_imu_routes_public_null_then_frame() {
+    // Telemetry reads stay token-free like /api/motors, and a feed that never
+    // spoke must answer null: an empty object or a 0 would read on the page as
+    // "clean air, no fire", which is a fabricated reading.
+    let (state, dir) = common::test_state("api-env").await;
+    let _g = PathBufGuard(dir);
+    let r = digital_twin_dashboard::build_router(state.clone());
+    let (s, v, _) = req(r.clone(), "GET", "/api/env", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(v["env"].is_null(), "no frame yet -> null");
+    assert_eq!(
+        v["alarms"]["level"], "unknown",
+        "no frame -> alarms unknown, never ok"
+    );
+    let (s, v, _) = req(r.clone(), "GET", "/api/imu", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(v["imu"].is_null(), "no frame yet -> null");
+
+    digital_twin_dashboard::mqtt::on_mqtt_message(
+        &state.ctx(),
+        "rover/env/telemetry",
+        json!({"baseline_ok": 1, "co": 1.5, "flame_dir": 0}),
+    )
+    .await;
+    let (s, v, _) = req(r.clone(), "GET", "/api/env/history?minutes=10", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["minutes"], 10);
+    assert_eq!(v["samples"][0]["co"], 1.5, "ring snapshot in chart shape");
+    assert!(v["samples"][0]["at"].is_i64(), "receive time stamped");
+    let (s, v, _) = req(r, "GET", "/api/env", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["env"]["co"], 1.5);
+    assert_eq!(v["env"]["baseline_ok"], 1);
+    assert_eq!(v["alarms"]["level"], "ok", "quiet frame -> ok");
+    assert!(v["alarms"]["items"].as_array().unwrap().is_empty());
+}
+
 async fn req(
     router: axum::Router,
     method: &str,
@@ -294,6 +332,24 @@ async fn static_pages_and_cookie_plant() {
     let (s, _, _) = req(r, "GET", "/setup/", None, None).await;
     assert_eq!(s, StatusCode::OK);
 
+    // Root-URL SPA routes are entry paths too. The no-slash variants used
+    // to be missing from ENTRY_PATHS: a first visit there planted no
+    // cookie, so the page's WS upgrade and mutations 401ed.
+    for path in ["/test", "/detailed", "/calibration"] {
+        let (r, _g) = app().await;
+        let (s, _, h) = req(r, "GET", path, None, None).await;
+        assert_eq!(s, StatusCode::OK, "SPA root route {path}");
+        let cookie = h
+            .get("set-cookie")
+            .expect("root SPA entry GET plants the cookie")
+            .to_str()
+            .unwrap();
+        assert!(
+            cookie.starts_with("rover_token="),
+            "cookie carries the token"
+        );
+    }
+
     // SPA routes serve the trunk bundle (built in CI before tests).
     for path in [
         "/next/",
@@ -310,4 +366,86 @@ async fn static_pages_and_cookie_plant() {
     let (r, _g) = app().await;
     let (_, _, h) = req(r, "GET", "/api/health", None, None).await;
     assert!(!h.contains_key("set-cookie"));
+}
+
+#[tokio::test]
+async fn fire_page_is_gone() {
+    // The old ENV page was redistributed into the Rust UI (home gas panel +
+    // Detailed sensor sections); both old paths must be dead — no stale page,
+    // no cookie planted, no cache headers pretending it exists.
+    for path in ["/fire", "/fire/"] {
+        let (r, _g) = app().await;
+        let (s, _, h) = req(r, "GET", path, None, None).await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{path} must 404 after removal");
+        assert!(!h.contains_key("set-cookie"), "{path} plants nothing");
+    }
+}
+
+#[tokio::test]
+async fn theme_css_revalidates() {
+    // The shared /style.css changes as often as the markup it styles. A
+    // heuristically cached copy once left the live window showing the new gas
+    // panel as unstyled stacked text while every fresh client looked correct.
+    // CSS must revalidate on each load instead of going stale for hours.
+    let (r, _g) = app().await;
+    let (s, v, h) = req(r, "GET", "/style.css", None, None).await;
+    assert_eq!(s, StatusCode::OK, "vanilla theme still served");
+    assert!(
+        v.as_str().is_some_and(|c| c.contains(".env-gas")),
+        "served theme carries the ENV block"
+    );
+    assert_eq!(
+        h.get("cache-control").and_then(|c| c.to_str().ok()),
+        Some("no-cache"),
+        "must revalidate every load"
+    );
+}
+
+#[tokio::test]
+async fn history_export_sheets_and_empty_guard() {
+    // Detailed-page export: 400 while nothing is recorded, else a real xlsx
+    // (zip magic) built from motor history + the sensor rings.
+    let (state, dir) = common::test_state("api-export").await;
+    let _g = PathBufGuard(dir);
+    let r = digital_twin_dashboard::build_router(state.clone());
+    let (s, _, _) = req(r.clone(), "GET", "/api/history/export", None, None).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "nothing recorded yet");
+
+    digital_twin_dashboard::mqtt::on_mqtt_message(
+        &state.ctx(),
+        "rover/motor/1",
+        json!({"motor": 1, "speed": 128, "temp": 40.0, "temp_valid": true,
+               "voltage": 12.0, "current": 0.5, "ina_ok": true,
+               "vibration": 0, "vibration_valid": true}),
+    )
+    .await;
+    digital_twin_dashboard::mqtt::on_mqtt_message(
+        &state.ctx(),
+        "rover/env/telemetry",
+        json!({"baseline_ok": 1, "co": 1.2, "o2_pct": 20.9, "flame_dir": 0}),
+    )
+    .await;
+    digital_twin_dashboard::mqtt::on_mqtt_message(
+        &state.ctx(),
+        "rover/imu",
+        json!({"imu_ok": 1, "yaw": 3.0}),
+    )
+    .await;
+
+    let (s, body, h) = req(r, "GET", "/api/history/export", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(
+        h.get("content-type")
+            .and_then(|c| c.to_str().ok())
+            .is_some_and(|c| c.contains("spreadsheetml")),
+        "xlsx content type"
+    );
+    assert!(
+        h.get("content-disposition")
+            .and_then(|c| c.to_str().ok())
+            .is_some_and(|c| c.contains("attachment")),
+        "downloads as an attachment"
+    );
+    let bytes = body.as_str().unwrap_or_default();
+    assert!(bytes.starts_with("PK"), "xlsx is a real zip container");
 }

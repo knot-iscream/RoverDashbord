@@ -5,10 +5,12 @@
 pub mod calibration;
 pub mod config;
 pub mod data;
+pub mod env_alarm;
 pub mod export;
 pub mod history;
 pub mod mqtt;
 pub mod routes;
+pub mod sensor_log;
 pub mod ws;
 
 use std::sync::atomic::AtomicUsize;
@@ -30,6 +32,7 @@ use config::AppConfig;
 use data::DataHandler;
 use history::HistoryStore;
 use mqtt::{DeviceState, MqttSlot};
+use sensor_log::SensorLog;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -38,6 +41,16 @@ pub struct AppState {
     pub cal: Arc<tokio::sync::RwLock<CalibrationManager>>,
     pub clients: Arc<AtomicUsize>,
     pub motor_status: Arc<tokio::sync::RwLock<Value>>,
+    /// Latest raw frame per new feed. `Value::Null` until the board's first
+    /// frame: null means `--` in the UI, an empty object would look like real
+    /// zeros. Deliberately outside `DataHandler` so motor health math and the
+    /// parity goldens stay untouched.
+    pub env: Arc<tokio::sync::RwLock<Value>>,
+    pub imu: Arc<tokio::sync::RwLock<Value>>,
+    /// Rolling ENV + IMU logs behind the Detailed charts and the Excel
+    /// export. In-memory: resets with the process, disk persistence is the
+    /// planned Pi-session item.
+    pub sensors: Arc<std::sync::Mutex<SensorLog>>,
     pub device: Arc<tokio::sync::RwLock<DeviceState>>,
     pub mqtt: Arc<tokio::sync::RwLock<MqttSlot>>,
     pub bcast: tokio::sync::broadcast::Sender<Value>,
@@ -51,6 +64,9 @@ impl AppState {
             history: self.history.clone(),
             cal: self.cal.clone(),
             motor_status: self.motor_status.clone(),
+            env: self.env.clone(),
+            imu: self.imu.clone(),
+            sensors: self.sensors.clone(),
             device: self.device.clone(),
             bcast: self.bcast.clone(),
         }
@@ -110,11 +126,15 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/device/status", get(routes::device_status))
         .route("/api/motors", get(routes::motors))
         .route("/api/motor/status", get(routes::motor_status))
+        .route("/api/env", get(routes::env))
+        .route("/api/env/history", get(routes::env_history))
+        .route("/api/imu", get(routes::imu))
         .route("/api/calibration", get(routes::calibration))
         .route("/api/calibration/status", get(routes::calibration_status))
         .route("/api/calibration/export", get(routes::calibration_export))
         .route("/api/history/days", get(routes::history_days))
         .route("/api/history/segments", get(routes::history_segments))
+        .route("/api/history/export", get(routes::history_export))
         .route("/api/config", get(routes::get_config))
         .nest_service(
             "/setup",
@@ -149,8 +169,10 @@ pub fn build_router(state: AppState) -> Router {
 /// Cache policy (stale-bundle class fix, Oct 2026: a heuristically cached
 /// index.html pointing at deleted hashed files boots to a black screen).
 /// Entry HTML is never stored; content-hashed bundle assets are immutable
-/// for a year (safe: the hash changes with the bytes). Everything else
-/// keeps tower/Axum defaults.
+/// for a year (safe: the hash changes with the bytes). The shared theme
+/// stylesheet revalidates on every load — its bytes change just as often as
+/// the HTML, and a heuristically cached copy silently unstyles new markup.
+/// Everything else keeps tower/Axum defaults.
 async fn cache_headers(req: Request<Body>, next: middleware::Next) -> axum::response::Response {
     // Only cacheable verbs, never the JSON API or the WS handshake: those
     // must always run live, and POST responses are never stored anyway.
@@ -170,6 +192,8 @@ async fn cache_headers(req: Request<Body>, next: middleware::Next) -> axum::resp
         "public, max-age=31536000, immutable"
     } else if is_html {
         "no-store"
+    } else if path.ends_with(".css") {
+        "no-cache"
     } else {
         return resp;
     };
@@ -203,12 +227,20 @@ pub async fn build_state() -> AppState {
     )));
     let cal = Arc::new(tokio::sync::RwLock::new(CalibrationManager::new()));
     let motor_status = Arc::new(tokio::sync::RwLock::new(Value::Object(Default::default())));
+    // ENV / IMU frames start as Null ("never received") rather than an empty
+    // object: null renders `--`, an empty object would look like real zeros.
+    let env = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let imu = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let sensors = Arc::new(std::sync::Mutex::new(SensorLog::default()));
     let device = Arc::new(tokio::sync::RwLock::new(DeviceState::default()));
     let ctx = mqtt::Ctx {
         data: data.clone(),
         history: history.clone(),
         cal: cal.clone(),
         motor_status: motor_status.clone(),
+        env: env.clone(),
+        imu: imu.clone(),
+        sensors: sensors.clone(),
         device: device.clone(),
         bcast: bcast.clone(),
     };
@@ -220,6 +252,9 @@ pub async fn build_state() -> AppState {
         cal,
         clients: Arc::new(AtomicUsize::new(0)),
         motor_status,
+        env,
+        imu,
+        sensors,
         device,
         mqtt: Arc::new(tokio::sync::RwLock::new(slot)),
         bcast,

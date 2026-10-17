@@ -16,6 +16,7 @@ target/
 HANDOFF.md
 LOG.md
 SESSION.md
+SESSION-TODO.md
 AGENTS.md
 
 # Runtime state - created on boot / via the Setup page

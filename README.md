@@ -222,19 +222,61 @@ The 12V supply goes to L298N `VS`, not through the INA226.
 4. Wire both corner L298N boards (VS 12V, IN/ENA to ESP-1) and the common GND.
 5. Run each corner motor lead through its INA226 in series, then to the L298N output.
 
-### ESP-2 middles (blind, second ESP32)
+### ESP-2 middles (second ESP32) + localization
 
-One more L298N on a second board drives the 2 middle motors with no
-sensors. Firmware: `firmware/ESP32-WROOM-32-MID/rover_mid.ino`.
+One more L298N on a second board drives the 2 middle motors with no motor
+sensors. The same board also carries the localization subsystem: MPU6050 IMU,
+the lidar swing servo (MG996R) and the optional AS5600 angle encoder.
+Firmware: `firmware/ESP32-WROOM-32-MID/rover_mid.ino`.
 
 | MID motor | Backend id | L298N pins |
 |-----------|-----------|------------|
 | Mid 1 | 5 | ENA=13, IN1=15, IN2=14 |
 | Mid 2 | 6 | ENB=18, IN3=19, IN4=23 |
 
-Same 12V supply and common GND as the corners. Own MQTT namespace
-`rover/mid/*` (portal AP `Rover-Setup-MID`), so the two boards never
+| Signal | Pin / address | Notes |
+|--------|---------------|-------|
+| MPU6050 SDA/SCL | 21 / 22 | address 0x68, 4 Hz on `rover/imu` |
+| Servo signal | GPIO 27 | LEDC 50 Hz, MG996R V+ from the 6 V rail, 1000 uF cap at the servo |
+| AS5600 | 21 / 22 | address 0x36 (fixed), VCC 3.3 V, DIR tied, diametric magnet on the shaft |
+| Hard servo limits | -35 / +35 deg | clamped in code, no MQTT message can exceed them |
+
+Sweeps are step-and-settle: move, wait, publish `settled:1`, hold, next step.
+The Pi captures lidar frames only while settled, so MQTT latency cannot smear
+the cloud. `{"action":"servo_cal"}` on `rover/lidar/command` runs the AS5600
+two-point calibration. Same 12V supply and common GND as the corners; own
+MQTT namespace `rover/mid/*` (portal AP `Rover-Setup-MID`), so boards never
 fight over motor commands.
+
+### ESP-3 ENV (gas, O2, flame, MLX90614)
+
+Third board, no motors. Firmware: `firmware/ESP32-WROOM-32-ENV/rover_env.ino`,
+portal AP `Rover-Setup-ENV`, namespace `rover/env/*`.
+
+| Input | Wiring |
+|-------|--------|
+| MQ-7 / MQ-6 / MQ-4 / MQ-8 | ADS1115 0x48 A0..A3, single ended, 2:1 divider each if the ADS runs at 3.3 V |
+| MQ-135 (air quality) | ADS1115 0x49 A2, same divider rule |
+| Galvanic O2 cell | ADS1115 0x49 A0-A1 differential, PGA +/-0.256 V (7.8 uV/LSB) |
+| Flame magnitude | ADS1115 0x49 A3 |
+| Flame direction | GPIO 34, 35, 36, 39, 32 (module digital outs) |
+| MLX90614 left / right | 0x5A / 0x5B (re-address one via EEPROM 0xC7), 20 mm shroud tube each |
+
+Gas values are relative (`R0/Rs`, 1.0 = clean air) after
+`{"action":"baseline"}` captures the clean-air reference into NVS. MQ cells
+need 24-48 h of powered burn-in first; powered time accumulates as
+`burn_in_s` on the heartbeat. Serial at 115200 prints raw volts every second
+for the bench.
+
+Live view: the ENV cards live inside the app now. `/` carries the gas
+response panel (bars in the node's own green/orange/red with an OK/WARN/ALARM
+chip), `/detailed` carries the gas, O2, flame, heat, node and IMU sections
+with 1 min / 10 min / 1 h charts plus the Excel export (Telemetry + Sensors +
+IMU sheets). Null values render `--`, never a fabricated zero, so a cell that
+has no baseline yet cannot be mistaken for clean air.
+
+No new Arduino libraries: the ADS1115, MLX90614, MPU6050 and AS5600 are all
+driven by hand-rolled register code.
 
 ## Rover WiFi setup (phone portal, no USB cable, no re-flash)
 
@@ -296,6 +338,15 @@ Then the middles board:
 3. Serial Monitor (115200 baud): expect the `Rover-Setup-MID` portal on
    first boot, then `[Setup] MID ready` and `rover/mid/*` traffic.
 
+Then the ENV node:
+
+1. File → Open → `firmware/ESP32-WROOM-32-ENV/rover_env.ino`
+2. Same board + port steps, Upload
+3. Serial Monitor (115200 baud): expect the `Rover-Setup-ENV` portal on
+   first boot, then a raw-volts line every second for the bench and
+   `rover/env/*` traffic. The live cards are on `/detailed` (sensor
+   sections) with the gas panel on the home page.
+
 ## MQTT broker
 
 Source runs need a broker on this PC. Install once (`choco install
@@ -328,6 +379,19 @@ keeps whatever was flushed.
 | `rover/motor/status` | ESP32 → broker | `{"state":"running","speed":[0,0,200,200]}` (~2s heartbeat, also presence) |
 | `rover/calibration/command` | Backend → ESP32 | `{"action":"start"}` / `{"action":"stop"}` |
 | `rover/calibration/status` | ESP32 → broker | `{"state":"warmup","warmup_pct":50,"speed_pct":100,"dir":"fwd","step_remaining_s":42}` (~2s) |
+| `rover/mid/{1..2}` | ESP-2 → broker | same motor shape as corners, backend remaps to motors 5-6 |
+| `rover/mid/status` | ESP-2 → broker | `{"state":"running","source":"mid","speed":[0,0]}` (~2s) |
+| `rover/mid/command` | Backend → ESP-2 | same motor command shape, motors 1-2 = backend 5-6 |
+| `rover/imu` | ESP-2 → broker | `{"imu_ok":1,"ax":..,"ay":..,"az":..,"gz":..,"yaw":..,"pitch":..,"roll":..}` @4Hz, yaw drifts by design |
+| `rover/lidar/servo` | ESP-2 → broker | `{"servo_ok":1,"angle":15.0,"angle_real":14.8,"as5600_ok":1,"cal_ok":1,"settled":1,"sweeping":1,"step":3,"steps":17}` on change + 1Hz |
+| `rover/lidar/command` | Backend/Pi → ESP-2 | `{"action":"sweep"}` / `{"action":"stop"}` / `{"action":"goto","angle":15}` / `{"action":"servo_cal"}` |
+| `rover/env/telemetry` | ESP-3 → broker | `{"ads_ok":1,"mlx_ok":1,"flame_ok":1,"baseline_ok":1,"co":1.4,"lpg":1.1,"ch4":1.0,"h2":1.2,"air":1.3,"o2_mv":11.8,"o2_pct":20.6,"flame_lvl":0.2,"flame_dir":0,"heat_l":34.2,"heat_r":31.7,"heat_l_amb":27.5,"heat_r_amb":27.6}` @1Hz |
+| `rover/env/status` | ESP-3 → broker | `{"state":"running","source":"env","burn_in_s":7200,"baseline_ok":1}` (~2s) |
+| `rover/env/command` | Backend → ESP-3 | `{"action":"baseline"}` (clean-air R0 capture into NVS) |
+
+Gas fields are relative (`R0/Rs`, 1.0 = clean air), never ppm. `flame_ok`
+means the module answers, not that fire is present: fire is `flame_dir > 0`.
+Nulls mean `--` in the UI, same rule as the motor sensors.
 
 During calibration, motor data includes `"calib":1`. Invalid sensors send
 `null` for their values plus a `0` validity flag; the dashboard shows `--`

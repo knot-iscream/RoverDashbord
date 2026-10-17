@@ -12,8 +12,9 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::Element;
 
+use crate::env_ui;
 use crate::shell::app_shell;
-use crate::ws::{fetch_device_online, ws_url};
+use crate::ws::{fetch_device_online, get_json, now_ms, ws_url};
 
 const LABELS: [&str; 4] = ["FL", "FR", "RL", "RR"];
 const PARTS: [&str; 4] = ["wheelFL", "wheelFR", "wheelRL", "wheelRR"];
@@ -199,6 +200,11 @@ struct HomeCtx {
     dot_cls: RwSignal<String>,
     dot_txt: RwSignal<String>,
     queue: RwSignal<Vec<String>>,
+    /// Latest flat `env_update` frame (fields + `alarms`), Null before the
+    /// first one. `env_stale` flips when the feed stops for >4 s.
+    env_msg: RwSignal<serde_json::Value>,
+    env_seen: RwSignal<f64>,
+    env_stale: RwSignal<bool>,
     hud: NodeRef<leptos::html::Div>,
 }
 
@@ -294,6 +300,10 @@ fn connect_home_ws(ctx: HomeCtx) {
                         ctx.device_online.set(online);
                     }
                 }
+                "env_update" => {
+                    ctx.env_msg.set(v.clone());
+                    ctx.env_seen.set(now_ms());
+                }
                 _ => {}
             }
         }
@@ -384,6 +394,9 @@ pub fn HomePage() -> impl IntoView {
     let dot_txt = RwSignal::new("All systems nominal".to_string());
     let queue = RwSignal::new(Vec::<String>::new());
     let cam = RwSignal::new(0u8);
+    let env_msg = RwSignal::new(serde_json::Value::Null);
+    let env_seen = RwSignal::new(0.0f64);
+    let env_stale = RwSignal::new(true);
 
     let hud = NodeRef::<leptos::html::Div>::new();
     let viewport = NodeRef::<leptos::html::Div>::new();
@@ -397,6 +410,9 @@ pub fn HomePage() -> impl IntoView {
         dot_cls,
         dot_txt,
         queue,
+        env_msg,
+        env_seen,
+        env_stale,
         hud,
     };
 
@@ -406,6 +422,18 @@ pub fn HomePage() -> impl IntoView {
         connect_home_ws(ctx.clone());
         wasm_bindgen_futures::spawn_local(async move {
             ctx.device_online.set(fetch_device_online().await);
+        });
+        // ENV fetch folds `GET /api/env` into the flat `env_update` shape the
+        // WS feeds, so the panel is populated even between frames.
+        let c = ctx.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Some(v) = get_json("/api/env").await {
+                let frame = env_ui::fold_api_env(&v);
+                if !frame.is_null() {
+                    c.env_msg.set(frame);
+                    c.env_seen.set(now_ms());
+                }
+            }
         });
         let ctx = ctx.clone();
         wasm_bindgen_futures::spawn_local(async move {
@@ -459,6 +487,14 @@ pub fn HomePage() -> impl IntoView {
                 });
             });
             _iv.forget();
+            // ENV staleness (4 s window, vanilla freshness rule).
+            let c = ctx.clone();
+            let _iv = gloo_timers::callback::Interval::new(1000, move || {
+                let seen = c.env_seen.get();
+                c.env_stale
+                    .set(seen == 0.0 || now_ms() - seen > env_ui::FRESH_MS);
+            });
+            _iv.forget();
         });
     }
 
@@ -501,15 +537,43 @@ pub fn HomePage() -> impl IntoView {
                         </div>
 
                         <div class="hud-layout">
-                            <div class="panel panel-pad">
-                                <div class="panel-head">
-                                    <h2 class="panel-title-muted">"Vehicle Damage"</h2>
-                                    <div style="display:flex;align-items:center;gap:8px;">
-                                        <span class={move || dot_cls.get()} id="dmg-status-dot"></span>
-                                        <span id="dmg-status-text" style="font-size:10px;color:var(--gray-500);">{move || dot_txt.get()}</span>
+                            <div class="hud-stack">
+                                <div class="panel panel-pad">
+                                    <div class="panel-head">
+                                        <h2 class="panel-title-muted">"Vehicle Damage"</h2>
+                                        <div style="display:flex;align-items:center;gap:8px;">
+                                            <span class={move || dot_cls.get()} id="dmg-status-dot"></span>
+                                            <span id="dmg-status-text" style="font-size:10px;color:var(--gray-500);">{move || dot_txt.get()}</span>
+                                        </div>
                                     </div>
+                                    <div class="car-hud-wrap" node_ref=hud></div>
                                 </div>
-                                <div class="car-hud-wrap" node_ref=hud></div>
+
+                                <div class="panel panel-pad" class:stale=move || env_stale.get()>
+                                    <div class="panel-head">
+                                        <h2 class="panel-title-muted">"Gas response"</h2>
+                                        <div style="display:flex;align-items:center;gap:8px;">
+                                            <span class={move || env_ui::level_dot(&env_msg.get(), env_stale.get())}></span>
+                                            <span style="font-size:10px;color:var(--gray-500);">{move || env_ui::level_text(&env_msg.get(), env_stale.get())}</span>
+                                        </div>
+                                    </div>
+                                    {(0..env_ui::GAS.len()).map(|i| {
+                                        let (key, label) = env_ui::GAS[i];
+                                        view! {
+                                            <div class="env-gas">
+                                                <span class="env-gas-name">{label}</span>
+                                                <div class="env-track">
+                                                    <i class="base"></i>
+                                                    <i class="fill" style=move || env_ui::gas_fill_style(&env_msg.get(), key)></i>
+                                                </div>
+                                                <span class="env-gas-val" style=move || format!("color:{}", env_ui::gas_color(&env_msg.get(), key))>
+                                                    {move || env_ui::gas_text(&env_msg.get(), key)}
+                                                </span>
+                                            </div>
+                                        }
+                                    }).collect::<Vec<_>>()}
+                                    <div class="env-note">"Relative MQ cell response (R0/Rs), 1.00 = clean air. Indicative trend, not a gas concentration."</div>
+                                </div>
                             </div>
 
                             <div class="hud-right-stack">

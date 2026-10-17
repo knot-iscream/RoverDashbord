@@ -43,6 +43,40 @@ pub async fn motors(State(s): State<AppState>) -> Json<Value> {
     Json(json!({"motors": s.data.read().await.get_latest()}))
 }
 
+/// Latest ENV frame (ESP-3) plus the indicative alarm verdict. `null` before
+/// the first frame: the UI shows `--`, and a fabricated zero would read as
+/// "clean air" and "no fire". Alarms follow the same honesty rule: an
+/// unevaluable frame reports `unknown`, never `ok`.
+pub async fn env(State(s): State<AppState>) -> Json<Value> {
+    let frame = s.env.read().await.clone();
+    let alarms = crate::env_alarm::evaluate(&frame);
+    Json(json!({"env": frame, "alarms": alarms}))
+}
+
+#[derive(Deserialize)]
+pub struct EnvHistoryQuery {
+    /// Chart window in minutes (the UI offers 1 / 10 / 60). Clamped to the
+    /// 2 h ring.
+    pub minutes: Option<i64>,
+}
+
+/// Rolling ENV samples for the Detailed charts, oldest first. Public like
+/// `/api/env` (telemetry reads carry no token), thinned to <= 900 points
+/// whatever the window so a 1 h request stays one small payload.
+pub async fn env_history(
+    State(s): State<AppState>,
+    Query(q): Query<EnvHistoryQuery>,
+) -> Json<Value> {
+    let minutes = q.minutes.unwrap_or(10).clamp(1, 120);
+    let samples = s.sensors.lock().unwrap().env_chart(minutes);
+    Json(json!({"minutes": minutes, "samples": samples}))
+}
+
+/// Latest IMU frame (ESP-2 localization). Same null rule as `/api/env`.
+pub async fn imu(State(s): State<AppState>) -> Json<Value> {
+    Json(json!({"imu": s.imu.read().await.clone()}))
+}
+
 fn coerce_motor(v: Option<&Value>) -> i64 {
     v.and_then(|x| x.as_i64()).unwrap_or(0)
 }
@@ -154,6 +188,31 @@ pub async fn calibration_export(State(s): State<AppState>) -> Response {
     .await
     .ok()
     .flatten();
+    xlsx_response(path)
+}
+
+/// Detailed-page export: one workbook with Telemetry (motors, all recorded
+/// history) + Sensors (ENV log) + IMU (log). Snapshots the rings under a
+/// microsecond lock, then builds on a blocking thread with nothing held.
+pub async fn history_export(State(s): State<AppState>) -> Response {
+    let dir = s.history.read().await.dir.clone();
+    let (env, imu) = {
+        let log = s.sensors.lock().unwrap();
+        (log.env_snapshot(), log.imu_snapshot())
+    };
+    let path = tokio::task::spawn_blocking(move || {
+        crate::export::export_excel_all(&dir, &env, &imu, None, &std::env::temp_dir())
+    })
+    .await
+    .ok()
+    .flatten();
+    xlsx_response(path)
+}
+
+/// 400 when there is nothing to export (same as Python's export route), else
+/// the workbook bytes with the sheet MIME type + attachment name. The temp
+/// file is deleted right after reading it.
+fn xlsx_response(path: Option<std::path::PathBuf>) -> Response {
     match path {
         None => (
             StatusCode::BAD_REQUEST,
@@ -254,7 +313,26 @@ pub async fn post_config(State(s): State<AppState>, Json(body): Json<Value>) -> 
 // can't read responses, but simple-request POSTs could still be *sent*.
 
 // Pages whose first GET also plants the cookie (see set_token_cookie).
-const ENTRY_PATHS: [&str; 5] = ["/", "/test/", "/detailed/", "/calibration/", "/setup/"];
+// Root routes AND their /next aliases: the SPA answers on both, so a first
+// visit via either URL must end up with the cookie (the WASM UI's WS
+// upgrade and mutations read it).
+const ENTRY_PATHS: [&str; 9] = [
+    "/",
+    "/test",
+    "/test/",
+    "/detailed",
+    "/detailed/",
+    "/calibration",
+    "/calibration/",
+    "/setup/",
+    "/setup",
+];
+
+/// Entry page test: an exact path from ENTRY_PATHS, or any `/next` route (the
+/// WASM SPA) — `/next` stays a prefix rule because the SPA owns its subpaths.
+fn is_entry_path(path: &str) -> bool {
+    ENTRY_PATHS.contains(&path) || path.starts_with("/next")
+}
 
 pub const TOKEN_COOKIE: &str = "rover_token";
 
@@ -328,10 +406,7 @@ pub async fn set_token_cookie(
     req: Request<Body>,
     next: Next,
 ) -> Response {
-    let is_entry = req.method() == Method::GET && {
-        let p = req.uri().path();
-        ENTRY_PATHS.contains(&p) || p == "/setup" || p.starts_with("/next")
-    };
+    let is_entry = req.method() == Method::GET && is_entry_path(req.uri().path());
     let token = s.cfg.read().await.auth_token.clone();
     let has_cookie = cookie_token(req.headers()).is_some_and(|t| t.as_str() == token);
     let mut resp = next.run(req).await.into_response();

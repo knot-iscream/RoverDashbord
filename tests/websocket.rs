@@ -130,3 +130,37 @@ async fn live_fanout_to_all_clients() {
     // Gauge counts both sockets.
     assert_eq!(state.clients.load(std::sync::atomic::Ordering::SeqCst), 2);
 }
+
+#[tokio::test]
+async fn env_and_imu_replay_before_status() {
+    // A page that joins late must see the ENV and IMU feeds without waiting
+    // for the next frame: both replay as their normal update types, in the
+    // same order the live fan-out uses.
+    let (url, state, _g) = serve("ws-env").await;
+    digital_twin_dashboard::mqtt::on_mqtt_message(
+        &state.ctx(),
+        "rover/env/telemetry",
+        json!({"baseline_ok": 1, "co": 1.6, "flame_dir": 0}),
+    )
+    .await;
+    digital_twin_dashboard::mqtt::on_mqtt_message(
+        &state.ctx(),
+        "rover/imu",
+        json!({"imu_ok": 1, "yaw": 12.5}),
+    )
+    .await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("{url}?token={TEST_TOKEN}"))
+        .await
+        .unwrap();
+    let env = next_json(&mut ws).await;
+    assert_eq!(env["type"], "env_update");
+    assert_eq!(env["co"], 1.6);
+    assert_eq!(env["alarms"]["level"], "ok", "replay carries the verdict");
+    let imu = next_json(&mut ws).await;
+    assert_eq!(imu["type"], "imu_update");
+    assert_eq!(imu["yaw"], 12.5);
+    // No motor data was ever ingested, so no motor snapshot; the standard
+    // calibration + device frames still close the connect burst.
+    assert_eq!(next_json(&mut ws).await["type"], "calibration_status");
+    assert_eq!(next_json(&mut ws).await["type"], "device_status");
+}

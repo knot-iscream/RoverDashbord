@@ -270,3 +270,140 @@ async fn broker_disconnect_clears_connected_flag() {
     slot.task.abort();
     std::fs::remove_dir_all(&f.dir).ok();
 }
+
+#[tokio::test]
+async fn env_telemetry_stored_and_never_motor_data() {
+    // ESP-3 frames must reach the env cache + their own update type, and must
+    // NEVER fall through to the motor path (that would file a sensor-less
+    // motor sample and overwrite live corner telemetry).
+    let mut f = common::fixture("mqtt-env");
+    let frame = json!({"ads_ok": 1, "mlx_ok": 1, "flame_ok": 1, "baseline_ok": 1,
+                       "co": 1.4, "lpg": 1.0, "ch4": null, "h2": 1.2, "air": 1.1,
+                       "o2_mv": 11.8, "o2_pct": 20.6, "flame_lvl": 0.2,
+                       "flame_dir": 0, "heat_l": 34.2, "heat_r": 31.7});
+    mqtt::on_mqtt_message(&f.ctx, "rover/env/telemetry", frame.clone()).await;
+    assert_eq!(*f.env.read().await, frame, "raw frame cached");
+    let d = common::drain(&mut f.rx);
+    let u = d
+        .iter()
+        .find(|m| m["type"] == "env_update")
+        .expect("env relay");
+    assert_eq!(u["co"], 1.4);
+    assert_eq!(
+        u["alarms"]["level"], "ok",
+        "quiet frame carries its verdict"
+    );
+    assert_eq!(
+        f.sensors.lock().unwrap().env_len(),
+        1,
+        "ring logged the frame"
+    );
+    assert!(
+        f.data.read().await.latest.is_empty(),
+        "env frames must not create motor samples"
+    );
+    assert!(history_rows(&f).await.is_empty());
+    std::fs::remove_dir_all(&f.dir).ok();
+}
+
+#[tokio::test]
+async fn env_nulls_stay_null() {
+    // No clean-air baseline yet -> the firmware sends null; the relay must
+    // keep it null so the page renders `--` instead of a fake 0.
+    let mut f = common::fixture("mqtt-envnull");
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/env/telemetry",
+        json!({"baseline_ok": 0, "co": null, "o2_pct": null}),
+    )
+    .await;
+    let d = common::drain(&mut f.rx);
+    let u = d.iter().find(|m| m["type"] == "env_update").expect("relay");
+    assert!(u["co"].is_null());
+    assert!(u["o2_pct"].is_null());
+    assert_eq!(u["alarms"]["level"], "unknown", "nulls never alarm");
+    assert_eq!(u["alarms"]["uncalibrated"], true, "baseline 0 marked");
+    std::fs::remove_dir_all(&f.dir).ok();
+}
+
+#[tokio::test]
+async fn env_status_relays_and_command_echo_dropped() {
+    let mut f = common::fixture("mqtt-envstat");
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/env/status",
+        json!({"state": "running", "source": "env", "burn_in_s": 7200, "baseline_ok": 1}),
+    )
+    .await;
+    let d = common::drain(&mut f.rx);
+    let st = d.iter().find(|m| m["type"] == "env_status").expect("relay");
+    assert_eq!(st["burn_in_s"], 7200);
+    // Our own baseline command echo must vanish: no broadcast, no presence
+    // refresh, no env cache write (same rule as rover/motor/command).
+    *f.env.write().await = json!({"keep": 1});
+    let seen = f.device.read().await.last_seen;
+    mqtt::on_mqtt_message(&f.ctx, "rover/env/command", json!({"action": "baseline"})).await;
+    assert!(common::drain(&mut f.rx).is_empty());
+    assert_eq!(f.env.read().await["keep"], 1);
+    assert_eq!(f.device.read().await.last_seen, seen);
+    std::fs::remove_dir_all(&f.dir).ok();
+}
+
+#[tokio::test]
+async fn unknown_topic_with_motor_payload_never_becomes_a_sample() {
+    // Allowlist gate: a topic the backend does not know must not reach the
+    // motor path just because its payload looks like telemetry. Presence
+    // still flips (`device_status`), nothing else may happen.
+    let mut f = common::fixture("mqtt-unknown");
+    mqtt::on_mqtt_message(&f.ctx, "rover/foo/bar", pkt(1, 128)).await;
+    let d = common::drain(&mut f.rx);
+    assert_eq!(d.len(), 1, "presence flip only");
+    assert_eq!(d[0]["type"], "device_status");
+    assert!(
+        f.data.read().await.latest.is_empty(),
+        "unknown topic must not cache a motor sample"
+    );
+    assert!(history_rows(&f).await.is_empty(), "nothing recorded");
+    std::fs::remove_dir_all(&f.dir).ok();
+}
+
+#[tokio::test]
+async fn near_miss_motor_topics_are_dropped() {
+    // Topics that merely look like motor topics (plural, extra segment) are
+    // not in the allowlist either; all three must stay out of the cache, the
+    // history, and the broadcast channel.
+    let mut f = common::fixture("mqtt-nearmiss");
+    for topic in ["rover/motors/1", "rover/midway/1", "rover/envx/telemetry"] {
+        mqtt::on_mqtt_message(&f.ctx, topic, pkt(1, 128)).await;
+    }
+    let d = common::drain(&mut f.rx);
+    assert!(
+        d.iter().all(|m| m["type"] != "motor_update"),
+        "near-miss topics must not broadcast motor_update"
+    );
+    assert!(f.data.read().await.latest.is_empty());
+    assert!(history_rows(&f).await.is_empty());
+    std::fs::remove_dir_all(&f.dir).ok();
+}
+
+#[tokio::test]
+async fn imu_frames_stored_and_never_motor_data() {
+    let mut f = common::fixture("mqtt-imu");
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/imu",
+        json!({"imu_ok": 1, "ax": 0.1, "ay": -0.05, "az": 0.98, "gz": 1.2,
+               "yaw": 45.3, "pitch": 0.4, "roll": -0.2}),
+    )
+    .await;
+    assert_eq!(f.imu.read().await["yaw"], 45.3);
+    let d = common::drain(&mut f.rx);
+    let u = d.iter().find(|m| m["type"] == "imu_update").expect("relay");
+    assert_eq!(u["imu_ok"], 1);
+    assert!(
+        f.data.read().await.latest.is_empty(),
+        "imu frames are not motor samples"
+    );
+    assert!(history_rows(&f).await.is_empty());
+    std::fs::remove_dir_all(&f.dir).ok();
+}

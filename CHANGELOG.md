@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — 6-motor sensors (INA226 + ADXL345 + ESP-2 MID)
+## Unreleased — 6-motor sensors + ENV node (INA226 + ADXL345 + ESP-2 MID + ESP-3 ENV)
 
 - ESP-1 corners: INA219 → INA226 (10mΩ 1W shunts, 4A calibration cap),
   SW-420 → 4x ADXL345 (GY-291) via TCA9548A mux, all at 0x53 on channels
@@ -11,6 +11,50 @@
   `POST /api/motor`). No sensors: validity flags 0, readings `--`.
 - Motor Test page gains ML/MR tabs (motors 5-6); other pages stay
   4-corner until hardware day proves the middles.
+- New `firmware/ESP32-WROOM-32-ENV/`: ESP-3 reads 5 MQ cells as relative
+  `R0/Rs` (1.0 = clean air, no ppm claims), a galvanic O2 cell, the analog
+  flame level plus 5 direction lines, and an MLX90614 pair; clean-air
+  baseline and `burn_in_s` persist in NVS. MID board gains the MPU6050
+  (`rover/imu`, 4 Hz) and the lidar swing servo with a hard ±35° clamp plus
+  AS5600 feedback (`rover/lidar/servo`, `rover/lidar/command`). No new
+  Arduino libraries, all register-level drivers.
+- Backend relays the new feeds: `GET /api/env` + `GET /api/imu` (public,
+  `null` before the first frame) and `env_update` / `imu_update` /
+  `env_status` over `/ws`, replayed on connect. Env and IMU frames are kept
+  out of the motor path, so motor health math and history stay untouched.
+- ENV cards live in the Rust UI: the home page gains a gas response panel
+  (bars in the node's own green/orange/red, plus an OK/WARN/ALARM chip), the
+  Detailed page gains gas, O2, flame, MLX heat, node and IMU sections with
+  1 min / 10 min / 1 h charts. The standalone `/fire` page is gone; both old
+  paths now 404 (pinned by a test). Null reads render `--`, never a
+  fabricated zero.
+- `/style.css` revalidates on every load (`no-cache`) and the theme link now
+  carries `?v=3`: the app webview once kept a heuristically cached
+  stylesheet and rendered the new panels as plain unstyled text, while every
+  fresh client looked correct.
+- Sensor charts place points on a real time axis (their `at` stamp; live
+  frames are stamped on arrival) and break the line on feed holes wider than
+  5 s, so range switches stop stretching holes and thinned history. Range
+  fetches take a ticket so a slow response can't overwrite a newer range.
+- Every `env_update` (WS live + reconnect replay) carries the same `alarms`
+  verdict `/api/env` serves, so the UI colors from one source of truth.
+- Backend keeps rolling in-memory logs: ENV 2 h at 1 Hz + IMU 2 h at 4 Hz;
+  `GET /api/env/history?minutes=N` serves them thinned to <=900 points for
+  the charts. Disk persistence is the Pi-session item.
+- `GET /api/history/export` (the Detailed page's *Export Excel* button): one
+  workbook with Telemetry (motors) + Sensors (ENV log) + IMU sheets. The
+  calibration page's own export is untouched.
+- `GET /api/env` now ships an indicative alarm verdict beside the raw frame
+  (`alarms`: O2 low, gas `R0/Rs` bars, flame direction, MLX heat delta; levels
+  `ok` / `warn` / `alarm` / `unknown`). A null never alarms, `baseline_ok:0`
+  marks the gas rules uncalibrated, and a frame with nothing evaluable stays
+  `unknown` — never `ok`. Indicative only, not life-safety.
+- Desktop shell no longer spawns the bundled mosquitto sidecar when
+  `mqtt_broker` points at a remote host (Pi-phase prep); the local default is
+  unchanged, and the probe now follows the configured `mqtt_port`.
+- Motor telemetry now passes an explicit `rover/motor/*` / `rover/mid/*`
+  allowlist: an unknown topic is dropped with a log line instead of being
+  filed as a motor sample.
 - README wiring rewritten for the new sensors + MID board.
 
 ## 2.0.2 (2026-10-14) — bug-free cutover release

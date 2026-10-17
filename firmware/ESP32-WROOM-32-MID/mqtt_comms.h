@@ -21,6 +21,7 @@ class MQTTManager {
     unsigned long last_publish = 0;
     void (*_cmd_handler)(const char* action) = nullptr;
     void (*_motor_cmd_handler)(const char* json) = nullptr;
+    void (*_lidar_cmd_handler)(const char* json) = nullptr;
 
   public:
     MQTTManager() : mqtt_client(wifi_client) {
@@ -82,6 +83,7 @@ class MQTTManager {
           // Re-subscribe on reconnect
           subscribe(MQTT_CALIB_CMD_TOPIC);
           subscribe(MQTT_MOTOR_CMD_TOPIC);
+          subscribe(MQTT_LIDAR_CMD_TOPIC);
           return true;
         } else {
           Serial.print("[MQTT] Failed, rc=");
@@ -113,6 +115,10 @@ class MQTTManager {
 
     void setMotorCommandHandler(void (*handler)(const char* json)) {
       _motor_cmd_handler = handler;
+    }
+
+    void setLidarCommandHandler(void (*handler)(const char* json)) {
+      _lidar_cmd_handler = handler;
     }
 
     void publishCalibrationStatus(int warmup_pct, const char* state,
@@ -190,6 +196,53 @@ class MQTTManager {
       }
     }
 
+  public:
+    // ---- Localization: IMU, 4 Hz (rover/imu) ----
+    // yaw is unwrapped and gyro-only, so it drifts. Display + odometry input
+    // for the Pi phase, not a compass.
+    void publishImu(bool imu_ok, float ax, float ay, float az, float gz,
+                    float yaw, float pitch, float roll) {
+      if (!mqtt_client.connected()) return;
+      StaticJsonDocument<256> doc;
+      doc["imu_ok"] = imu_ok ? 1 : 0;
+      if (imu_ok) {
+        doc["ax"] = ax;
+        doc["ay"] = ay;
+        doc["az"] = az;
+        doc["gz"] = gz;
+        doc["yaw"] = yaw;
+        doc["pitch"] = pitch;
+        doc["roll"] = roll;
+      }
+      char buffer[256];
+      size_t n = serializeJson(doc, buffer);
+      mqtt_client.publish(MQTT_IMU_TOPIC, buffer, n);
+    }
+
+    // ---- Lidar swing servo state (rover/lidar/servo) ----
+    // angle = commanded, angle_real = AS5600-measured (null until the
+    // two-point calibration exists). The Pi captures only while settled:1.
+    void publishLidarServo(bool servo_ok, float angle, bool as5600_ok,
+                           bool cal_ok, float angle_real, bool settled,
+                           bool sweeping, int step, int steps) {
+      if (!mqtt_client.connected()) return;
+      StaticJsonDocument<256> doc;
+      doc["servo_ok"] = servo_ok ? 1 : 0;
+      doc["angle"] = angle;
+      doc["as5600_ok"] = as5600_ok ? 1 : 0;
+      doc["cal_ok"] = cal_ok ? 1 : 0;
+      if (as5600_ok && cal_ok && angle_real == angle_real) {
+        doc["angle_real"] = angle_real;
+      }
+      doc["settled"] = settled ? 1 : 0;
+      doc["sweeping"] = sweeping ? 1 : 0;
+      doc["step"] = step;
+      doc["steps"] = steps;
+      char buffer[256];
+      size_t n = serializeJson(doc, buffer);
+      mqtt_client.publish(MQTT_LIDAR_SERVO_TOPIC, buffer, n);
+    }
+
   private:
     static void mqttCallback(char* topic, byte* payload, unsigned int length) {
       if (!_mqtt_instance) return;
@@ -210,6 +263,9 @@ class MQTTManager {
       } else if (strcmp(topic, MQTT_MOTOR_CMD_TOPIC) == 0
                  && _mqtt_instance->_motor_cmd_handler) {
         _mqtt_instance->_motor_cmd_handler(buf);
+      } else if (strcmp(topic, MQTT_LIDAR_CMD_TOPIC) == 0
+                 && _mqtt_instance->_lidar_cmd_handler) {
+        _mqtt_instance->_lidar_cmd_handler(buf);
       }
     }
 };

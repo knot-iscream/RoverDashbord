@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 
-use digital_twin_dashboard::{build_state, init_logging, serve_forever};
+use digital_twin_dashboard::{build_state, config::AppConfig, init_logging, serve_forever};
 use tauri::Manager;
 
 type ChildSlot = Arc<Mutex<Option<std::process::Child>>>;
@@ -60,12 +60,23 @@ async fn tcp_open(addr: &str) -> bool {
     tokio::net::TcpStream::connect(addr).await.is_ok()
 }
 
-/// Start bundled Mosquitto unless something already listens on 1883
-/// (external broker wins — never fight it). Returns the child when WE
-/// started it, so exit can kill exactly what we own.
-fn ensure_broker() -> Option<std::process::Child> {
-    if std::net::TcpStream::connect("127.0.0.1:1883").is_ok() {
-        tracing::info!("broker already on 1883, sidecar not started");
+/// Start bundled Mosquitto unless the configured broker lives elsewhere
+/// (Pi phase: `mqtt_broker` points at the Pi — the local sidecar must never
+/// start then) or something already listens on the local port (external
+/// broker wins — never fight it). Returns the child when WE started it, so
+/// exit can kill exactly what we own.
+fn ensure_broker(cfg: &AppConfig) -> Option<std::process::Child> {
+    let host = cfg.mqtt_broker.trim().to_ascii_lowercase();
+    if !matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1") {
+        tracing::info!(
+            "broker host `{}` is remote, local sidecar not started",
+            cfg.mqtt_broker
+        );
+        return None;
+    }
+    let probe = format!("127.0.0.1:{}", cfg.mqtt_port);
+    if std::net::TcpStream::connect(&probe).is_ok() {
+        tracing::info!("broker already on {probe}, sidecar not started");
         return None;
     }
     let Some((exe, workdir)) = sidecar_paths() else {
@@ -157,10 +168,11 @@ fn round_window_corners(win: &tauri::WebviewWindow) {
 /// Runs to completion once; failures leave the splash up with the log.
 /// The main window opens the dashboard root, which serves the Rust UI
 /// (vanilla fallback deleted — see HANDOFF).
-async fn bring_up(handle: tauri::AppHandle, port: u16, broker: ChildSlot) {
-    if let Some(child) = drain_logs(ensure_broker()) {
+async fn bring_up(handle: tauri::AppHandle, cfg: AppConfig, broker: ChildSlot) {
+    if let Some(child) = drain_logs(ensure_broker(&cfg)) {
         *broker.lock().unwrap() = Some(child);
     }
+    let port = cfg.http_port;
     let url: url::Url = format!("http://127.0.0.1:{port}")
         .parse()
         .expect("app url parses");
@@ -234,20 +246,21 @@ fn main() {
         }))
         .setup(|app| {
             build_tray(app.handle())?;
-            let port = digital_twin_dashboard::config::AppConfig::load().http_port;
+            let cfg = AppConfig::load();
             let handle = app.handle().clone();
             let viewer_handle = handle.clone();
             let broker: ChildSlot = Arc::new(Mutex::new(None));
             app.manage(broker.clone());
+            let backend_cfg = cfg.clone();
             tauri::async_runtime::spawn(async move {
                 let state = build_state().await;
                 #[cfg(debug_assertions)]
                 viewer::spawn_rust_view(&viewer_handle, state.clone());
-                let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+                let addr = std::net::SocketAddr::from(([127, 0, 0, 1], backend_cfg.http_port));
                 tracing::info!("backend listening on {addr}");
                 let _ = serve_forever(state, addr, std::future::pending::<()>()).await;
             });
-            tauri::async_runtime::spawn(bring_up(handle, port, broker));
+            tauri::async_runtime::spawn(bring_up(handle, cfg, broker));
             Ok(())
         })
         .on_window_event(|win, event| {

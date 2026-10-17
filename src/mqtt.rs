@@ -15,9 +15,18 @@ use tokio::task::JoinHandle;
 use crate::calibration::{CalState, CalibrationManager};
 use crate::data::DataHandler;
 use crate::history::HistoryStore;
+use crate::sensor_log::SensorLog;
 
 pub const DEVICE_OFFLINE_TIMEOUT_S: i64 = 8;
-const SUB_TOPICS: [&str; 3] = ["rover/motor/#", "rover/mid/#", "rover/calibration/status"];
+/// `rover/env/#` covers the ENV board's telemetry + heartbeat; its command
+/// echoes are dropped by the `*/command` guard below, same as motor commands.
+const SUB_TOPICS: [&str; 5] = [
+    "rover/motor/#",
+    "rover/mid/#",
+    "rover/calibration/status",
+    "rover/imu",
+    "rover/env/#",
+];
 
 /// The shared pieces the ingest loop needs. `AppState` (main.rs) builds one
 /// via `ctx()`; this breaks the state-needs-slot / slot-task-needs-state cycle.
@@ -27,6 +36,12 @@ pub struct Ctx {
     pub history: Arc<tokio::sync::RwLock<HistoryStore>>,
     pub cal: Arc<tokio::sync::RwLock<CalibrationManager>>,
     pub motor_status: Arc<tokio::sync::RwLock<Value>>,
+    /// Latest raw frame per new feed; `Value::Null` until the first frame.
+    pub env: Arc<tokio::sync::RwLock<Value>>,
+    pub imu: Arc<tokio::sync::RwLock<Value>>,
+    /// Rolling ENV + IMU logs behind the Detailed charts and the Excel
+    /// export. Brief std::sync locks only; never held across an await.
+    pub sensors: Arc<std::sync::Mutex<SensorLog>>,
     pub device: Arc<tokio::sync::RwLock<DeviceState>>,
     pub bcast: tokio::sync::broadcast::Sender<Value>,
 }
@@ -197,6 +212,32 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
         return;
     }
 
+    // ── Localization: IMU frames (ESP-2, own topic) ──
+    // Never motor data: falling through would file an IMU frame as a
+    // sensor-less motor sample and overwrite live corner telemetry.
+    if topic.starts_with("rover/imu") {
+        *ctx.imu.write().await = data.clone();
+        ctx.sensors.lock().unwrap().push_imu(data.clone());
+        broadcast(ctx, tagged("imu_update", data));
+        return;
+    }
+
+    // ── ENV node (ESP-3): telemetry frame (1 Hz) ──
+    if topic.starts_with("rover/env/telemetry") {
+        *ctx.env.write().await = data.clone();
+        ctx.sensors.lock().unwrap().push_env(data.clone());
+        broadcast(ctx, env_update_payload(data));
+        return;
+    }
+
+    // ── ENV heartbeat (2 s). Presence was refreshed above; this relay keeps
+    // the ENV board's own state (burn-in counter, baseline flag) visible, and
+    // it is the only source for fire/O2/gas liveness.
+    if topic.starts_with("rover/env/status") {
+        broadcast(ctx, tagged("env_status", data));
+        return;
+    }
+
     // ── Motor telemetry ──
     // ESP-2 publishes mid motor 1-2; remap to backend ids 5-6 so they can
     // never collide with the four corners on rover/motor/1..4.
@@ -218,6 +259,17 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
             map.insert("motor".into(), remapped);
         }
     }
+
+    // Last gate before motor telemetry: ONLY motor topics may pass. A topic we
+    // do not know yet (a typo, or a new board added without its own branch)
+    // gets dropped with a log line instead of being filed as a motor sample
+    // with made-up sensor values. Without this, adding a topic and forgetting
+    // the branch above silently corrupts the dashboard and its history.
+    if !topic.starts_with("rover/motor/") && !topic.starts_with("rover/mid/") {
+        tracing::warn!("unknown topic ignored (not motor data): {topic}");
+        return;
+    }
+
     let running = crate::data::coerce_i64(data.get("speed")) != 0;
     let cal_state = ctx.cal.read().await.state.clone();
     let calibrating = cal_state == CalState::Warmup || cal_state == CalState::Sweep;
@@ -265,6 +317,30 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
             "anomalies": health.anomalies,
         }),
     );
+}
+
+/// `{"type": kind, **frame}`: merges a raw payload object into a typed
+/// envelope, the same shape the motor/mid relays already use.
+fn tagged(kind: &str, data: Value) -> Value {
+    let mut payload = json!({"type": kind});
+    if let Value::Object(map) = data {
+        if let Value::Object(out) = &mut payload {
+            out.extend(map);
+        }
+    }
+    payload
+}
+
+/// `env_update` = the raw frame plus the indicative alarm verdict, so the UI
+/// colors from the exact math `GET /api/env` serves instead of a second copy
+/// of the thresholds. The WS replay in `ws.rs` reuses this verbatim.
+pub fn env_update_payload(data: Value) -> Value {
+    let alarms = crate::env_alarm::evaluate(&data);
+    let mut payload = tagged("env_update", data);
+    if let Value::Object(out) = &mut payload {
+        out.insert("alarms".into(), alarms);
+    }
+    payload
 }
 
 fn py_bool(v: &Option<&Value>) -> bool {

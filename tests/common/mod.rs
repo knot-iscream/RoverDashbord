@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use digital_twin_dashboard::{
     calibration::CalibrationManager, config::AppConfig, data::DataHandler, history::HistoryStore,
-    mqtt, AppState,
+    mqtt, sensor_log::SensorLog, AppState,
 };
 use serde_json::Value;
 use tokio::sync::{broadcast, RwLock};
@@ -34,6 +34,9 @@ pub struct Fixture {
     pub history: Arc<RwLock<HistoryStore>>,
     pub cal: Arc<RwLock<CalibrationManager>>,
     pub motor_status: Arc<RwLock<Value>>,
+    pub env: Arc<RwLock<Value>>,
+    pub imu: Arc<RwLock<Value>>,
+    pub sensors: Arc<std::sync::Mutex<SensorLog>>,
     pub device: Arc<RwLock<mqtt::DeviceState>>,
     pub rx: broadcast::Receiver<Value>,
     pub dir: PathBuf,
@@ -57,12 +60,18 @@ pub fn fixture(tag: &str) -> Fixture {
     let history = Arc::new(RwLock::new(HistoryStore::new(&dir)));
     let cal = Arc::new(RwLock::new(CalibrationManager::new()));
     let motor_status = Arc::new(RwLock::new(Value::Object(Default::default())));
+    let env = Arc::new(RwLock::new(Value::Null));
+    let imu = Arc::new(RwLock::new(Value::Null));
+    let sensors = Arc::new(std::sync::Mutex::new(SensorLog::default()));
     let device = Arc::new(RwLock::new(mqtt::DeviceState::default()));
     let ctx = mqtt::Ctx {
         data: data.clone(),
         history: history.clone(),
         cal: cal.clone(),
         motor_status: motor_status.clone(),
+        env: env.clone(),
+        imu: imu.clone(),
+        sensors: sensors.clone(),
         device: device.clone(),
         bcast: bcast.clone(),
     };
@@ -73,6 +82,9 @@ pub fn fixture(tag: &str) -> Fixture {
         history,
         cal,
         motor_status,
+        env,
+        imu,
+        sensors,
         device,
         rx,
         dir,
@@ -96,6 +108,9 @@ pub async fn test_state(tag: &str) -> (AppState, PathBuf) {
         cal: f.cal,
         clients: Arc::new(AtomicUsize::new(0)),
         motor_status: f.motor_status,
+        env: f.env,
+        imu: f.imu,
+        sensors: f.sensors,
         device: f.device,
         mqtt: Arc::new(RwLock::new(slot)),
         bcast: f.ctx.bcast.clone(),

@@ -82,7 +82,7 @@ const MOTOR_SHORT: [&str; 4] = ["FL", "FR", "RL", "RR"];
 const MOTOR_FULL: [&str; 4] = ["Front Left", "Front Right", "Rear Left", "Rear Right"];
 
 /// Palette entries verbatim (groups/titles/keywords/hrefs adapted to the
-/// /next/* tree; Setup + calibration actions stay vanilla).
+/// /next/* tree; Setup stays a Phase A static page).
 fn all_entries() -> Vec<Entry> {
     let mut out = vec![];
     for (href, title) in dock_items() {
@@ -159,16 +159,25 @@ fn match_entries(all: &[Entry], q: &str) -> Vec<Entry> {
         .collect()
 }
 
+/// Normalize a pathname for view/dock matching: the app answers on the
+/// root routes (/test, /detailed, /calibration) and their /next aliases,
+/// so strip the alias prefix. Non-`/next` paths pass through unchanged.
+pub(crate) fn route_path(path: &str) -> &str {
+    path.strip_prefix("/next").unwrap_or(path)
+}
+
 /// Active dock slot by pathname containment, vanilla loop order (later
-/// matches override; "/next/" only ever matches Home first).
+/// matches override; "/" only ever matches Home first).
 fn active_for(path: &str) -> DockSlot {
+    let p = route_path(path);
     let mut active = DockSlot::Home;
     for (href, _) in dock_items() {
-        if path.contains(href) {
-            active = match href {
-                "/next/detailed" => DockSlot::Detailed,
-                "/next/test" => DockSlot::Test,
-                "/next/calibration" => DockSlot::Calibration,
+        let h = route_path(href);
+        if p.contains(h) {
+            active = match h {
+                "/detailed" => DockSlot::Detailed,
+                "/test" => DockSlot::Test,
+                "/calibration" => DockSlot::Calibration,
                 _ => DockSlot::Home,
             };
         }
@@ -181,7 +190,7 @@ fn same_path(href: &str) -> bool {
         .map(|w| w.location().pathname().unwrap_or_default())
         .unwrap_or_default();
     let norm = |s: &str| s.trim_end_matches('/').to_string();
-    norm(href) == norm(&path)
+    norm(route_path(href)) == norm(route_path(&path))
 }
 
 fn go(href: &str) {

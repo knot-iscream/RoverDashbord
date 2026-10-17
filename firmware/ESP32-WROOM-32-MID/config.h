@@ -50,12 +50,49 @@
 #define DEFAULT_MOTOR_SPEED 0
 
 // ============================================================
+// MPU6050 IMU (GY-521) — localization subsystem, NOT motor data.
+// Own topic rover/imu. Yaw is gyro-integrated and drifts by design (no
+// magnetometer); lidar SLAM corrects it in the Pi phase. Keep the IMU flat,
+// stand it off the board and away from the servo leads, or yaw gets noisy.
+// ============================================================
+#define MPU6050_ADDR 0x68
+#define IMU_SAMPLE_MS 20        // internal filter step (50 Hz)
+#define IMU_PUBLISH_MS 250      // rover/imu publish rate (4 Hz)
+#define IMU_COMP_ALPHA 0.98f    // complementary filter: gyro weight vs accel
+
+// ============================================================
+// Lidar swing servo (MG996R) + AS5600 angle feedback
+// Servo V+ comes from the 12V->6V arm rail (1000 uF cap at the servo end),
+// never from the ESP. Common GND. Step-and-settle sweep only: the Pi grabs
+// frames while "settled" is 1, so MQTT latency cannot smear the cloud.
+// ============================================================
+#define SERVO_PIN 27
+#define SERVO_MIN_DEG (-35.0f)        // HARD limit (clamped in code too)
+#define SERVO_MAX_DEG 35.0f           // HARD limit (clamped in code too)
+#define SERVO_SWEEP_MIN_DEG (-30.0f)  // default sweep range
+#define SERVO_SWEEP_MAX_DEG 30.0f
+#define SERVO_STEP_DEG 5.0f
+#define SERVO_SETTLE_MS 500           // pause after a move before settled
+#define SERVO_DWELL_MS 600            // hold per step (Pi captures here)
+#define SERVO_SETTLE_TOL_DEG 1.5f     // AS5600 must be this close to target
+#define SERVO_CENTER_US 1500          // pulse at mount zero (calibrate on bench)
+#define SERVO_US_PER_DEG 11.11f       // (2500-500)/180 for an MG996R
+#define SERVO_PWM_FREQ 50
+#define SERVO_PWM_RES 16
+#define AS5600_ADDR 0x36              // fixed address, no ADDR pins
+
+// ============================================================
 // MQTT topics (own namespace — never rover/motor/*)
 // ============================================================
 #define MQTT_CALIB_CMD_TOPIC    "rover/mid/command"
 #define MQTT_CALIB_STATUS_TOPIC "rover/mid/status"
 #define MQTT_MOTOR_CMD_TOPIC    "rover/mid/command"
 #define MQTT_MOTOR_STATUS_TOPIC "rover/mid/status"
+// Localization + lidar swing live in their own namespaces so the dashboard
+// can tell them apart from motor data.
+#define MQTT_IMU_TOPIC          "rover/imu"
+#define MQTT_LIDAR_SERVO_TOPIC  "rover/lidar/servo"
+#define MQTT_LIDAR_CMD_TOPIC    "rover/lidar/command"
 
 // ============================================================
 // Timing
