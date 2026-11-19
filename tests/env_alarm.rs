@@ -73,6 +73,19 @@ fn o2_low_warns_then_alarms() {
 }
 
 #[test]
+fn a_derived_o2_says_so_in_the_verdict() {
+    let v = env_alarm::evaluate(&json!({"o2_pct": 19.1, "o2_est": 1}));
+    assert_eq!(level(&v), "alarm");
+    assert_eq!(v["items"][0]["label"], "O2 low (estimated)");
+    assert_eq!(v["items"][0]["estimated"], true);
+
+    // A real cell keeps the plain label and carries no estimated flag.
+    let real = env_alarm::evaluate(&json!({"o2_pct": 19.1}));
+    assert_eq!(real["items"][0]["label"], "O2 low");
+    assert!(real["items"][0].get("estimated").is_none());
+}
+
+#[test]
 fn gas_bars_need_the_baseline() {
     let warn = env_alarm::evaluate(&json!({"baseline_ok": 1, "co": 2.4}));
     assert_eq!(level(&warn), "warn");

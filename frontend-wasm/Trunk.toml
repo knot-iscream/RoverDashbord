@@ -4,3 +4,7 @@ dist = "../dist/next"
 # Assets must resolve under the Axum `/next` mount (ServeDir on dist/next),
 # not the web root — vanilla owns `/`.
 public_url = "/next/"
+# Chromium ignores SRI on the wasm preload and logs a console note for it
+# (crbug 981419). Everything here is built locally and served same-origin by
+# our own Axum, so integrity buys nothing; skipping it keeps the console clean.
+no_sri = true

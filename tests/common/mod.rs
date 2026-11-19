@@ -36,6 +36,9 @@ pub struct Fixture {
     pub motor_status: Arc<RwLock<Value>>,
     pub env: Arc<RwLock<Value>>,
     pub imu: Arc<RwLock<Value>>,
+    pub servo: Arc<RwLock<Value>>,
+    pub lidar: Arc<RwLock<Value>>,
+    pub o2: Arc<std::sync::Mutex<digital_twin_dashboard::o2_estimate::O2Estimator>>,
     pub sensors: Arc<std::sync::Mutex<SensorLog>>,
     pub device: Arc<RwLock<mqtt::DeviceState>>,
     pub rx: broadcast::Receiver<Value>,
@@ -52,6 +55,7 @@ pub fn fixture(tag: &str) -> Fixture {
     // assertions. The repo-root files stay untouched.
     std::env::set_var("ROVER_CONFIG", dir.join("rover_config.json"));
     std::env::set_var("ROVER_CALIBRATION", dir.join("calibration_baseline.json"));
+    std::env::set_var("ROVER_SENSOR_BASELINE", dir.join("sensor_baseline.json"));
     // Static pages resolve through base_dir: pin it at the package root so
     // build_router serves the real web/ tree deterministically.
     std::env::set_var("ROVER_HOME", env!("CARGO_MANIFEST_DIR"));
@@ -62,6 +66,11 @@ pub fn fixture(tag: &str) -> Fixture {
     let motor_status = Arc::new(RwLock::new(Value::Object(Default::default())));
     let env = Arc::new(RwLock::new(Value::Null));
     let imu = Arc::new(RwLock::new(Value::Null));
+    let servo = Arc::new(RwLock::new(Value::Null));
+    let lidar = Arc::new(RwLock::new(Value::Null));
+    let o2 = Arc::new(std::sync::Mutex::new(
+        digital_twin_dashboard::o2_estimate::O2Estimator::new(),
+    ));
     let sensors = Arc::new(std::sync::Mutex::new(SensorLog::default()));
     let device = Arc::new(RwLock::new(mqtt::DeviceState::default()));
     let ctx = mqtt::Ctx {
@@ -71,6 +80,9 @@ pub fn fixture(tag: &str) -> Fixture {
         motor_status: motor_status.clone(),
         env: env.clone(),
         imu: imu.clone(),
+        servo: servo.clone(),
+        lidar: lidar.clone(),
+        o2: o2.clone(),
         sensors: sensors.clone(),
         device: device.clone(),
         bcast: bcast.clone(),
@@ -84,6 +96,9 @@ pub fn fixture(tag: &str) -> Fixture {
         motor_status,
         env,
         imu,
+        servo,
+        lidar,
+        o2,
         sensors,
         device,
         rx,
@@ -110,6 +125,10 @@ pub async fn test_state(tag: &str) -> (AppState, PathBuf) {
         motor_status: f.motor_status,
         env: f.env,
         imu: f.imu,
+        servo: f.servo,
+        lidar: f.lidar,
+        o2: f.o2,
+        bench: digital_twin_dashboard::bench::new_bench(),
         sensors: f.sensors,
         device: f.device,
         mqtt: Arc::new(RwLock::new(slot)),

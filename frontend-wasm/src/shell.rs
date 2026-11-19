@@ -6,6 +6,8 @@
 //! fallback); the `.no-vt` probe + header scroll effect run once per page.
 
 use leptos::prelude::*;
+
+use crate::ws::non_reactive;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::Element;
@@ -46,6 +48,7 @@ enum DockSlot {
     Calibration,
     Detailed,
     Test,
+    Control,
 }
 
 impl DockSlot {
@@ -55,18 +58,20 @@ impl DockSlot {
             DockSlot::Calibration => 1,
             DockSlot::Detailed => 2,
             DockSlot::Test => 3,
+            DockSlot::Control => 4,
         }
     }
 }
 
 fn dock_items() -> Vec<(&'static str, &'static str)> {
     // (href, title) in vanilla dock order: Home, Calibration, Detailed, Test.
-    // All four are /next/* now; Setup stays vanilla (unported).
+    // All are /next/* now; Control is the bench drive page, Setup stays vanilla.
     vec![
         ("/next/", "Home"),
         ("/next/calibration", "Calibration"),
         ("/next/detailed", "Detailed"),
         ("/next/test", "Motor Test"),
+        ("/next/control", "Control"),
     ]
 }
 
@@ -135,7 +140,7 @@ fn all_entries() -> Vec<Entry> {
         group: "Actions",
         title: "Manual motor control".to_string(),
         keywords: "manual control drive slider motors calibration sliders".to_string(),
-        href: "/next/calibration".to_string(),
+        href: "/next/control".to_string(),
     });
     out
 }
@@ -178,6 +183,7 @@ fn active_for(path: &str) -> DockSlot {
                 "/detailed" => DockSlot::Detailed,
                 "/test" => DockSlot::Test,
                 "/calibration" => DockSlot::Calibration,
+                "/control" => DockSlot::Control,
                 _ => DockSlot::Home,
             };
         }
@@ -470,6 +476,7 @@ pub fn app_shell(content: impl IntoView) -> impl IntoView {
     // -- dock paint helpers (imperative, refs post-mount) --
     let paint_chev = {
         move |visible: bool| {
+            let _nz = non_reactive();
             if let Some(btn) = chev_ref.get() {
                 if let Ok(Some(svg)) = btn.query_selector("svg") {
                     set_inner_svg(&svg, if visible { CHEV_OPEN } else { CHEV_CLOSED });
@@ -497,6 +504,7 @@ pub fn app_shell(content: impl IntoView) -> impl IntoView {
     };
     let place_indicator = {
         move |instant: bool| {
+            let _nz = non_reactive();
             let y = format!("translateY({}px)", dock_active.get() * (42 + 12));
             if let Some(bar) = indicator_ref.get() {
                 let el: &Element = bar.as_ref();
@@ -539,6 +547,7 @@ pub fn app_shell(content: impl IntoView) -> impl IntoView {
     // -- post-mount init (refs live now) --
     {
         wasm_bindgen_futures::spawn_local(async move {
+            let _nz = non_reactive();
             let locked = dock_locked.get();
             let hidden = dock_hidden.get();
             set_visible(!hidden && !locked, false);
@@ -556,6 +565,7 @@ pub fn app_shell(content: impl IntoView) -> impl IntoView {
         wasm_bindgen_futures::spawn_local(async move {
             if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
                 let cb = Closure::<dyn FnMut(web_sys::Event)>::new(move |e: web_sys::Event| {
+                    let _nz = non_reactive();
                     if dock_locked.get() {
                         return;
                     }
@@ -690,6 +700,7 @@ pub fn app_shell(content: impl IntoView) -> impl IntoView {
         wasm_bindgen_futures::spawn_local(async move {
             if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
                 let cb = Closure::<dyn FnMut(web_sys::Event)>::new(move |e: web_sys::Event| {
+                    let _nz = non_reactive();
                     let key = evt_key(&e);
                     let modu = evt_flag(&e, "ctrlKey") || evt_flag(&e, "metaKey");
                     if modu && (key == "k" || key == "K") {
@@ -862,7 +873,9 @@ pub fn app_shell(content: impl IntoView) -> impl IntoView {
                         .enumerate()
                         .map(|(i, (href, title))| {
                             let on_dock = on_dock.clone();
-                            // Dock glyphs, byte-identical paths to vanilla.
+                            // Dock glyphs from Lucide (lucide.dev/icons),
+                            // byte-identical to the library paths. Index 4 is
+                            // `gamepad`; do not hand-draw replacements.
                             // Branches differ in type, so each is erased to
                             // AnyView (same pattern as the page router).
                             let icon: AnyView = match i {
@@ -876,6 +889,10 @@ pub fn app_shell(content: impl IntoView) -> impl IntoView {
                                 .into_any(),
                                 2 => view! {
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+                                }
+                                .into_any(),
+                                4 => view! {
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" x2="10" y1="12" y2="12" /><line x1="8" x2="8" y1="10" y2="14" /><line x1="15" x2="15.01" y1="13" y2="13" /><line x1="18" x2="18.01" y1="11" y2="11" /><rect width="20" height="12" x="2" y="6" rx="2" /></svg>
                                 }
                                 .into_any(),
                                 _ => view! {

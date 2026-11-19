@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased — 4-channel 6A corners, 3S LiPo rail, derived O2
+
+- Corner motors move off the L298N onto one RBD-3658 4-channel 6 A board
+  (`DC_MOTOR_4`, MJKDZ). Two logic inputs per channel, no enable pin: PWM
+  rides one input, the other stays low, direction is which input pulses.
+  The pin map reuses the old direction wires (`IN1..IN8` on GPIO
+  15/14, 19/23, 33/27, 17/16) and the four `ENA` wires come off the harness.
+  `motor_driver.h` gains a 500 us direction dead time; zero means coast,
+  `MOTOR_STOP_BRAKE` switches it to brake. The MID board keeps its L298N and
+  `rover/mid/*` is untouched.
+- Power rail is now a 3S LiPo 4500 mAh (11.1 V nominal, 12.6 V full) feeding
+  the motors, the Pi buck and the arm buck. README documents the tree, the
+  20 A fuse, the 12 AWG main run and the balance-charger requirement.
+- Health math: low voltage is 10.2 V (3.4 V per cell) and only evaluated at
+  `|speed| >= 200`, because the INA226 reads the PWM-averaged motor terminal
+  voltage and the old 11.5 V line was tuned for a sagging 12 V SLA.
+  `UNDER_LOAD_DUTY`, `LOW_VOLTAGE_V` and `OVER_CURRENT_A` are named
+  constants; `tests/fixtures/health.json` gains a half-throttle case and the
+  low-voltage cases now run at full duty.
+- ENV board: the galvanic O2 cell is gone (`ADS_PGA_O2`, `o2_v0_mv`, the
+  `o2_mv`/`o2_pct` fields and the NVS reference removed). It publishes
+  `o2_ok:0` so a future cell can take the field back without a code change.
+- New `src/o2_estimate.rs`: derived O2 from the gas ratios, flame channels
+  and MLX pair, applied once at ENV ingest so `/api/env`, `env_update`, the
+  chart ring, the export and the alarm verdict all share one number. 20.9 %
+  down to 16.9 %, 2 s attack / 20 s release, reset after a 10 s feed hole, no
+  estimate when nothing is evaluable. `env_alarm` labels it "O2 low
+  (estimated)" and sets `"estimated": true`; a real `o2_ok:1` frame keeps the
+  plain label.
+- Calibration page drops the O2 row (a model output has nothing to capture),
+  `SENSOR_KEYS` is now 5. The Excel Sensors sheet keeps `o2_mv` for old
+  workbooks and adds `o2_est`.
+- Detailed page O2 card becomes "O2 estimate" with a `~` on the value, a
+  model-load row and the active inputs. Charts and the home gas panel are
+  otherwise unchanged.
+
 ## Unreleased — 6-motor sensors + ENV node (INA226 + ADXL345 + ESP-2 MID + ESP-3 ENV)
 
 - ESP-1 corners: INA219 → INA226 (10mΩ 1W shunts, 4A calibration cap),

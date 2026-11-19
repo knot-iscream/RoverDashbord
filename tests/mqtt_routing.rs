@@ -281,8 +281,16 @@ async fn env_telemetry_stored_and_never_motor_data() {
                        "co": 1.4, "lpg": 1.0, "ch4": null, "h2": 1.2, "air": 1.1,
                        "o2_mv": 11.8, "o2_pct": 20.6, "flame_lvl": 0.2,
                        "flame_dir": 0, "heat_l": 34.2, "heat_r": 31.7});
-    mqtt::on_mqtt_message(&f.ctx, "rover/env/telemetry", frame.clone()).await;
-    assert_eq!(*f.env.read().await, frame, "raw frame cached");
+    mqtt::on_mqtt_message(&f.ctx, "rover/env/telemetry", frame).await;
+    let cached = f.env.read().await.clone();
+    assert_eq!(cached["co"], 1.4, "raw fields survive the estimate");
+    assert_eq!(cached["o2_mv"], 11.8, "old-firmware fields pass through");
+    assert_eq!(cached["o2_est"], 1, "no cell: derived at ingest");
+    assert_eq!(cached["o2_src"], "gas+flame+heat");
+    assert!(
+        cached["o2_pct"].as_f64().unwrap() > 20.0,
+        "quiet frame stays near clean air"
+    );
     let d = common::drain(&mut f.rx);
     let u = d
         .iter()
@@ -383,6 +391,74 @@ async fn near_miss_motor_topics_are_dropped() {
     );
     assert!(f.data.read().await.latest.is_empty());
     assert!(history_rows(&f).await.is_empty());
+    std::fs::remove_dir_all(&f.dir).ok();
+}
+
+#[tokio::test]
+async fn lidar_scan_caches_and_relays_without_becoming_motor_data() {
+    let mut f = common::fixture("mqtt-lidar");
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/lidar/scan",
+        json!({"ok": 1, "model": 24, "count": 2,
+               "points": [[10.0, 1200.0, 15], [20.0, 1300.0, 12]]}),
+    )
+    .await;
+    assert_eq!(f.lidar.read().await["model"], 24);
+    assert_eq!(f.lidar.read().await["points"][1][1], 1300.0);
+    let d = common::drain(&mut f.rx);
+    let u = d
+        .iter()
+        .find(|m| m["type"] == "lidar_update")
+        .expect("relay");
+    assert_eq!(u["count"], 2);
+    assert!(
+        f.data.read().await.latest.is_empty(),
+        "scans are not motor frames"
+    );
+    assert!(history_rows(&f).await.is_empty());
+    std::fs::remove_dir_all(&f.dir).ok();
+}
+
+#[tokio::test]
+async fn servo_frames_relay_and_a_lost_calibration_clears_our_record() {
+    let mut f = common::fixture("mqtt-servo");
+    // The arm reports a calibration, and the app records what it measured.
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/lidar/servo",
+        json!({"servo_ok": 1, "angle": 0.0, "cal_ok": 1, "angle_real": -1.5}),
+    )
+    .await;
+    assert_eq!(f.servo.read().await["angle_real"], -1.5);
+    f.data
+        .write()
+        .await
+        .capture_sensor_baseline("servo", json!({"cal_ok": true, "angle_real": -1.5}));
+    let d = common::drain(&mut f.rx);
+    let u = d
+        .iter()
+        .find(|m| m["type"] == "servo_update")
+        .expect("relay");
+    assert_eq!(u["cal_ok"], 1);
+    assert!(
+        f.data.read().await.latest.is_empty(),
+        "servo frames are not motor samples"
+    );
+    assert!(history_rows(&f).await.is_empty());
+
+    // The sweep is cleared on the board: our stored reference is a leftover
+    // and must go with it, so the page reads "not captured".
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/lidar/servo",
+        json!({"servo_ok": 1, "angle": 0.0, "cal_ok": 0}),
+    )
+    .await;
+    assert!(
+        !f.data.read().await.sensor_baselines.contains_key("servo"),
+        "a board with no calibration leaves us with none to report"
+    );
     std::fs::remove_dir_all(&f.dir).ok();
 }
 

@@ -63,6 +63,14 @@ async fn handle(socket: WebSocket, s: AppState) {
     if !imu.is_null() {
         send(&mut tx, &tagged("imu_update", imu)).await;
     }
+    let servo = s.servo.read().await.clone();
+    if !servo.is_null() {
+        send(&mut tx, &tagged("servo_update", servo)).await;
+    }
+    let lidar = s.lidar.read().await.clone();
+    if !lidar.is_null() {
+        send(&mut tx, &tagged("lidar_update", lidar)).await;
+    }
     send(&mut tx, &calibration_payload(&s.ctx()).await).await;
     send(&mut tx, &s.device.read().await.payload()).await;
 

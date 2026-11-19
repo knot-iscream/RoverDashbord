@@ -4,11 +4,12 @@
 //! (`temp_valid` / `ina_ok` / `vibration_valid`) — never from missing sensors.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const CALIBRATION_FILE: &str = "calibration_baseline.json";
+pub const SENSOR_BASELINE_FILE: &str = "sensor_baseline.json";
 
 /// Baseline path: `ROVER_CALIBRATION` override if set (integration tests
 /// point it at temp dirs so the suite never touches the real file), else
@@ -18,6 +19,31 @@ pub fn calibration_path() -> std::path::PathBuf {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| crate::config::base_dir().join(CALIBRATION_FILE))
 }
+
+/// Sensor-reference path, same override rule under `ROVER_SENSOR_BASELINE`.
+pub fn sensor_baseline_path() -> std::path::PathBuf {
+    std::env::var("ROVER_SENSOR_BASELINE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| crate::config::base_dir().join(SENSOR_BASELINE_FILE))
+}
+
+/// The sensor keys the Calibration page lists, in board order. A fixed list
+/// beats "whatever arrived": a missing board then shows as "not captured"
+/// instead of quietly dropping off the page.
+pub const SENSOR_KEYS: [&str; 5] = ["gas", "flame", "heat", "imu", "servo"];
+
+/// Full-duty gate for the low-voltage rule. The INA226 sits after the
+/// driver, so it reads the PWM-averaged motor terminal voltage: at half
+/// throttle that is about half the pack, and a pack-level threshold would
+/// fire on every frame. Only near full duty does it approximate the pack.
+pub const UNDER_LOAD_DUTY: i64 = 200;
+/// Pack floor for a 3S LiPo: 10.2 V is 3.4 V per cell. The old 11.5 V line
+/// was tuned for a sagging 12 V SLA and now sits above a 3S pack's nominal
+/// 11.1 V, which would flag a healthy pack for most of a run.
+pub const LOW_VOLTAGE_V: f64 = 10.2;
+/// One 37GB gearmotor stalls around 2.5 A. Alert above 2 A so a dragging
+/// wheel or a bind shows up while the motor still has margin.
+pub const OVER_CURRENT_A: f64 = 2.0;
 
 /// Baseline math inputs (resolved from the stored arbitrary dict with
 /// Python's defaults: `avg_temp` 35, `avg_voltage` 12).
@@ -60,6 +86,10 @@ pub struct MotorSample {
     pub ay: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub az: Option<f64>,
+    /// Sample-time duty gate for the low-voltage rule. Internal only: it is
+    /// derived from the frame's speed and must not change the API payload.
+    #[serde(skip)]
+    pub under_load: bool,
     pub timestamp: f64,
 }
 
@@ -70,6 +100,11 @@ pub struct DataHandler {
     pub latest: BTreeMap<u8, MotorSample>,
     /// Raw baseline dicts (full fidelity with `calibration_baseline.json`).
     pub baselines: HashMap<u8, Value>,
+    /// Captured sensor references (gas cells, O2 cell, flame, MLX pair, IMU,
+    /// AS5600). Kept in its own file so `calibration_baseline.json` stays
+    /// byte-identical with the Python one and the health drift math is
+    /// untouched. Keyed by sensor key, not motor id.
+    pub sensor_baselines: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -176,7 +211,7 @@ pub fn motor_id_of(data: &Value) -> u8 {
     v.clamp(0, 255) as u8
 }
 
-fn now_secs() -> f64 {
+pub fn now_secs() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
@@ -187,6 +222,7 @@ impl DataHandler {
     pub fn new() -> Self {
         let mut h = Self::default();
         h.load_calibration();
+        h.load_sensor_baselines();
         h
     }
 
@@ -199,6 +235,7 @@ impl DataHandler {
         );
         let ina_ok = py_bool(data.get("ina_ok"));
         let temp_valid = py_bool(data.get("temp_valid"));
+        let speed = coerce_i64(data.get("speed"));
         self.latest.insert(
             motor,
             MotorSample {
@@ -214,6 +251,7 @@ impl DataHandler {
                 ax: raw_num(data.get("ax")),
                 ay: raw_num(data.get("ay")),
                 az: raw_num(data.get("az")),
+                under_load: speed.abs() >= UNDER_LOAD_DUTY,
                 timestamp: now_secs(),
             },
         );
@@ -240,14 +278,17 @@ impl DataHandler {
             data.ina_ok,
             data.temp_valid,
             data.vibration_valid,
+            data.under_load,
             baseline.as_ref(),
         )
     }
 
-    /// Pure health math (unit-testable). Penalty gates + message strings are
-    /// verbatim from `data_handler.py`.
-    /// Eight params by design: the signature mirrors Python's sensor bundle
-    /// 1:1 so parity review stays mechanical.
+    /// Pure health math (unit-testable). Penalty gates and message strings
+    /// come from `data_handler.py`; the voltage rule is the one local change
+    /// (see `LOW_VOLTAGE_V`), because the rover moved from a 12 V SLA to a
+    /// 3S LiPo and the per-motor INA226 reads post-PWM, not pack voltage.
+    /// `under_load` says the sample was taken near full duty, the only time
+    /// that reading approximates the pack.
     #[allow(clippy::too_many_arguments)]
     pub fn health_of(
         temp: Option<f64>,
@@ -257,6 +298,7 @@ impl DataHandler {
         ina_ok: bool,
         temp_valid: bool,
         vibration_valid: bool,
+        under_load: bool,
         baseline: Option<&Baseline>,
     ) -> Health {
         // No trustworthy sensor → report Nothing so the UI shows "--".
@@ -276,12 +318,12 @@ impl DataHandler {
             anomalies.push(format!("High temperature: {t:.1}°C"));
         }
         if ina_ok {
-            if v < 11.5 {
-                score -= (11.5 - v) * 10.0;
+            if under_load && v < LOW_VOLTAGE_V {
+                score -= (LOW_VOLTAGE_V - v) * 10.0;
                 anomalies.push(format!("Low voltage: {v:.2}V"));
             }
-            if c > 2.0 {
-                score -= (c - 2.0) * 20.0;
+            if c > OVER_CURRENT_A {
+                score -= (c - OVER_CURRENT_A) * 20.0;
                 anomalies.push(format!("Over-current: {c:.3}A"));
             }
         }
@@ -310,6 +352,36 @@ impl DataHandler {
         self.save_calibration();
     }
 
+    /// Record what a sensor was reading at capture time, stamped. Explicit,
+    /// not passive: the reference is the average the app took over a short
+    /// window (`sensor_cal`), so it can only change when someone captures.
+    pub fn capture_sensor_baseline(&mut self, key: &str, reference: Value) {
+        let at = now_secs();
+        self.sensor_baselines.insert(
+            key.to_string(),
+            json!({
+                "reference": reference,
+                "captured_at": at,
+                "seen_at": at,
+                "window_s": crate::sensor_cal::CAPTURE_WINDOW_S,
+            }),
+        );
+        self.save_sensor_baselines();
+    }
+
+    /// The stored reference for a key, if any.
+    pub fn sensor_reference(&self, key: &str) -> Option<&Value> {
+        self.sensor_baselines.get(key)?.get("reference")
+    }
+
+    /// Forget a reference. Used when a board reports that it holds none, so
+    /// the page shows "not captured" rather than yesterday's numbers.
+    pub fn clear_sensor_reference(&mut self, key: &str) {
+        if self.sensor_baselines.remove(key).is_some() {
+            self.save_sensor_baselines();
+        }
+    }
+
     pub fn get_latest(&self) -> Vec<Value> {
         self.latest
             .values()
@@ -330,6 +402,31 @@ impl DataHandler {
         }
     }
 
+    pub fn load_sensor_baselines(&mut self) {
+        let Ok(text) = std::fs::read_to_string(sensor_baseline_path()) else {
+            return;
+        };
+        if let Ok(map) = serde_json::from_str::<HashMap<String, Value>>(&text) {
+            for (k, v) in map {
+                if SENSOR_KEYS.contains(&k.as_str()) {
+                    self.sensor_baselines.insert(k, v);
+                }
+            }
+        }
+    }
+
+    pub fn save_sensor_baselines(&self) {
+        let map: HashMap<String, &Value> = self
+            .sensor_baselines
+            .iter()
+            .map(|(k, v)| (k.clone(), v))
+            .collect();
+        let Ok(text) = serde_json::to_string_pretty(&map) else {
+            return;
+        };
+        write_atomic(&sensor_baseline_path(), &text);
+    }
+
     pub fn save_calibration(&self) {
         let map: HashMap<String, &Value> = self
             .baselines
@@ -339,12 +436,15 @@ impl DataHandler {
         let Ok(text) = serde_json::to_string_pretty(&map) else {
             return;
         };
-        // Temp file + rename: a crash mid-write must never truncate baselines.
-        let path = calibration_path();
-        let tmp = format!("{}.tmp", path.display());
-        if let Err(e) = std::fs::write(&tmp, text).and_then(|()| std::fs::rename(&tmp, &path)) {
-            tracing::warn!("could not save {}: {e}", path.display());
-        }
+        write_atomic(&calibration_path(), &text);
+    }
+}
+
+/// Temp file + rename: a crash mid-write must never truncate what we hold.
+fn write_atomic(path: &std::path::Path, text: &str) {
+    let tmp = format!("{}.tmp", path.display());
+    if let Err(e) = std::fs::write(&tmp, text).and_then(|()| std::fs::rename(&tmp, path)) {
+        tracing::warn!("could not save {}: {e}", path.display());
     }
 }
 
@@ -355,7 +455,7 @@ mod tests {
 
     #[test]
     fn no_valid_sensors_gives_none() {
-        let h = DataHandler::health_of(None, None, None, false, false, false, false, None);
+        let h = DataHandler::health_of(None, None, None, false, false, false, false, false, None);
         assert_eq!(h.health, None);
         assert!(h.anomalies.is_empty());
     }
@@ -370,30 +470,32 @@ mod tests {
             true,
             true,
             true,
+            true,
             None,
         );
         assert_eq!(h.health, Some(100.0));
     }
 
     #[test]
-    fn anomaly_strings_match_python_format() {
+    fn anomaly_strings_keep_their_format() {
         let h = DataHandler::health_of(
             Some(55.0),
-            Some(11.0),
+            Some(9.5),
             Some(2.5),
+            true,
             true,
             true,
             true,
             true,
             None,
         );
-        // 100 -10 -5 -10 -5 = 70
-        assert_eq!(h.health, Some(70.0));
+        // 100 -10 (temp) -7 (low V) -10 (over-current) -5 (vibration) = 68
+        assert_eq!(h.health, Some(68.0));
         assert_eq!(
             h.anomalies,
             vec![
                 "High temperature: 55.0°C",
-                "Low voltage: 11.00V",
+                "Low voltage: 9.50V",
                 "Over-current: 2.500A",
                 "Vibration spike detected",
             ]
@@ -411,6 +513,7 @@ mod tests {
             false,
             false,
             false,
+            true,
             None,
         );
         // ina_ok=false, temp_valid=false, vibration_valid=false → None
@@ -424,10 +527,61 @@ mod tests {
             false,
             false,
             true,
+            true,
             None,
         );
         assert_eq!(h.health, Some(95.0));
         assert_eq!(h.anomalies, vec!["Vibration spike detected"]);
+    }
+
+    #[test]
+    fn low_voltage_only_counts_near_full_duty() {
+        // The INA226 reads post-PWM motor volts. At half throttle 6 V is
+        // normal, not a pack fault.
+        let half = DataHandler::health_of(
+            Some(35.0),
+            Some(6.0),
+            Some(0.5),
+            false,
+            true,
+            true,
+            true,
+            false,
+            None,
+        );
+        assert_eq!(half.health, Some(100.0));
+        assert!(half.anomalies.is_empty());
+
+        let loaded = DataHandler::health_of(
+            Some(35.0),
+            Some(6.0),
+            Some(0.5),
+            false,
+            true,
+            true,
+            true,
+            true,
+            None,
+        );
+        assert!(loaded.anomalies[0].starts_with("Low voltage: 6.00V"));
+    }
+
+    #[test]
+    fn three_s_nominal_voltage_is_not_a_fault() {
+        // 11.1 V is a healthy 3S pack; the old 11.5 V SLA line flagged it.
+        let h = DataHandler::health_of(
+            Some(35.0),
+            Some(11.1),
+            Some(0.5),
+            false,
+            true,
+            true,
+            true,
+            true,
+            None,
+        );
+        assert_eq!(h.health, Some(100.0));
+        assert!(h.anomalies.is_empty());
     }
 
     #[test]
@@ -444,10 +598,11 @@ mod tests {
             true,
             true,
             true,
+            true,
             Some(&b),
         );
-        // 100 -15 (low V) -3 (temp drift) -3 (voltage drift) = 79
-        assert_eq!(h.health, Some(79.0));
+        // 100 -2 (low V) -3 (temp drift) -3 (voltage drift) = 92
+        assert_eq!(h.health, Some(92.0));
         assert_eq!(h.anomalies, vec!["Low voltage: 10.00V"]);
     }
 

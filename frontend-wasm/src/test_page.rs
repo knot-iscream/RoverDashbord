@@ -10,7 +10,10 @@ use wasm_bindgen::JsCast;
 use web_sys::{Element, HtmlInputElement};
 
 use crate::shell::app_shell;
-use crate::ws::{fetch_device_online, get_json, motor_param, now_ms, post_motor, ws_url};
+use crate::ws::{
+    fetch_device_online, get_json, motor_param, non_reactive, now_ms, post_motor, read_untracked,
+    ws_url,
+};
 
 const MOTOR_SHORT: [&str; 6] = ["FL", "FR", "RL", "RR", "ML", "MR"];
 const MOTOR_FULL: [&str; 6] = [
@@ -141,6 +144,7 @@ struct Ctx {
 /// `updateMotorUI` verbatim (minus the slider element itself, which callers
 /// drive). Clamps, paints fill/labels/val, stores per-motor speed memory.
 fn paint_motor_ui(ctx: &Ctx, value: i32) {
+    let _nz = non_reactive();
     let value = value.clamp(-255, 255);
     let m = (ctx.selected.get() as usize).saturating_sub(1).min(5);
     let mag = value.abs() as f64 / 255.0;
@@ -175,6 +179,7 @@ fn paint_motor_ui(ctx: &Ctx, value: i32) {
 /// `renderVib` verbatim + range readout: NO SIGNAL / `1.83g` + bars scaled
 /// to the level (2px calm -> 22px at 1.5g deviation), flat gray with none.
 fn render_vib(ctx: &Ctx, active: bool, valid: bool, mag: Option<f64>) {
+    let _nz = non_reactive();
     let no_signal = !valid;
     let level = match mag {
         Some(g) if g.is_finite() => (g - 1.0).abs().clamp(0.0, 1.5) / 1.5,
@@ -235,6 +240,7 @@ fn render_vib(ctx: &Ctx, active: bool, valid: bool, mag: Option<f64>) {
 
 /// Health bar width + `low` class (mirrors the `t-health-bar` block).
 fn paint_health_bar(ctx: &Ctx, h: Option<f64>) {
+    let _nz = non_reactive();
     let hpct = h.map(|x| x.clamp(0.0, 100.0)).unwrap_or(0.0);
     if let Some(bar) = ctx.health_bar.get() {
         let el: &Element = bar.as_ref();
@@ -272,7 +278,7 @@ fn sys_text(s: &TestSample, blind: bool) -> (bool, &'static str) {
 fn fetch_baseline(ctx: &Ctx) {
     let ctx = ctx.clone();
     wasm_bindgen_futures::spawn_local(async move {
-        let m = ctx.selected.get();
+        let m = read_untracked(|| ctx.selected.get());
         let has = get_json("/api/calibration")
             .await
             .and_then(|v| v.get("baselines").cloned())
@@ -287,6 +293,7 @@ fn fetch_baseline(ctx: &Ctx) {
 
 /// `updateCalGuard` verbatim (chip paint imperative, the rest reactive).
 fn update_cal_guard(ctx: &Ctx, state: &str) {
+    let _nz = non_reactive();
     let _was = ctx.calibrating.get();
     let cal = !state.is_empty() && state != "idle";
     ctx.calibrating.set(cal);
@@ -318,6 +325,7 @@ fn update_cal_guard(ctx: &Ctx, state: &str) {
 }
 
 fn set_conn_chip(ctx: &Ctx, up: bool) {
+    let _nz = non_reactive();
     ctx.ws_up.set(up);
     if let Some(dot) = ctx.chip_conn.get() {
         dot.set_attribute(
@@ -358,6 +366,7 @@ fn connect_test_ws(ctx: Ctx) {
     let onmessage = Closure::<dyn FnMut(_)>::new({
         let ctx = ctx.clone();
         move |e: web_sys::MessageEvent| {
+            let _nz = non_reactive();
             let Some(text) = e.data().as_string() else {
                 return;
             };
@@ -546,6 +555,7 @@ pub fn TestPage() -> impl IntoView {
             let frame2 = frame.clone();
             let ctx2 = ctx.clone();
             *frame.borrow_mut() = Some(Closure::new(move |ts: f64| {
+                let _nz = non_reactive();
                 if ctx2.anim_token.get() != token {
                     return;
                 }
@@ -735,7 +745,7 @@ pub fn TestPage() -> impl IntoView {
         // Post-mount init: beats, slider paint, recurring polls.
         let ctx = ctx.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            if let Some(wrap) = ctx.beats.get() {
+            if let Some(wrap) = read_untracked(|| ctx.beats.get()) {
                 let doc = wrap.owner_document().unwrap();
                 for _ in 0..20 {
                     if let Ok(b) = doc.create_element("span") {
@@ -746,7 +756,7 @@ pub fn TestPage() -> impl IntoView {
                     }
                 }
             }
-            if let Some(s) = ctx.slider.get() {
+            if let Some(s) = read_untracked(|| ctx.slider.get()) {
                 s.set_value("0");
             }
             (ctx.paint)(0);
@@ -764,6 +774,7 @@ pub fn TestPage() -> impl IntoView {
             _iv.forget();
             let c = ctx.clone();
             let _iv = gloo_timers::callback::Interval::new(1000, move || {
+                let _nz = non_reactive();
                 c.tick.update(|t| *t += 1);
                 // Vanilla updateFreshness side effects beyond text: re-render
                 // idle/stale beat bars every second.

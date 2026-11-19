@@ -15,6 +15,11 @@
 //! (`rover/env/telemetry` (1 Hz, gas cells wandering
 //! around the clean-air baseline, a flame burst every ~30s), `rover/env/status`
 //! (2 s) and `rover/imu` (4 Hz), each from its own task so the rates stay true.
+//! `rover/lidar/servo` (1 Hz) fills the swing arm's row on the Calibration
+//! page.
+//! `FAKE_GAS=1` walks the five gas cells from clean air up past the 3.5 high
+//! line on a staggered 25 s ramp, so the bar color ramp (orange -> red) can be
+//! checked without hardware.
 //! Modes: double-click and all four corners shake continuously
 //! bench-idle walk with staggered ~9s offroad bursts every ~18s.
 //! `FAKE_SWEEP=1` runs a 120s scripted full-range sweep per motor
@@ -73,6 +78,7 @@ async fn main() {
     // of hitching a ride on the 250 ms motor loop.
     tokio::spawn(fake_env(client.clone()));
     tokio::spawn(fake_imu(client.clone()));
+    tokio::spawn(fake_servo(client.clone()));
 
     let mut rng = rand::thread_rng();
     let mut motors = [
@@ -262,13 +268,20 @@ async fn publish(client: &AsyncClient, topic: &str, payload: serde_json::Value) 
 }
 
 /// ENV node (ESP-3) shape: 1 Hz telemetry, 2 s heartbeat.
-/// Gas values are R0/Rs with 1.0 = clean air, O2 sits at a healthy 20.9%,
-/// and every ~30 s the flame level bursts while the direction walks 1..5, so
-/// the page's alarm state and direction dots get exercised.
+/// Gas values are R0/Rs with 1.0 = clean air, no O2 cell is fitted (`o2_ok:0`)
+/// so the backend derives O2 from these frames, and every ~30 s the flame
+/// level bursts while the direction walks 1..5, so the alarm state, the
+/// direction dots and the derived O2 all get exercised.
 async fn fake_env(client: AsyncClient) {
     let t0 = std::time::Instant::now();
     let mut last_status = f64::NEG_INFINITY;
     let mut last_dir = 0i64;
+    // Color-ramp check: ramp each cell 1.0 -> 3.9 over 25 s, staggered 5 s
+    // apart, so warn (2.0) and high (3.5) both get crossed live.
+    let gas_ramp = std::env::var("FAKE_GAS").is_ok_and(|v| v == "1");
+    if gas_ramp {
+        eprintln!("[fake] GAS mode: cells ramp 1.0 -> 3.9 on a 25 s stagger (bar orange -> red)");
+    }
     loop {
         let el = t0.elapsed().as_secs_f64();
         // ThreadRng is !Send: build the frame in a scope so the rng is gone
@@ -285,23 +298,36 @@ async fn fake_env(client: AsyncClient) {
                 eprintln!("[fake] ENV: flame burst, direction {dir}, level rising");
             }
             last_dir = dir;
-            let o2_mv =
-                11.5 + (el * std::f64::consts::TAU / 47.0).sin() * 0.3 + rng.gen_range(-0.05..0.05);
+            let mut ramp = |i: f64| {
+                r2(1.0 + (el - i * 5.0).rem_euclid(25.0) / 25.0 * 2.9 + rng.gen_range(-0.02..0.02))
+            };
+            let (co, lpg, ch4, h2, air) = if gas_ramp {
+                (ramp(0.0), ramp(1.0), ramp(2.0), ramp(3.0), ramp(4.0))
+            } else {
+                (
+                    r2(wave(el, 95.0, 0.35) + rng.gen_range(-0.03..0.03)),
+                    r2(wave(el, 140.0, 0.12) + rng.gen_range(-0.02..0.02)),
+                    r2(wave(el, 170.0, 0.08) + rng.gen_range(-0.02..0.02)),
+                    r2(wave(el, 120.0, 0.20) + rng.gen_range(-0.02..0.02)),
+                    r2(1.05
+                        + 0.5 * (el * std::f64::consts::TAU / 110.0).sin()
+                        + rng.gen_range(-0.04..0.04)),
+                )
+            };
             json!({
                 "ads_ok": 1, "mlx_ok": 1, "flame_ok": 1, "baseline_ok": 1,
-                "co": r2(wave(el, 9.0, 0.35) + rng.gen_range(-0.03..0.03)),
-                "lpg": r2(wave(el, 13.0, 0.12) + rng.gen_range(-0.02..0.02)),
-                "ch4": r2(wave(el, 17.0, 0.08) + rng.gen_range(-0.02..0.02)),
-                "h2": r2(wave(el, 11.0, 0.20) + rng.gen_range(-0.02..0.02)),
-                "air": r2(1.05 + 0.5 * (el * std::f64::consts::TAU / 7.0).sin() + rng.gen_range(-0.04..0.04)),
-                "o2_mv": r2(o2_mv),
-                "o2_pct": r2(20.9 * o2_mv / 11.5),
+                "co": co,
+                "lpg": lpg,
+                "ch4": ch4,
+                "h2": h2,
+                "air": air,
+                "o2_ok": 0,
                 "flame_lvl": if burst { r2(1.6 + rng.gen_range(0.0..1.4)) } else { r2(rng.gen_range(0.02..0.12)) },
                 "flame_dir": dir,
-                "heat_l": r2(24.6 + (el * std::f64::consts::TAU / 21.0).sin() * 0.9 + rng.gen_range(-0.1..0.1)),
-                "heat_r": r2(24.2 + (el * std::f64::consts::TAU / 27.0).cos() * 0.7 + rng.gen_range(-0.1..0.1)),
-                "heat_l_amb": r2(22.4 + rng.gen_range(-0.1..0.1)),
-                "heat_r_amb": r2(22.5 + rng.gen_range(-0.1..0.1)),
+                "heat_l": r2(24.6 + (el * std::f64::consts::TAU / 190.0).sin() * 0.9 + rng.gen_range(-0.05..0.05)),
+                "heat_r": r2(24.2 + (el * std::f64::consts::TAU / 260.0).cos() * 0.7 + rng.gen_range(-0.05..0.05)),
+                "heat_l_amb": r2(22.4 + rng.gen_range(-0.05..0.05)),
+                "heat_r_amb": r2(22.5 + rng.gen_range(-0.05..0.05)),
             })
         };
         publish(&client, "rover/env/telemetry", frame).await;
@@ -339,5 +365,33 @@ async fn fake_imu(client: AsyncClient) {
         };
         publish(&client, "rover/imu", frame).await;
         tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+/// MID swing arm (ESP-2): 1 Hz. Sits at 0 deg with the AS5600 calibrated, the
+/// same shape `publishLidarServo` sends: cal_ok 1 and a measured angle that
+/// trails the commanded one a little.
+async fn fake_servo(client: AsyncClient) {
+    let t0 = std::time::Instant::now();
+    loop {
+        let el = t0.elapsed().as_secs_f64();
+        // Slow drift either side of centre, like an arm settling on its stop.
+        let angle = r2((el * std::f64::consts::TAU / 47.0).sin() * 18.0);
+        let frame = {
+            let mut rng = rand::thread_rng();
+            json!({
+                "servo_ok": 1,
+                "angle": angle,
+                "as5600_ok": 1,
+                "cal_ok": 1,
+                "angle_real": r2(angle + rng.gen_range(-0.4..0.4)),
+                "settled": 1,
+                "sweeping": 0,
+                "step": 0,
+                "steps": 0,
+            })
+        };
+        publish(&client, "rover/lidar/servo", frame).await;
+        tokio::time::sleep(Duration::from_millis(1000)).await;
     }
 }

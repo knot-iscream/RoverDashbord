@@ -5,17 +5,22 @@
 #include <ArduinoJson.h>
 #include "config.h"
 
-// Maps a "motor index" (0-3) to its L298N channel hardware.
+// One channel of the 4-channel 6 A board (RBD-3658, "DC_MOTOR_4").
+// Two logic inputs, no enable: each input drives one half of the
+// H-bridge, so the PWM duty goes on whichever half is driving.
+//   IN_A = PWM, IN_B = LOW  -> forward at that duty
+//   IN_A = LOW, IN_B = PWM  -> reverse at that duty
+//   both LOW -> coast, both HIGH -> brake
 struct MotorChannel {
-  int ena;   // PWM enable pin
-  int in1;   // direction pin
-  int in2;   // direction pin
+  int in_a;
+  int in_b;
 };
 
 class MotorDriver {
   private:
     MotorChannel channels[4];
-    int speed[4];               // last commanded speed (-255..255)
+    int speed[4];       // last commanded speed (-255..255)
+    int8_t dir[4];      // last applied direction: -1, 0, +1
 
     void setChannel(int idx, int motor_speed) {
       MotorChannel& ch = channels[idx];
@@ -23,57 +28,57 @@ class MotorDriver {
       if (motor_speed < -255) motor_speed = -255;
       speed[idx] = motor_speed;
 
-      int dir1 = motor_speed > 0 ? HIGH : LOW;
-      int dir2 = motor_speed > 0 ? LOW : HIGH;
-      int pwm  = abs(motor_speed);
+      int8_t want = (motor_speed > 0) - (motor_speed < 0);
 
-      // Stop = active brake: both inputs LOW shorts the motor so stopping
-      // never depends on the enable line (prevents "won't stop" faults).
-      if (motor_speed == 0) {
-        dir1 = LOW;
-        dir2 = LOW;
+      // Dead time on a direction flip: both inputs LOW so the bridge
+      // is fully off before the other half starts. Reversing a motor
+      // mid-spin dumps its back-EMF into the outputs, and this board
+      // has no enable pin to gate that.
+      if (want != dir[idx]) {
+        ledcWrite(ch.in_a, 0);
+        ledcWrite(ch.in_b, 0);
+        delayMicroseconds(500);
+        dir[idx] = want;
       }
 
-      int cur1 = digitalRead(ch.in1);
-      int cur2 = digitalRead(ch.in2);
-
-      // Dead-time on a direction flip: both inputs HIGH would shoot-through
-      // the half-bridge (the classic L298N failure). Kill PWM, let the
-      // bridge settle, then switch direction and re-apply duty.
-      if (cur1 != dir1 || cur2 != dir2) {
-        ledcWrite(ch.ena, 0);
-        delayMicroseconds(5);
+      int pwm = abs(motor_speed);
+      if (want > 0) {
+        ledcWrite(ch.in_a, pwm);
+        ledcWrite(ch.in_b, 0);
+      } else if (want < 0) {
+        ledcWrite(ch.in_a, 0);
+        ledcWrite(ch.in_b, pwm);
+      } else if (MOTOR_STOP_BRAKE) {
+        ledcWrite(ch.in_a, 255);
+        ledcWrite(ch.in_b, 255);
+      } else {
+        ledcWrite(ch.in_a, 0);
+        ledcWrite(ch.in_b, 0);
       }
-
-      digitalWrite(ch.in1, dir1);
-      digitalWrite(ch.in2, dir2);
-      ledcWrite(ch.ena, pwm);
     }
 
   public:
     void begin() {
-      int pins[4][3] = {
-        {L298N1_ENA, L298N1_IN1, L298N1_IN2},  // motor 1
-        {L298N1_ENB, L298N1_IN3, L298N1_IN4},  // motor 2
-        {L298N2_ENA, L298N2_IN1, L298N2_IN2},  // motor 3
-        {L298N2_ENB, L298N2_IN3, L298N2_IN4},  // motor 4
+      int pins[4][2] = {
+        {MOTOR1_IN_A, MOTOR1_IN_B},  // motor 1 (FL)
+        {MOTOR2_IN_A, MOTOR2_IN_B},  // motor 2 (FR)
+        {MOTOR3_IN_A, MOTOR3_IN_B},  // motor 3 (RL)
+        {MOTOR4_IN_A, MOTOR4_IN_B},  // motor 4 (RR)
       };
 
       for (int i = 0; i < 4; i++) {
-        channels[i].ena = pins[i][0];
-        channels[i].in1 = pins[i][1];
-        channels[i].in2 = pins[i][2];
+        channels[i].in_a = pins[i][0];
+        channels[i].in_b = pins[i][1];
 
-        pinMode(channels[i].ena, OUTPUT);
-        pinMode(channels[i].in1, OUTPUT);
-        pinMode(channels[i].in2, OUTPUT);
-
-        ledcAttach(channels[i].ena, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
+        // Both halves get a PWM channel so either can carry the duty.
+        ledcAttach(channels[i].in_a, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
+        ledcAttach(channels[i].in_b, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
 
         speed[i] = 0;
+        dir[i] = 0;
       }
       stopAll();
-      Serial.println("[MotorDriver] 2x L298N initialized (4 channels)");
+      Serial.println("[MotorDriver] 4ch 6A board initialized (2 inputs per channel)");
     }
 
     // speed: -255 (full reverse) .. 0 (stop) .. +255 (full forward)

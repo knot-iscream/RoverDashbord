@@ -29,6 +29,7 @@ fn bench_health(c: &mut Criterion) {
                 black_box(true),
                 black_box(true),
                 black_box(true),
+                black_box(true),
                 black_box(None),
             )
         })

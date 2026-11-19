@@ -2,6 +2,9 @@
 //!
 //! Baseline collection (warmup/sweep driven by backend status), manual motor
 //! rows in MANUAL-idle, motor cards, history timeline, export download.
+//! The one addition over vanilla: a per-sensor baseline block, because the
+//! motor-only baseline left the gas cells, flame, MLX pair, IMU and arm
+//! with nothing to be calibrated against.
 //! Like vanilla, the dynamic regions are HTML strings repainted imperatively;
 //! only the static chrome is declarative. Vanilla stays at `/calibration/`.
 
@@ -120,6 +123,97 @@ struct CalSt {
     // The 10s history refresh lives here (not a process static): exactly one
     // timer per page instance, dropped with it — vanilla keeps one global.
     hist_timer: Option<gloo_timers::callback::Interval>,
+    /// Latest raw frames, kept so each sensor row can show a live value next
+    /// to its captured reference. Null until a board has spoken.
+    live_env: serde_json::Value,
+    live_imu: serde_json::Value,
+    live_servo: serde_json::Value,
+    /// Powered time on the ENV board, from its heartbeat. The gas cells need
+    /// 24-48 h before any baseline means much, so the rows say so.
+    burn_in_s: f64,
+    /// One row per sensor, in board order. Mirrors `sensor_cal::SPECS` on the
+    /// backend; the key is what the capture route takes.
+    sensors: Vec<SensorRow>,
+    /// What the backend holds, keyed the same way.
+    baselines: std::collections::HashMap<String, serde_json::Value>,
+    /// Per-row result of the last capture press ("captured, board told").
+    /// Kept in state, not in the DOM: the rows are rebuilt on every live
+    /// frame, so a note written straight into the node would vanish a second
+    /// later.
+    notes: std::collections::HashMap<String, String>,
+    /// Where the one-press bench sequence is. `idle` until a run starts.
+    bench_stage: String,
+    bench_detail: String,
+    bench_running: bool,
+}
+
+/// A sensor's baseline row: what it reads now, what was captured, and how old
+/// that capture is.
+struct SensorRow {
+    key: &'static str,
+    label: &'static str,
+    board: &'static str,
+    /// True when the row needs the bench-day firmware to be a real reference
+    /// rather than a record of what it was reading.
+    pending_firmware: bool,
+}
+
+/// Row order is the wiring order: the ENV board's three, then the MID board's
+/// two. `pending_firmware` is the honest bit - the IMU rest offsets and the
+/// AS5600's two counts live on the boards, so until they are flashed those
+/// two rows are a record, not a correction.
+///
+/// No O2 row: the galvanic cell is gone and the derived O2 is a model output,
+/// so there is nothing to capture or drift against.
+const SENSOR_ROWS: [SensorRow; 5] = [
+    SensorRow {
+        key: "gas",
+        label: "Gas cells",
+        board: "ESP-3 ENV",
+        pending_firmware: false,
+    },
+    SensorRow {
+        key: "flame",
+        label: "Flame module",
+        board: "ESP-3 ENV",
+        pending_firmware: false,
+    },
+    SensorRow {
+        key: "heat",
+        label: "MLX90614 pair",
+        board: "ESP-3 ENV",
+        pending_firmware: false,
+    },
+    SensorRow {
+        key: "imu",
+        label: "IMU (MPU6050)",
+        board: "ESP-2 MID",
+        pending_firmware: true,
+    },
+    SensorRow {
+        key: "servo",
+        label: "Servo / AS5600",
+        board: "ESP-2 MID",
+        pending_firmware: true,
+    },
+];
+
+fn sensor_rows() -> Vec<SensorRow> {
+    SENSOR_ROWS
+        .iter()
+        .map(|r| SensorRow {
+            key: r.key,
+            label: r.label,
+            board: r.board,
+            pending_firmware: r.pending_firmware,
+        })
+        .collect()
+}
+
+impl CalSt {
+    fn stored_baseline(&self, key: &str) -> Option<serde_json::Value> {
+        self.baselines.get(key).cloned()
+    }
 }
 
 type Shared = std::rc::Rc<std::cell::RefCell<CalSt>>;
@@ -276,6 +370,444 @@ fn queue_motor_render(st: &Shared) {
         st.borrow_mut().render_pending = false;
         render_motor_cards(&st);
     });
+}
+
+// ---------------------------------------------------------------------------
+// Sensor baselines: live value, captured reference, age, one capture button.
+// ---------------------------------------------------------------------------
+
+/// Seconds since an epoch timestamp, or None for anything unreadable.
+fn age_s(captured_at: Option<f64>) -> Option<f64> {
+    let t = captured_at?;
+    if t <= 0.0 {
+        return None;
+    }
+    Some((now_ms() / 1000.0 - t).max(0.0))
+}
+
+/// "just now" / "12 min ago" / "3 h ago" / "2 d ago". Short, and honest: the
+/// number is only as good as the capture, so its age is part of the row.
+fn age_label(captured_at: Option<f64>) -> String {
+    let Some(secs) = age_s(captured_at) else {
+        return "not captured".into();
+    };
+    if secs < 45.0 {
+        "just now".into()
+    } else if secs < 3600.0 {
+        format!("{} min ago", (secs / 60.0).round() as i64)
+    } else if secs < 86_400.0 {
+        format!("{} h ago", (secs / 3600.0).round() as i64)
+    } else {
+        format!("{} d ago", (secs / 86_400.0).round() as i64)
+    }
+}
+
+/// Number or "--". Null is a sensor that has not spoken, never a zero.
+fn num(v: &serde_json::Value, key: &str, dp: usize) -> String {
+    match v.get(key).and_then(|x| x.as_f64()) {
+        Some(n) => format!("{:.*}", dp, n),
+        None => "--".into(),
+    }
+}
+
+/// What a sensor is reading right now, in its own units.
+fn live_text(
+    key: &str,
+    env: &serde_json::Value,
+    imu: &serde_json::Value,
+    servo: &serde_json::Value,
+) -> String {
+    match key {
+        "gas" => {
+            if env.is_null() {
+                return "--".into();
+            }
+            let worst = ["co", "lpg", "ch4", "h2", "air"]
+                .iter()
+                .filter_map(|c| env.get(*c).and_then(|x| x.as_f64()))
+                .fold(None::<f64>, |acc, v| Some(acc.map_or(v, |a: f64| a.max(v))));
+            match worst {
+                Some(w) => format!("peak R0/Rs {:.2}", w),
+                None => "--".into(),
+            }
+        }
+        "flame" if env.is_null() => "--".into(),
+        "flame" => format!("{} V", num(env, "flame_lvl", 3)),
+        "heat" if env.is_null() => "--".into(),
+        "heat" => format!("{} / {} C", num(env, "heat_l", 1), num(env, "heat_r", 1)),
+        "imu" if imu.is_null() => "--".into(),
+        "imu" => format!(
+            "{} / {} / {} g",
+            num(imu, "ax", 2),
+            num(imu, "ay", 2),
+            num(imu, "az", 2)
+        ),
+        "servo" if servo.is_null() => "--".into(),
+        "servo" => {
+            let real = servo.get("angle_real").and_then(|x| x.as_f64());
+            let cal = servo
+                .get("cal_ok")
+                .and_then(|x| x.as_f64())
+                .map(|v| v != 0.0)
+                .unwrap_or(false);
+            match real {
+                Some(r) if cal => format!("{:.1} C (AS5600)", r),
+                _ => format!("{} C (no AS5600)", num(servo, "angle", 1)),
+            }
+        }
+        _ => "--".into(),
+    }
+}
+
+/// The captured reference, flattened for a row. Gas gets its peak cell, the
+/// rest their headline number: the page is a summary, `/api/calibration` has
+/// the whole object.
+fn reference_text(key: &str, reference: &serde_json::Value) -> String {
+    match key {
+        "gas" => {
+            let cells = ["co", "lpg", "ch4", "h2", "air"];
+            let best = cells
+                .iter()
+                .filter_map(|c| reference.get(*c).and_then(|x| x.as_f64()).map(|v| (*c, v)))
+                .fold(None::<(&str, f64)>, |acc, (c, v)| {
+                    Some(match acc {
+                        Some((bc, bv)) if bv >= v => (bc, bv),
+                        _ => (c, v),
+                    })
+                });
+            match best {
+                Some((cell, v)) => format!("peak {:.2} on {}", v, cell),
+                None => "--".into(),
+            }
+        }
+        "flame" => format!("{} V", num(reference, "flame_lvl", 3)),
+        "heat" => format!(
+            "{} / {} C",
+            num(reference, "heat_l", 1),
+            num(reference, "heat_r", 1)
+        ),
+        "imu" => format!(
+            "rest {} / {} / {}",
+            num(reference, "ax", 2),
+            num(reference, "ay", 2),
+            num(reference, "az", 2)
+        ),
+        "servo" => {
+            let cal = reference
+                .get("cal_ok")
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false);
+            if cal {
+                format!("{} C measured", num(reference, "angle_real", 1))
+            } else {
+                "no AS5600 calibration".into()
+            }
+        }
+        _ => "--".into(),
+    }
+}
+
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// Build the six rows once, then update them in place.
+///
+/// The earlier version rebuilt the whole list on every live frame. At 1 Hz
+/// that is a live frame landing between a button's press and its release, and
+/// the click never fires. The structure is static anyway, so it is built once
+/// and only text nodes change from then on.
+fn render_sensor_rows(st: &Shared) {
+    let Some(list) = el("cal-sensor-rows") else {
+        return;
+    };
+    if list.child_element_count() == 0 {
+        build_sensor_rows(st, &list);
+    }
+    update_sensor_rows(st, &list);
+}
+
+/// Static skeleton: one row per sensor, one listener per button, both built
+/// once. Nothing here changes for the life of the page.
+fn build_sensor_rows(st: &Shared, list: &Element) {
+    let s = st.borrow();
+    let mut html = String::new();
+    for row in s.sensors.iter() {
+        html += &format!(
+            "<div class=\"sensor-row\" data-key=\"{key}\">\
+             <div class=\"sensor-id\">\
+               <span class=\"sensor-label\">{label}</span>\
+               <span class=\"sensor-board\">{board}</span>\
+             </div>\
+             <div class=\"sensor-live\"><span class=\"sensor-cap\">LIVE</span>\
+               <span class=\"sensor-live-v\"></span></div>\
+             <div class=\"sensor-ref-wrap\">\
+               <span class=\"sensor-cap\">REFERENCE</span>\
+               <span class=\"sensor-ref sensor-ref-none\"></span>\
+               <span class=\"sensor-age\"></span>\
+               <span class=\"sensor-chips\"></span>\
+             </div>\
+             <div class=\"sensor-act\">\
+               <button class=\"sensor-capture\" data-key=\"{key}\">capture</button>\
+               <span class=\"sensor-note\" id=\"sensor-note-{key}\"></span>\
+             </div>\
+             </div>",
+            key = row.key,
+            label = esc(row.label),
+            board = esc(row.board),
+        );
+    }
+    drop(s);
+    list.set_inner_html(&html);
+    wire_sensor_buttons(st);
+}
+
+fn row_node(list: &Element, key: &str, class: &str) -> Option<web_sys::Element> {
+    let row = list
+        .query_selector(&format!(".sensor-row[data-key=\"{key}\"]"))
+        .ok()??;
+    row.query_selector(class).ok()?
+}
+
+/// Set a node's text only when it changed: at 1 Hz this runs 30+ times a
+/// second across the rows, and writing the same string is not free.
+fn set_node_text(node: Option<web_sys::Element>, text: &str) {
+    if let Some(n) = node {
+        if n.text_content().as_deref() != Some(text) {
+            n.set_text_content(Some(text));
+        }
+    }
+}
+
+fn update_sensor_rows(st: &Shared, list: &Element) {
+    let s = st.borrow();
+    let busy = s.bench_running;
+    for row in s.sensors.iter() {
+        let key = row.key;
+        let stored = s.stored_baseline(key);
+        let reference = stored.as_ref().and_then(|b| b.get("reference").cloned());
+        let captured_at = stored
+            .as_ref()
+            .and_then(|b| b.get("captured_at").and_then(|x| x.as_f64()));
+
+        set_node_text(
+            row_node(list, key, ".sensor-live-v"),
+            &live_text(key, &s.live_env, &s.live_imu, &s.live_servo),
+        );
+
+        let (ref_text, captured) = match &reference {
+            Some(r) => (reference_text(key, r), true),
+            None => ("not captured".to_string(), false),
+        };
+        set_node_text(row_node(list, key, ".sensor-ref"), &ref_text);
+        if let Some(node) = row_node(list, key, ".sensor-ref") {
+            toggle(&node, "sensor-ref-none", !captured);
+        }
+        set_node_text(row_node(list, key, ".sensor-age"), &age_label(captured_at));
+
+        // Burn-in is the gas rows' own honesty flag: the cells need 24-48 h
+        // powered before a baseline means much.
+        let mut chips: Vec<(String, bool)> = Vec::new();
+        if key == "gas" {
+            chips.push((
+                format!("burn-in {}", burn_in_label(s.burn_in_s)),
+                !burn_in_ok(s.burn_in_s),
+            ));
+        }
+        if row.pending_firmware {
+            chips.push(("record only".to_string(), true));
+        }
+        let chips_html: String = chips
+            .iter()
+            .map(|(label, warn)| {
+                format!(
+                    "<span class=\"sensor-chip{}\">{}</span>",
+                    if *warn { " sensor-chip-warn" } else { "" },
+                    esc(label)
+                )
+            })
+            .collect();
+        set_node_text(row_node(list, key, ".sensor-chips"), "");
+        if let Some(node) = row_node(list, key, ".sensor-chips") {
+            if node.inner_html() != chips_html {
+                node.set_inner_html(&chips_html);
+            }
+        }
+
+        if let Some(btn) = row_node(list, key, ".sensor-capture") {
+            if btn.get_attribute("disabled").is_some() != busy {
+                if busy {
+                    btn.set_attribute("disabled", "").ok();
+                } else {
+                    btn.remove_attribute("disabled").ok();
+                }
+            }
+            let label = if busy { "wait" } else { "capture" };
+            if btn.text_content().as_deref() != Some(label) {
+                btn.set_text_content(Some(label));
+            }
+        }
+        let note = s.notes.get(key).cloned().unwrap_or_default();
+        set_node_text(
+            el(&format!("sensor-note-{key}")).and_then(|e| e.dyn_into().ok()),
+            &note,
+        );
+    }
+}
+
+/// 24 h is the point where a capture starts to hold. Below it the row says so.
+fn burn_in_ok(burn_in_s: f64) -> bool {
+    burn_in_s >= 24.0 * 3600.0
+}
+
+fn burn_in_label(burn_in_s: f64) -> String {
+    if burn_in_s <= 0.0 {
+        return "unknown".into();
+    }
+    if burn_in_s < 3600.0 {
+        format!("{} min", (burn_in_s / 60.0).round() as i64)
+    } else {
+        format!("{} h", (burn_in_s / 3600.0).round() as i64)
+    }
+}
+
+/// One delegate per button, wired once: the rows are built once and only
+/// their text changes afterwards.
+fn wire_sensor_buttons(st: &Shared) {
+    let Some(list) = el("cal-sensor-rows") else {
+        return;
+    };
+    // `query_selector_all` is a Result and an Err here used to read as an
+    // empty loop, which silently wired nothing. Unwrap it loudly instead.
+    let Ok(nodes) = list.query_selector_all(".sensor-capture") else {
+        return;
+    };
+    for i in 0..nodes.length() {
+        let Some(node) = nodes.item(i) else {
+            continue;
+        };
+        let Ok(btn) = node.dyn_into::<Element>() else {
+            continue;
+        };
+        let Some(key) = btn.get_attribute("data-key") else {
+            continue;
+        };
+        let st = st.clone();
+        let handler = Closure::<dyn FnMut(_)>::new(move |_: web_sys::Event| {
+            capture_sensor(&st, &key);
+        });
+        btn.add_event_listener_with_callback("click", handler.as_ref().unchecked_ref())
+            .ok();
+        handler.forget();
+    }
+}
+
+/// One row's capture: ask the backend, then repaint from what it stored.
+fn capture_sensor(st: &Shared, key: &str) {
+    let st = st.clone();
+    let key = key.to_string();
+    wasm_bindgen_futures::spawn_local(async move {
+        set_sensor_note(&st, &key, "capturing...");
+        let url = format!("/api/calibration/sensor/{key}/capture");
+        match post_json(&url, serde_json::json!({})).await {
+            Some(res) => {
+                let note = match res
+                    .get("board_command")
+                    .and_then(|c| c.get("sent"))
+                    .and_then(|x| x.as_bool())
+                {
+                    Some(true) => "captured, board told",
+                    Some(false) => "captured, board not reached",
+                    None => "captured (record only)",
+                };
+                set_sensor_note(&st, &key, note);
+            }
+            None => set_sensor_note(&st, &key, "capture failed"),
+        }
+        load_sensor_baselines(&st).await;
+    });
+}
+
+/// Per-row result of the last capture press. State first, then the DOM: the
+/// rows are repainted on every live frame, so the node alone would not last.
+fn set_sensor_note(st: &Shared, key: &str, note: &str) {
+    st.borrow_mut()
+        .notes
+        .insert(key.to_string(), note.to_string());
+    if let Some(node) = el(&format!("sensor-note-{key}")) {
+        node.set_text_content(Some(note));
+    }
+}
+
+/// Pull the stored baselines + bench stage. One request covers all six rows.
+async fn load_sensor_baselines(st: &Shared) {
+    let Some(v) = get_json("/api/calibration").await else {
+        return;
+    };
+    {
+        let mut s = st.borrow_mut();
+        s.baselines = v
+            .get("sensor_baselines")
+            .and_then(|b| b.as_object())
+            .map(|map| {
+                map.iter()
+                    .map(|(k, val)| (k.clone(), val.clone()))
+                    .collect::<std::collections::HashMap<_, _>>()
+            })
+            .unwrap_or_default();
+        if let Some(bench) = v.get("bench") {
+            s.bench_running = bench
+                .get("running")
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false);
+            s.bench_stage = bench
+                .get("stage")
+                .and_then(|x| x.as_str())
+                .unwrap_or("idle")
+                .to_string();
+            s.bench_detail = bench
+                .get("detail")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
+        }
+    }
+    render_sensor_rows(st);
+    render_bench_line(st);
+}
+
+/// The one line under the panel head: where the sequence is, or the hint to
+/// put the rover on a stand and press Start.
+fn render_bench_line(st: &Shared) {
+    let (running, stage, detail) = {
+        let s = st.borrow();
+        (
+            s.bench_running,
+            s.bench_stage.clone(),
+            s.bench_detail.clone(),
+        )
+    };
+    let badge = if running {
+        stage.replace('_', " ")
+    } else if stage == "done" {
+        "bench capture done".to_string()
+    } else if stage == "cancelled" {
+        "bench capture stopped".to_string()
+    } else {
+        "ready".to_string()
+    };
+    set_text("cal-bench-stage", &badge);
+    let hint = if running {
+        detail
+    } else if stage == "idle" {
+        "Rover on a stand, wheels clear. Start captures the IMU rest pose, the ENV baseline, the arm and the motors.".to_string()
+    } else {
+        detail
+    };
+    set_text("cal-bench-hint", &hint);
+    set_start_pause(running);
 }
 
 // ---------------------------------------------------------------------------
@@ -1127,11 +1659,14 @@ fn refresh_history_loop(st: &Shared) {
 fn toggle_calibration(st: &Shared) {
     let idle = {
         let s = st.borrow();
-        s.cal_state.is_empty() || s.cal_state == "idle"
+        (s.bench_running || s.cal_state.is_empty())
+            && (s.cal_state.is_empty() || s.cal_state == "idle")
     };
     let st2 = st.clone();
     if !idle {
         wasm_bindgen_futures::spawn_local(async move {
+            // One stop covers both: the backend cancels a bench run in flight
+            // and parks the motors.
             if let Some(res) = post_json("/api/calibration/stop", serde_json::json!({})).await {
                 let n = res
                     .get("samples_collected")
@@ -1139,16 +1674,32 @@ fn toggle_calibration(st: &Shared) {
                     .unwrap_or(0);
                 st2.borrow_mut().samples = n;
             }
+            {
+                let mut s = st2.borrow_mut();
+                s.bench_running = false;
+                s.bench_stage = "cancelled".into();
+            }
             st2.borrow_mut().cal_state = "idle".to_string();
             update_cal_state(&st2, &serde_json::json!({"state": "idle"}));
             show_loss_banner(false);
+            render_bench_line(&st2);
+            render_sensor_rows(&st2);
         });
     } else {
         wasm_bindgen_futures::spawn_local(async move {
-            if post_json("/api/calibration/start", serde_json::json!({}))
+            // The one press. It waits for stillness, captures every sensor,
+            // then starts the motor sequence itself.
+            if post_json("/api/calibration/bench/start", serde_json::json!({}))
                 .await
                 .is_some()
             {
+                {
+                    let mut s = st2.borrow_mut();
+                    s.bench_running = true;
+                    s.bench_stage = "hold_still".into();
+                }
+                render_bench_line(&st2);
+                render_sensor_rows(&st2);
                 poll_status(&st2);
             }
         });
@@ -1321,6 +1872,45 @@ fn connect_cal_ws(st: Shared) {
                 }
                 "snapshot" => {}
                 "calibration_status" => update_cal_state(&st, &v),
+                "env_update" => {
+                    st.borrow_mut().live_env = v.clone();
+                    render_sensor_rows(&st);
+                }
+                // The heartbeat is the only place burn-in lives.
+                "env_status" => {
+                    st.borrow_mut().burn_in_s =
+                        v.get("burn_in_s").and_then(|x| x.as_f64()).unwrap_or(0.0);
+                    render_sensor_rows(&st);
+                }
+                "imu_update" => {
+                    st.borrow_mut().live_imu = v.clone();
+                    render_sensor_rows(&st);
+                }
+                "servo_update" => {
+                    st.borrow_mut().live_servo = v.clone();
+                    render_sensor_rows(&st);
+                }
+                // A live stage of the one-press sequence. The baselines it
+                // writes arrive with the next /api/calibration read.
+                "bench_capture" => {
+                    {
+                        let mut s = st.borrow_mut();
+                        s.bench_running =
+                            v.get("running").and_then(|x| x.as_bool()).unwrap_or(false);
+                        s.bench_stage = v
+                            .get("stage")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("idle")
+                            .to_string();
+                        s.bench_detail = v
+                            .get("detail")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                    }
+                    render_bench_line(&st);
+                    render_sensor_rows(&st);
+                }
                 "device_status" => {
                     if let Some(online) = v.get("online").and_then(|x| x.as_bool()) {
                         render_status_badge(online);
@@ -1368,6 +1958,8 @@ fn connect_cal_ws(st: Shared) {
 pub fn CalibrationPage() -> impl IntoView {
     let st: Shared = std::rc::Rc::new(std::cell::RefCell::new(CalSt {
         hist_day: today_str(),
+        sensors: sensor_rows(),
+        bench_stage: "idle".into(),
         ..Default::default()
     }));
 
@@ -1380,6 +1972,9 @@ pub fn CalibrationPage() -> impl IntoView {
             render_motor_controls(&st);
             apply_mode_visibility(&st);
             render_history(&st);
+            // The stored references + where the bench run stands. One request
+            // covers all six rows.
+            load_sensor_baselines(&st).await;
             // Recurring polls (handles forgotten: 'static by construction).
             let c = st.clone();
             let _iv = gloo_timers::callback::Interval::new(2000, move || poll_status(&c));
@@ -1550,6 +2145,25 @@ pub fn CalibrationPage() -> impl IntoView {
                                     <span id="cal-conn-label">"Disconnected from server"</span>
                                 </div>
                             </div>
+                        </div>
+
+                        <div class="panel panel-pad" style="margin-bottom:24px;">
+                            <div class="panel-head">
+                                <h2 class="panel-title-muted">"Sensor Baselines"</h2>
+                                <div style="display:flex;gap:8px;align-items:center;">
+                                    <span class="bench-stage" id="cal-bench-stage">"ready"</span>
+                                </div>
+                            </div>
+
+                            <p class="bench-hint" id="cal-bench-hint">"Rover on a stand, wheels clear."</p>
+
+                            <div class="sensor-head">
+                                <span class="sensor-head-id">"SENSOR"</span>
+                                <span class="sensor-head-live">"LIVE"</span>
+                                <span class="sensor-head-ref">"CAPTURED REFERENCE"</span>
+                                <span class="sensor-head-act">""</span>
+                            </div>
+                            <div id="cal-sensor-rows"></div>
                         </div>
 
                         <div class="panel panel-pad" style="margin-bottom:24px;">

@@ -20,12 +20,17 @@ use crate::sensor_log::SensorLog;
 pub const DEVICE_OFFLINE_TIMEOUT_S: i64 = 8;
 /// `rover/env/#` covers the ENV board's telemetry + heartbeat; its command
 /// echoes are dropped by the `*/command` guard below, same as motor commands.
-const SUB_TOPICS: [&str; 5] = [
+/// `rover/lidar/servo` is the swing arm's AS5600: without it the Calibration
+/// page could trigger the two-point calibration but never show the result.
+const SUB_TOPICS: [&str; 7] = [
     "rover/motor/#",
     "rover/mid/#",
     "rover/calibration/status",
     "rover/imu",
     "rover/env/#",
+    "rover/lidar/servo",
+    // Pi-side RPLIDAR A1 bridge, one full 360 degree turn per frame.
+    "rover/lidar/scan",
 ];
 
 /// The shared pieces the ingest loop needs. `AppState` (main.rs) builds one
@@ -39,6 +44,10 @@ pub struct Ctx {
     /// Latest raw frame per new feed; `Value::Null` until the first frame.
     pub env: Arc<tokio::sync::RwLock<Value>>,
     pub imu: Arc<tokio::sync::RwLock<Value>>,
+    pub servo: Arc<tokio::sync::RwLock<Value>>,
+    pub lidar: Arc<tokio::sync::RwLock<Value>>,
+    /// Derived O2 filter for the ENV node. Brief std::sync lock, no await.
+    pub o2: Arc<std::sync::Mutex<crate::o2_estimate::O2Estimator>>,
     /// Rolling ENV + IMU logs behind the Detailed charts and the Excel
     /// export. Brief std::sync locks only; never held across an await.
     pub sensors: Arc<std::sync::Mutex<SensorLog>>,
@@ -224,9 +233,35 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
 
     // ── ENV node (ESP-3): telemetry frame (1 Hz) ──
     if topic.starts_with("rover/env/telemetry") {
+        // No galvanic O2 cell on the board. Derive it here, once, before the
+        // frame is stored: /api/env, the WS relay, the chart ring, the export
+        // and the alarm verdict then all share the same numbers.
+        let data = crate::o2_estimate::apply(&ctx.o2, data);
         *ctx.env.write().await = data.clone();
         ctx.sensors.lock().unwrap().push_env(data.clone());
         broadcast(ctx, env_update_payload(data));
+        return;
+    }
+
+    // ── RPLIDAR A1 scan (Pi bridge): one whole 360 turn per frame ──
+    // The sensor reports its own angle, so no yaw is invented here. Keep the
+    // raw JSON intact: /api/lidar and the WS replay read the same frame.
+    if topic.starts_with("rover/lidar/scan") {
+        *ctx.lidar.write().await = data.clone();
+        broadcast(ctx, tagged("lidar_update", data));
+        return;
+    }
+
+    // ── Swing arm servo (ESP-2): state + the AS5600 calibration flag ──
+    if topic.starts_with("rover/lidar/servo") {
+        *ctx.servo.write().await = data.clone();
+        // The calibration lives on the board. If it says there isn't one, our
+        // stored record is a leftover: drop it so the page reads "not
+        // captured" instead of a number from a sweep that was cleared.
+        if !flag_set(&data, "cal_ok") {
+            ctx.data.write().await.clear_sensor_reference("servo");
+        }
+        broadcast(ctx, tagged("servo_update", data));
         return;
     }
 
@@ -345,6 +380,20 @@ pub fn env_update_payload(data: Value) -> Value {
 
 fn py_bool(v: &Option<&Value>) -> bool {
     crate::data::py_bool(*v)
+}
+
+// ── Captured sensor references ──
+// The app captures these itself, by averaging the frames it already holds
+// (`sensor_cal`), so there is no passive watcher here. The one exception is
+// the AS5600: its calibration lives on the board, and if the board reports
+// `cal_ok:0` our record is stale, so it gets dropped rather than shown.
+
+fn num_key(data: &Value, key: &str) -> Option<f64> {
+    data.get(key).and_then(|v| v.as_f64())
+}
+
+fn flag_set(data: &Value, key: &str) -> bool {
+    num_key(data, key).unwrap_or(0.0) != 0.0
 }
 
 /// `{"type":"calibration_status", **status}` like `broadcast_calibration_status`.

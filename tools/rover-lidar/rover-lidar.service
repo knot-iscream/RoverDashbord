@@ -1,0 +1,15 @@
+[Unit]
+Description=RPLIDAR A1 scan bridge (publishes rover/lidar/scan)
+After=network.target mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+User=iscream-pi
+WorkingDirectory=/home/iscream-pi/rover-lidar
+ExecStart=/usr/bin/python3 /home/iscream-pi/rover-lidar/lidar_stream.py stream --host 127.0.0.1
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=Rover camera MJPEG stream (CSI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=iscream-pi
+WorkingDirectory=/home/iscream-pi/rover-cam
+ExecStart=/usr/bin/python3 /home/iscream-pi/rover-cam/camera_stream.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

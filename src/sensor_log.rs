@@ -54,6 +54,18 @@ impl SensorLog {
         self.imu.iter().cloned().collect()
     }
 
+    /// The last `seconds` of ENV frames, oldest first. A baseline capture
+    /// averages a short window rather than one frame: the gas cells wander
+    /// frame to frame, so a single sample is a noisy "reference".
+    pub fn env_recent(&self, seconds: i64) -> Vec<Value> {
+        recent_rows(&self.env, seconds)
+    }
+
+    /// Same window for the IMU. It arrives at 4 Hz, so 10 s is ~40 poses.
+    pub fn imu_recent(&self, seconds: i64) -> Vec<Value> {
+        recent_rows(&self.imu, seconds)
+    }
+
     pub fn env_len(&self) -> usize {
         self.env.len()
     }
@@ -71,6 +83,14 @@ fn push_capped(ring: &mut VecDeque<Sample>, data: Value, cap: usize) {
     while ring.len() > cap {
         ring.pop_front();
     }
+}
+
+fn recent_rows(ring: &VecDeque<Sample>, seconds: i64) -> Vec<Value> {
+    let cutoff = Utc::now() - chrono::Duration::seconds(seconds.max(1));
+    ring.iter()
+        .filter(|s| s.at >= cutoff)
+        .map(|s| s.data.clone())
+        .collect()
 }
 
 fn chart_rows(ring: &VecDeque<Sample>, minutes: i64) -> Vec<Value> {

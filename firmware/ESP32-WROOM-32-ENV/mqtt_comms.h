@@ -136,11 +136,13 @@ class MQTTManager {
       doc["mlx_ok"] = s.mlx_ok ? 1 : 0;
       doc["flame_ok"] = s.flame_ok ? 1 : 0;
       doc["baseline_ok"] = s.baseline_ok ? 1 : 0;
+      // No galvanic cell on this board. The backend estimates O2 from the
+      // gas/flame/heat feeds and only does so while this flag is 0, so a
+      // future real cell can take over by publishing o2_ok:1 + o2_mv.
+      doc["o2_ok"] = 0;
       JsonObject o = doc.as<JsonObject>();
       static const char* keys[GAS_CHANNEL_COUNT] = {"co", "lpg", "ch4", "h2", "air"};
       for (int i = 0; i < GAS_CHANNEL_COUNT; i++) putNum(o, keys[i], s.gas[i]);
-      putNum(o, "o2_mv", s.o2_mv);
-      putNum(o, "o2_pct", s.o2_pct);
       putNum(o, "flame_lvl", s.flame_lvl);
       doc["flame_dir"] = s.flame_dir;
       putNum(o, "heat_l", s.heat_l);

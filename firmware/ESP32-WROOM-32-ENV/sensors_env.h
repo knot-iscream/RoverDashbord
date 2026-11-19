@@ -153,8 +153,6 @@ struct EnvSample {
                            // digital line has been seen HIGH since boot)
   bool baseline_ok = false;
   float gas[GAS_CHANNEL_COUNT] = {NAN, NAN, NAN, NAN, NAN};
-  float o2_mv = NAN;
-  float o2_pct = NAN;
   float flame_lvl = NAN;
   int flame_dir = 0;
   float heat_l = NAN, heat_r = NAN;

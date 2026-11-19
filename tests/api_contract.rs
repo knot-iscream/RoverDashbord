@@ -61,6 +61,10 @@ async fn env_and_imu_routes_public_null_then_frame() {
     assert_eq!(s, StatusCode::OK);
     assert_eq!(v["env"]["co"], 1.5);
     assert_eq!(v["env"]["baseline_ok"], 1);
+    assert_eq!(v["env"]["o2_est"], 1, "no cell fitted: O2 is derived");
+    assert_eq!(v["env"]["o2_src"], "gas");
+    // One gas ratio at 1.5 -> load 0.07 -> 20.62 %.
+    assert_eq!(v["env"]["o2_pct"], 20.62);
     assert_eq!(v["alarms"]["level"], "ok", "quiet frame -> ok");
     assert!(v["alarms"]["items"].as_array().unwrap().is_empty());
 }
@@ -244,9 +248,226 @@ async fn calibration_status_public_and_baseline_roundtrip() {
     )
     .await;
     assert_eq!((s, v["status"].clone()), (StatusCode::OK, json!("ok")));
-    // Same state: the baseline round-trips through GET.
+    // Same state: the baseline round-trips through GET. The sensor half and
+    // the bench stage come along so the page needs one request.
     let (_, v, _) = req(router, "GET", "/api/calibration", None, None).await;
-    assert_eq!(v, json!({"baselines": {"2": {"avg_temp": 36.5}}}));
+    assert_eq!(v["baselines"], json!({"2": {"avg_temp": 36.5}}));
+    assert_eq!(v["sensor_baselines"], json!({}));
+    assert_eq!(v["bench"]["stage"], "idle");
+    assert_eq!(v["bench"]["running"], false);
+}
+
+/// Feed frames the way a board would, so a capture has something to average.
+async fn feed(state: &digital_twin_dashboard::AppState) {
+    use digital_twin_dashboard::mqtt::on_mqtt_message;
+    for co in [1.0, 1.4, 1.2] {
+        on_mqtt_message(
+            &state.ctx(),
+            "rover/env/telemetry",
+            json!({
+                "co": co, "lpg": 0.9, "ch4": 1.1, "h2": 0.8, "air": 1.0,
+                "flame_lvl": 0.04,
+                "heat_l": 24.5, "heat_r": 24.0, "heat_l_amb": 21.0, "heat_r_amb": 21.1,
+            }),
+        )
+        .await;
+    }
+    for (ax, ay) in [(0.0, 0.3), (0.02, 0.28)] {
+        on_mqtt_message(
+            &state.ctx(),
+            "rover/imu",
+            json!({"imu_ok": 1, "ax": ax, "ay": ay, "az": 0.98, "gz": -1.2}),
+        )
+        .await;
+    }
+    on_mqtt_message(
+        &state.ctx(),
+        "rover/lidar/servo",
+        json!({"servo_ok": 1, "angle": 0.0, "cal_ok": 1, "angle_real": -1.5}),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn sensor_capture_averages_the_window_and_stores_a_timestamp() {
+    let (state, dir) = common::test_state("api-cap").await;
+    let _guard = PathBufGuard(dir);
+    feed(&state).await;
+    let router = digital_twin_dashboard::build_router(state);
+
+    let (s, v, _) = req(
+        router.clone(),
+        "POST",
+        "/api/calibration/sensor/gas/capture",
+        Some(TEST_TOKEN),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["sensor"], "gas");
+    // Mean of 1.0 / 1.4 / 1.2, not the last frame alone.
+    assert_eq!(v["reference"]["co"], 1.2);
+    assert_eq!(v["reference"]["h2"], 0.8);
+    // The board was told too; the test fixture's broker is a dead port, so the
+    // reply must admit it rather than claim the rover moved.
+    assert_eq!(v["board_command"]["sent"], false);
+
+    let (_, v, _) = req(router, "GET", "/api/calibration", None, None).await;
+    let stored = &v["sensor_baselines"]["gas"];
+    assert_eq!(stored["reference"]["co"], 1.2);
+    assert_eq!(stored["window_s"], 10);
+    assert!(stored["captured_at"].as_f64().unwrap() > 0.0);
+}
+
+#[tokio::test]
+async fn sensor_capture_covers_every_key_and_the_imu_too() {
+    let (state, dir) = common::test_state("api-cap-all").await;
+    let _guard = PathBufGuard(dir);
+    feed(&state).await;
+    let router = digital_twin_dashboard::build_router(state);
+
+    for key in ["gas", "flame", "heat", "imu", "servo"] {
+        let (s, v, _) = req(
+            router.clone(),
+            "POST",
+            &format!("/api/calibration/sensor/{key}/capture"),
+            Some(TEST_TOKEN),
+            None,
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{key}");
+        assert_eq!(v["sensor"], key);
+        // The IMU has no board command yet (its rest offsets need the
+        // bench-day firmware), so its capture is the record and nothing else.
+        let has_command = v.get("board_command").is_some();
+        assert_eq!(has_command, key != "imu", "{key}");
+    }
+    let (_, v, _) = req(router, "GET", "/api/calibration", None, None).await;
+    let stored = v["sensor_baselines"].as_object().unwrap();
+    assert_eq!(stored.len(), 5, "every spec key is stored: {stored:?}");
+    assert_eq!(v["sensor_baselines"]["imu"]["reference"]["ay"], 0.29);
+    assert_eq!(v["sensor_baselines"]["servo"]["reference"]["cal_ok"], true);
+    assert!(
+        v["sensor_baselines"].get("o2").is_none(),
+        "the derived O2 is a model output, there is nothing to capture"
+    );
+}
+
+#[tokio::test]
+async fn sensor_capture_needs_a_reading_and_a_known_key() {
+    let (state, dir) = common::test_state("api-cap-empty").await;
+    let _guard = PathBufGuard(dir);
+    let router = digital_twin_dashboard::build_router(state);
+
+    // Silent board: nothing to average, and the page must be told why.
+    let (s, v, _) = req(
+        router.clone(),
+        "POST",
+        "/api/calibration/sensor/gas/capture",
+        Some(TEST_TOKEN),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(v["sensor"], "gas");
+    assert!(v["detail"].as_str().unwrap().contains("not sent a reading"));
+
+    let (s, v, _) = req(
+        router.clone(),
+        "POST",
+        "/api/calibration/sensor/nope/capture",
+        Some(TEST_TOKEN),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    assert_eq!(v["keys"], json!(["gas", "flame", "heat", "imu", "servo"]));
+}
+
+#[tokio::test]
+async fn sensor_capture_and_bench_are_token_guarded() {
+    let (state, dir) = common::test_state("api-cap-auth").await;
+    let _guard = PathBufGuard(dir);
+    feed(&state).await;
+    let router = digital_twin_dashboard::build_router(state);
+    for path in [
+        "/api/calibration/sensor/gas/capture",
+        "/api/calibration/bench/start",
+        "/api/calibration/bench/stop",
+    ] {
+        let (s, _, _) = req(router.clone(), "POST", path, None, None).await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED, "{path}");
+    }
+}
+
+#[tokio::test]
+async fn bench_start_is_staged_and_refuses_a_second_press() {
+    let (state, dir) = common::test_state("api-bench").await;
+    let _guard = PathBufGuard(dir);
+    let router = digital_twin_dashboard::build_router(state);
+
+    let (s, v, _) = req(
+        router.clone(),
+        "POST",
+        "/api/calibration/bench/start",
+        Some(TEST_TOKEN),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::ACCEPTED);
+    // IMU first: the rest pose needs stillness, so nothing moves yet.
+    assert_eq!(v["stage"], "hold_still");
+    assert_eq!(v["running"], true);
+    assert_eq!(v["type"], "bench_capture");
+
+    let (s, _, _) = req(
+        router.clone(),
+        "POST",
+        "/api/calibration/bench/start",
+        Some(TEST_TOKEN),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::CONFLICT);
+
+    let (s, v, _) = req(
+        router,
+        "POST",
+        "/api/calibration/bench/stop",
+        Some(TEST_TOKEN),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["running"], false);
+    assert_eq!(v["stage"], "cancelled");
+}
+
+#[tokio::test]
+async fn servo_is_public_and_null_until_the_arm_speaks() {
+    let (r, _g) = app().await;
+    let (s, v, _) = req(r, "GET", "/api/servo", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v, json!({"servo": null}), "null means `--`, not zeros");
+}
+
+#[tokio::test]
+async fn lidar_is_public_and_keeps_the_full_scan() {
+    let (state, dir) = common::test_state("api-lidar").await;
+    let _g = PathBufGuard(dir);
+    let r = digital_twin_dashboard::build_router(state.clone());
+    let (s, v, _) = req(r.clone(), "GET", "/api/lidar", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v, json!({"lidar": null}), "no turn yet -> null");
+    digital_twin_dashboard::mqtt::on_mqtt_message(
+        &state.ctx(),
+        "rover/lidar/scan",
+        json!({"ok": 1, "model": 24, "count": 1, "points": [[15.5, 800.0, 15]]}),
+    )
+    .await;
+    let (s, v, _) = req(r, "GET", "/api/lidar", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["lidar"]["points"][0][0], 15.5);
 }
 
 #[tokio::test]
@@ -335,7 +556,7 @@ async fn static_pages_and_cookie_plant() {
     // Root-URL SPA routes are entry paths too. The no-slash variants used
     // to be missing from ENTRY_PATHS: a first visit there planted no
     // cookie, so the page's WS upgrade and mutations 401ed.
-    for path in ["/test", "/detailed", "/calibration"] {
+    for path in ["/test", "/detailed", "/calibration", "/control"] {
         let (r, _g) = app().await;
         let (s, _, h) = req(r, "GET", path, None, None).await;
         assert_eq!(s, StatusCode::OK, "SPA root route {path}");
@@ -356,11 +577,21 @@ async fn static_pages_and_cookie_plant() {
         "/next/detailed",
         "/next/test",
         "/next/calibration",
+        "/next/control",
     ] {
         let (r, _g) = app().await;
         let (s, _, _) = req(r, "GET", path, None, None).await;
         assert_eq!(s, StatusCode::OK, "SPA route {path}");
     }
+
+    // The bench control route serves the real WASM entry, not a stub.
+    let (r, _g) = app().await;
+    let (s, v, _) = req(r, "GET", "/next/control", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(
+        v.as_str().is_some_and(|b| b.contains("Rover Digital Twin")),
+        "control route serves the WASM entry"
+    );
 
     // API responses plant nothing.
     let (r, _g) = app().await;

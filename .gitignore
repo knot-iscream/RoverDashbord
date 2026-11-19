@@ -22,10 +22,14 @@ AGENTS.md
 # Runtime state - created on boot / via the Setup page
 rover_config.json
 calibration_baseline.json
+sensor_baseline.json
 history/
 Rover.log
 Rover-opener.log
 *.log
+
+# Bundled arduino-cli binary (downloaded on the bench PC, 40 MB - never commit)
+/tools/arduino-cli/
 
 # Local assistant config - works locally, never published
 .opencode/

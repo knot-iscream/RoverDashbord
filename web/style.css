@@ -755,6 +755,27 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   border: 1px solid var(--border-white-006);
   display: flex; align-items: center; justify-content: center;
 }
+.cam-feed { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.lidar-canvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: contain;
+  background: radial-gradient(circle at center, rgba(249,115,22,0.04), transparent 70%);
+}
+.lidar-controls {
+  position: absolute; left: 8px; right: 8px; bottom: 8px;
+  gap: 6px; align-items: center; justify-content: center;
+  z-index: 4; pointer-events: auto;
+}
+.lidar-btn {
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(12,12,14,0.78);
+  color: var(--gray-300);
+  border-radius: 5px; padding: 3px 7px;
+  font-size: 10px; cursor: pointer;
+}
+.lidar-btn:hover { color: #f97316; border-color: rgba(249,115,22,0.6); }
+.lidar-pitch { font-size: 10px; color: #f97316; min-width: 26px; text-align: center; }
 .camera-placeholder {
   text-align: center;
   color: var(--gray-500);
@@ -916,6 +937,92 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   width: 6px; height: 6px; border-radius: 9999px; flex-shrink: 0;
 }
 .cal-info-chip span { font-size: 11px; color: var(--gray-500); }
+
+/* Sensor baselines: one row per sensor, live value beside the capture. */
+.bench-stage {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--primary);
+  padding: 4px 10px; border-radius: 9999px;
+  background: rgba(var(--primary-rgb), 0.12);
+}
+.bench-hint {
+  font-size: 11px; line-height: 1.5; color: var(--gray-500);
+  margin: 0 0 14px;
+}
+
+.sensor-head {
+  display: grid; grid-template-columns: 190px minmax(140px, 0.8fr) minmax(200px, 1.1fr) 92px;
+  gap: 12px; padding: 0 10px 8px;
+  border-bottom: 1px solid var(--border-white-006);
+}
+.sensor-head span {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--gray-600, var(--gray-500));
+}
+.sensor-head-act { width: 78px; }
+
+.sensor-row {
+  display: grid; grid-template-columns: 190px minmax(140px, 0.8fr) minmax(200px, 1.1fr) 92px;
+  gap: 12px; align-items: center;
+  padding: 10px; border-bottom: 1px solid var(--border-white-006);
+  transition: background 0.24s cubic-bezier(0.19, 1, 0.22, 1);
+}
+.sensor-row:last-child { border-bottom: none; }
+.sensor-row:hover { background: rgba(255,255,255,0.02); }
+
+.sensor-id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sensor-label {
+  font-size: 12px; font-weight: 600; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sensor-board {
+  font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--gray-500);
+}
+.sensor-cap {
+  font-size: 8px; font-weight: 700; letter-spacing: 0.12em;
+  color: var(--gray-600, var(--gray-500));
+}
+.sensor-live {
+  display: flex; flex-direction: column; gap: 2px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px; color: var(--gray-300);
+}
+.sensor-ref-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sensor-ref {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sensor-ref-none { color: var(--dot-yellow); font-style: italic; }
+.sensor-age { font-size: 9px; color: var(--gray-500); }
+.sensor-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 5px; }
+.sensor-chip {
+  font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 2px 7px; border-radius: 9999px;
+  background: rgba(255,255,255,0.05); color: var(--gray-500);
+}
+.sensor-chip-warn { background: rgba(250,204,21,0.14); color: var(--dot-yellow); }
+
+.sensor-act { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+.sensor-capture {
+  width: 92px; padding: 7px 0;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--primary); background: rgba(var(--primary-rgb), 0.1);
+  border: none; cursor: pointer;
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  transition: background 0.24s cubic-bezier(0.19, 1, 0.22, 1), color 0.24s cubic-bezier(0.19, 1, 0.22, 1);
+}
+.sensor-capture:hover:not(:disabled) { background: rgba(var(--primary-rgb), 0.24); color: #fff; }
+.sensor-capture:active:not(:disabled) { background: rgba(var(--primary-rgb), 0.4); }
+.sensor-capture:disabled {
+  cursor: default; color: var(--gray-500);
+  background: rgba(255,255,255,0.04);
+}
+.sensor-note {
+  font-size: 9px; color: var(--gray-500); text-align: right;
+  max-width: 150px; line-height: 1.3;
+}
 
 /* Manual motor control sliders — power/intensity, Reanime.to style */
 .motor-control-row {
@@ -1130,32 +1237,172 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 .btn-off:disabled:hover > .btn-off-label { color: var(--dot-red); }
 
 /* ===== DETAILED PAGE ===== */
+/* Motion, mirrored from Re:ANIME: cards rise in on load with a staggered delay
+   (their `animate-fade-in-up` + inline `animation-delay`), the active bar slides
+   in, buttons press down 1px (`active:translate-y-px`), and content that
+   changes under a control does a short swap rise (`gc-swap`). The stagger is
+   free here: every card already carries its `--r`. */
+@keyframes bar-in { 0% { opacity: 0; transform: translate(-50%, -4px) skew(-18deg); } }
+/* Dip, hold, rise. The hold matters: with an expo-out curve the dip was over in
+   ~40 ms and the swapped-in content landed at 50-85% brightness, which reads as a
+   flash. The content changes ~30 ms after the class lands, well inside the hold. */
+@keyframes swap-rise {
+  0% { opacity: 0.2; transform: translateY(5px); }
+  40% { opacity: 0.2; transform: translateY(5px); }
+  100% { opacity: 1; transform: none; }
+}
+/* Entrance is a transition, deliberately, not a keyframe animation: the swap
+   animation below replaces any `animation` on the same element while the class
+   is up, and when the class came off the entrance restarted from its 0% keyframe
+   (opacity 0) - that was the flash on every press. Transitions are a separate
+   mechanism, so nothing can interrupt the stagger. */
+.detail-bento > *,
+.detail-bento :is(.detail-values-grid, .detail-chart-grid, .sensor-charts) > * {
+  opacity: 0;
+  transform: translateY(12px) scale(0.98);
+  transition: opacity 760ms cubic-bezier(0.19, 1, 0.22, 1),
+              transform 760ms cubic-bezier(0.19, 1, 0.22, 1);
+  transition-delay: calc(var(--r) * 16ms);
+}
+.detail-bento.shown > *,
+.detail-bento.shown :is(.detail-values-grid, .detail-chart-grid, .sensor-charts) > * {
+  opacity: 1;
+  transform: none;
+}
+.detail-motor-tab:active,
+.range-btn:active { translate: 0 1px; transition: translate .12s ease; }
+.detail-motor-tab.active::after,
+.range-btn.active::after { animation: bar-in 240ms ease-out both; }
+.detail-bento .swap .value-card,
+.detail-bento .swap .chart-card { animation: swap-rise 420ms ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .detail-bento > *,
+  .detail-bento :is(.detail-values-grid, .detail-chart-grid, .sensor-charts) > *,
+  .detail-bento.shown > *,
+  .detail-bento.shown :is(.detail-values-grid, .detail-chart-grid, .sensor-charts) > * {
+    transition: none;
+    opacity: 1;
+    transform: none;
+  }
+  .detail-motor-tab.active::after,
+  .range-btn.active::after,
+  .detail-bento .swap .value-card,
+  .detail-bento .swap .chart-card { animation: none; }
+}
+/* Motor selector: Re:ANIME schedule day tab (corner-cut plate, orange top bar
+   on the active one), scaled down to a control strip. */
 .detail-motor-tabs {
-  display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap;
+  display: flex; gap: 5px; margin-bottom: 24px; flex-wrap: wrap;
 }
 .detail-motor-tab {
-  padding: 8px 20px;
-  border-radius: 8px;
-  font-size: 12px; font-weight: 600;
-  color: var(--gray-400);
-  background: var(--zinc-900);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 34px;
+  padding: 0 13px;
   border: 1px solid var(--border-white-006);
-  transition: all 0.3s ease;
+  border-radius: 0;
+  background: var(--zinc-900);
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+  color: var(--gray-500);
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
 }
-.detail-motor-tab:hover { border-color: var(--border-white-02); color: #fff; }
+.detail-motor-tab .tab-code {
+  font-size: 13px; font-weight: 800; letter-spacing: 0.12em;
+  text-transform: uppercase; line-height: 1;
+}
+.detail-motor-tab:hover { color: #fff; background: var(--zinc-800); border-color: var(--border-white-02); }
 .detail-motor-tab.active {
-  background: rgba(var(--primary-rgb), 0.15);
-  border-color: rgba(var(--primary-rgb), 0.3);
   color: var(--primary);
+  background: rgba(var(--primary-rgb), 0.08);
+  border-color: rgba(var(--primary-rgb), 0.45);
+}
+.detail-motor-tab.active::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 50%;
+  width: 20px; height: 3px;
+  background: var(--primary);
+  transform: translate(-50%) skew(-18deg);
 }
 
-.detail-chart-grid {
+/* ===== Detailed bento =====
+   12 columns, 24 px rows, one placement per card as CSS custom properties
+   (`--c` column, `--r` row, `--w` width, `--h` height in row units). The
+   numbers live in `tools/layout.json` and in the PLACE table in
+   frontend-wasm/src/main.rs, so grid and markup cannot disagree. Rows are
+   `minmax(24px, auto)`: a card whose content outgrows its drawn span grows
+   the tracks instead of clipping, and because every placement is explicit,
+   nothing below it can collide. */
+.detail-bento {
+  /* Card air, tuned live in devtools and baked in here. `--bento-row-slack`
+     is taken off each card's drawn height because rows are shared across
+     columns: a real row-gap would inflate every multi-row card and shove the
+     staggered pairs apart. */
+  --bento-col-gap: 12px;
+  --bento-row-slack: 12px;
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 16px;
-  margin-bottom: 24px;
+  grid-template-columns: repeat(12, 1fr);
+  grid-auto-rows: minmax(24px, auto);
+  column-gap: var(--bento-col-gap);
+  row-gap: 0;
 }
-@media (min-width: 640px) { .detail-chart-grid { grid-template-columns: repeat(2, 1fr); } }
+/* Placement reaches the real cards, which are children of the flattened
+   grouping wrappers, so not only direct children of the grid. */
+.detail-bento > *,
+.detail-bento :is(.detail-values-grid, .detail-chart-grid, .sensor-charts) > * {
+  grid-column: var(--c) / span var(--w);
+  grid-row: var(--r) / span var(--h);
+  /* A stretched grid item fills its whole span, so min-height never shrank it
+     and the cards stayed flush (that cost a round-trip). The margin box is
+     what actually carves air out of the span; column-gap does the horizontal
+     side. Tracks are still minmax(24px, auto), so a card with more content
+     than its drawn span grows the tracks instead of clipping. */
+  margin-bottom: var(--bento-row-slack);
+  min-width: 0;
+}
+/* Grouping wrappers stay in the markup for their ids, the grid flattens them
+   so their children are the real items. */
+.detail-bento .detail-values-grid,
+.detail-bento .detail-chart-grid,
+.detail-bento .sensor-charts { display: contents; }
+.detail-bento .chart-card { display: flex; flex-direction: column; }
+.detail-bento .chart-canvas { flex: 1 1 0; min-height: 0; height: auto; }
+.detail-bento .panel-pad { display: flex; flex-direction: column; }
+.detail-bento .panel-pad .env-note { margin-top: auto; padding-top: 8px; }
+.detail-bento .value-card { display: flex; flex-direction: column; justify-content: center; }
+.detail-bento .sensor-range { margin: 0; }
+.motor-meta { font-size: 11px; color: var(--gray-500); font-weight: 500; align-self: center; }
+.card-label {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--gray-500);
+  margin-bottom: 12px;
+}
+.band-label { display: flex; align-items: center; gap: 14px; align-self: center; margin-bottom: 0; }
+.band-name {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--gray-400); white-space: nowrap;
+}
+.band-rule { flex: 1; height: 1px; background: var(--border-white-008); }
+/* Narrow window: the bento collapses to one clean column in markup order. */
+@media (max-width: 900px) {
+  .detail-bento { display: flex; flex-direction: column; gap: 14px; }
+  .detail-bento > *,
+  .detail-bento :is(.detail-values-grid, .detail-chart-grid, .sensor-charts) > * {
+    grid-column: auto; grid-row: auto; margin: 0;
+  }
+  .detail-bento .chart-card { min-height: 180px; }
+  .detail-bento .chart-canvas { min-height: 110px; }
+  .detail-bento .value-card { min-height: 84px; }
+  .detail-bento .sensor-range { margin: 6px 0 0; }
+  .detail-bento .band-label { align-self: stretch; }
+}
 
 .chart-card {
   border-radius: 12px;
@@ -1169,13 +1416,6 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   margin-bottom: 12px;
 }
 .chart-canvas { width: 100%; height: 140px; display: block; }
-
-.detail-values-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-@media (min-width: 640px) { .detail-values-grid { grid-template-columns: repeat(4, 1fr); } }
 
 .value-card {
   border-radius: 10px;
@@ -1761,22 +2001,79 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 .dot-off { background: var(--gray-500); }
 .cal-sensor-value.stale { color: var(--gray-600); }
 
-/* ===== ENV sensors � home gas panel + Detailed sensor sections ===== */
-:root { --sev-warn: #f97316; }
+/* ===== ENV sensors � home gas panel + Detailed sensor sections ===== */
+:root {
+  --sev-warn: #f97316;
+  /* Gas bar bands, safest to worst: blue, green, yellow, orange, red. */
+  --dot-blue: #3b82f6;
+  --band-1: var(--dot-blue);
+  --band-2: var(--dot-green);
+  --band-3: var(--dot-yellow);
+  --band-4: var(--primary);
+  --band-5: var(--dot-red);
+}
 .hud-stack { display: flex; flex-direction: column; gap: 24px; }
 .dot-orange { background: var(--sev-warn); }
 .dot-dim { background: var(--gray-600); }
 .env-gas { display: grid; grid-template-columns: 46px 1fr 52px; align-items: center; gap: 10px; padding: 4px 0; }
 .env-gas-name { font-size: 12px; font-weight: 600; color: var(--gray-400); }
 .env-gas-val { text-align: right; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; transition: color 0.3s; }
-.env-track { position: relative; height: 8px; border-radius: 4px; background: var(--zinc-800); overflow: hidden; }
-.env-track .base { position: absolute; left: 33.33%; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.25); }
-.env-track .fill { display: block; height: 100%; width: 0; border-radius: 4px; transition: width 0.35s var(--ease-out-expo), background 0.3s; }
+/* Gas bars: skewed parallelogram track (the Reanime lean, clip-path so the box
+   never pokes out of its grid cell) split into 15 segment ticks, one per 0.2 of
+   the scale (`env_ui::gas_seg_class` decides band + lit). Each segment keeps its
+   own band color, so the row itself is the scale; unlit ones hold a faint tint. */
+.env-track {
+  display: flex; align-items: stretch; gap: 1px;
+  height: 9px;
+  --lean: 3px;
+  clip-path: polygon(var(--lean) 0, 100% 0, calc(100% - var(--lean)) 100%, 0 100%);
+  background: var(--zinc-800);
+}
+.env-seg {
+  flex: 1;
+  /* Each tick leans with the track ends (Reanime's 12deg skew), so the row
+     reads as one skewed strip river of parallelograms. */
+  clip-path: polygon(2px 0, 100% 0, calc(100% - 2px) 100%, 0 100%);
+  background-color: color-mix(in srgb, var(--seg) 18%, transparent);
+  transition: background-color 0.25s ease;
+}
+.env-seg.lit { background-color: var(--seg); }
+.env-seg.c1 { --seg: var(--band-1); }
+.env-seg.c2 { --seg: var(--band-2); }
+.env-seg.c3 { --seg: var(--band-3); }
+.env-seg.c4 { --seg: var(--band-4); }
+.env-seg.c5 { --seg: var(--band-5); }
+/* Graduations: the seams that start at clean air (1.0) and the warn line (2.0). */
+.env-seg.seam { margin-left: 2px; }/* Info glyph + hover tooltip — the gas note lives behind this now. */
+.panel-title-row { display: flex; align-items: center; gap: 8px; }
+.env-info {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px;
+  border: 1px solid var(--border-white-02);
+  border-radius: 50%;
+  font-size: 9px; font-weight: 700; font-style: normal;
+  color: var(--gray-500);
+  cursor: help;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+.env-info:hover, .env-info:focus-visible { color: var(--primary); border-color: rgba(var(--primary-rgb), 0.6); }
+.env-tip {
+  position: absolute; left: -10px; top: calc(100% + 8px);
+  transform: translateY(-4px);
+  /* Wide enough for the gas note in two lines, never past the window edge. */
+  width: 380px; max-width: calc(100vw - 40px); padding: 8px 10px;
+  background: var(--bg-0a0a0a-90);
+  border: 1px solid var(--border-white-008);
+  border-radius: 8px;
+  font-size: 11px; line-height: 1.5; color: var(--gray-400); text-align: left;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s var(--ease-out-expo);
+  z-index: 20;
+}
+.env-info:hover .env-tip, .env-info:focus-visible .env-tip { opacity: 1; transform: translateY(0); }
 .env-note { margin-top: 10px; font-size: 11px; color: var(--gray-500); line-height: 1.5; }
 .stale { opacity: 0.45; transition: opacity 0.3s; }
-.detail-section-title { margin: 30px 0 14px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); }
-.sensor-charts { display: grid; gap: 16px; }
-@media (min-width: 1024px) { .sensor-charts { grid-template-columns: 2fr 3fr; align-items: start; } }
 .sensor-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 12px; }
 .sensor-row .k { color: var(--gray-400); font-weight: 500; }
 .sensor-row .v { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--gray-300); transition: color 0.3s; }
@@ -1787,13 +2084,92 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 .env-dirs .dir.hit { background: var(--dot-red); box-shadow: 0 0 8px rgba(239,68,68,0.8); }
 .sensor-range { display: flex; align-items: center; gap: 8px; margin: 22px 0 4px; }
 .sensor-range .lbl { font-size: 11px; color: var(--gray-500); margin-right: 2px; }
-.range-btn { padding: 4px 12px; font-size: 11px; font-weight: 600; color: var(--gray-400); background: var(--bg-white-05); border: 1px solid var(--border-white-008); border-radius: 6px; cursor: pointer; font-family: inherit; transition: color 0.2s, border-color 0.2s, background 0.2s; }
-.range-btn:hover { color: var(--gray-300); }
-.range-btn.active { color: var(--primary); border-color: rgba(var(--primary-rgb), 0.5); background: rgba(var(--primary-rgb), 0.1); }
-.export-btn { padding: 6px 14px; font-size: 11px; font-weight: 700; color: var(--zinc-900); background: var(--primary); border: none; border-radius: 6px; cursor: pointer; font-family: inherit; transition: filter 0.2s; }
-.export-btn:hover { filter: brightness(1.12); }
+.range-btn { position: relative; padding: 5px 14px; font-size: 9px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gray-500); background: var(--bg-white-05); border: 1px solid var(--border-white-008); border-radius: 0; cursor: pointer; font-family: inherit; clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px); transition: color 0.2s, border-color 0.2s, background 0.2s; }
+.range-btn:hover { color: #fff; border-color: var(--border-white-02); }
+.range-btn.active { color: var(--primary); background: rgba(var(--primary-rgb), 0.08); border-color: rgba(var(--primary-rgb), 0.45); }
+.range-btn.active::after { content: ""; position: absolute; top: 0; left: 50%; width: 14px; height: 2px; background: var(--primary); transform: translate(-50%) skew(-18deg); }
 .chip-sm { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 9999px; background: var(--bg-white-05); border: 1px solid var(--border-white-008); font-size: 10px; font-weight: 600; color: var(--gray-400); }
 .chip-sm b { color: var(--gray-300); }
 .chip-sm.ok b { color: var(--dot-green); }
 .chip-sm.bad b { color: var(--dot-red); }
 .chip-sm.warn b { color: var(--sev-warn); }
+
+/* ===== CONTROL PAGE (racing cockpit HUD + camera mirror) ===== */
+.ctl-wrap { padding-bottom: 60px; }
+.ctl-warn { margin-top: 10px; padding: 10px 16px; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; font-size: 11px; line-height: 1.5; }
+.ctl-cockpit { display: grid; grid-template-columns: 1.1fr 0.9fr 1fr; gap: 14px; margin-top: 14px; align-items: stretch; }
+@media (max-width: 1100px) { .ctl-cockpit { grid-template-columns: 1fr 1fr; } .ctl-inputs { grid-column: 1 / -1; } }
+@media (max-width: 700px) { .ctl-cockpit { grid-template-columns: 1fr; } }
+.ctl-mirror, .ctl-cluster, .ctl-inputs { padding: 14px; background: var(--bg-0a0a0a); border: 1px solid var(--border-white-008); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
+.ctl-mirror-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 9px; font-weight: 800; letter-spacing: 0.18em; color: var(--gray-500); }
+.ctl-live-chip { padding: 3px 8px; color: var(--gray-600); border: 1px solid var(--border-white-008); }
+.ctl-live-chip.on { color: #fff; background: var(--dot-red); border-color: var(--dot-red); animation: pulse-dot 1.4s infinite; }
+.ctl-mirror-view { position: relative; aspect-ratio: 16 / 9; overflow: hidden; background: #000; border: 1px solid var(--border-white-01); }
+.ctl-mirror-img { display: none; width: 100%; height: 100%; object-fit: cover; }
+.ctl-mirror-off { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; letter-spacing: 0.16em; color: var(--gray-600); background: repeating-linear-gradient(135deg, #0a0a0a 0 8px, #000 8px 16px); }
+.ctl-cluster { display: flex; flex-direction: column; text-align: center; }
+.ctl-shift { display: flex; justify-content: center; gap: 6px; }
+.ctl-shift i { width: 22px; height: 5px; background: var(--zinc-800); transform: skewX(-18deg); }
+.ctl-shift i.ctl-shift-lit { background: var(--primary); box-shadow: 0 0 10px rgba(var(--primary-rgb), 0.7); }
+.ctl-gear { margin: 6px 0; font-size: 64px; font-weight: 800; line-height: 1; color: #fff; }
+.ctl-speed { display: flex; align-items: baseline; justify-content: center; gap: 8px; }
+.ctl-speed-num { font-size: 34px; font-weight: 800; color: var(--primary); font-variant-numeric: tabular-nums; }
+.ctl-speed-label { font-size: 10px; letter-spacing: 0.18em; color: var(--gray-600); }
+.ctl-tach { display: flex; justify-content: center; gap: 2px; margin-top: 12px; }
+.ctl-tach-seg { width: 6px; height: 14px; background: var(--zinc-800); transform: skewX(-14deg); }
+.ctl-tach-seg.lit.a { background: var(--primary); }
+.ctl-tach-seg.lit.b { background: var(--dot-yellow); }
+.ctl-tach-seg.lit.c { background: var(--dot-red); }
+.ctl-cluster-foot { display: flex; justify-content: space-between; margin-top: auto; padding-top: 10px; font-size: 10px; color: var(--gray-500); font-variant-numeric: tabular-nums; }
+.ctl-inputs { display: flex; flex-direction: column; gap: 14px; }
+.ctl-pedal-row { display: grid; grid-template-columns: 32px 1fr 38px; gap: 8px; align-items: center; font-size: 10px; color: var(--gray-500); }
+.ctl-pedal-row label { font-weight: 800; letter-spacing: 0.12em; }
+.ctl-pedal-track { height: 12px; overflow: hidden; background: var(--zinc-900); border: 1px solid var(--border-white-008); transform: skewX(-12deg); }
+.ctl-pedal-track i { display: block; height: 100%; background: var(--primary); transition: width 0.1s linear; }
+.ctl-pedal-row.rev .ctl-pedal-track i { background: var(--dot-red); }
+.ctl-pedal-row span { text-align: right; font-variant-numeric: tabular-nums; }
+.ctl-steer { margin-top: auto; }
+.ctl-steer-labels { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 9px; letter-spacing: 0.1em; color: var(--gray-600); }
+.ctl-steer-track { position: relative; height: 2px; background: var(--zinc-800); }
+.ctl-steer-track i { position: absolute; top: -5px; width: 11px; height: 11px; background: var(--primary); transform: translateX(-50%) rotate(45deg); transition: left 0.1s linear; }
+.ctl-deck { display: flex; align-items: center; gap: 24px; min-height: 186px; margin-top: 14px; padding: 18px 24px; background: var(--bg-0a0a0a); border: 1px solid var(--border-white-008); }
+.ctl-keys { display: grid; grid-template-columns: repeat(3, 36px); grid-template-rows: repeat(2, 36px); gap: 5px; }
+.ctl-keycap { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; font-size: 11px; font-weight: 800; color: var(--gray-400); background: var(--zinc-900); border: 1px solid var(--border-white-01); border-bottom-width: 3px; clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px); }
+.ctl-keycap.key-w { grid-column: 2; grid-row: 1; }
+.ctl-keycap.key-a { grid-column: 1; grid-row: 2; }
+.ctl-keycap.key-s { grid-column: 2; grid-row: 2; }
+.ctl-keycap.key-d { grid-column: 3; grid-row: 2; }
+.ctl-pad { display: flex; flex: 1; gap: 6px; }
+.ctl-pad-btn { flex: 1; height: 44px; font-size: 10px; font-weight: 800; letter-spacing: 0.06em; color: var(--gray-300); background: var(--bg-white-05); border: 1px solid var(--border-white-01); clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px); user-select: none; touch-action: none; }
+.ctl-pad-btn:hover { color: #fff; background: rgba(var(--primary-rgb), 0.12); border-color: var(--primary); }
+.ctl-pad-btn:active { color: #fff; background: rgba(var(--primary-rgb), 0.25); }
+.ctl-pad-btn.armed, .ctl-keycap.armed { color: #fff; background: rgba(var(--primary-rgb), 0.28); border-color: var(--primary); box-shadow: 0 0 14px rgba(var(--primary-rgb), 0.35); }
+.ctl-stop { height: 44px; padding: 0 20px; font-size: 11px; font-weight: 800; letter-spacing: 0.1em; color: #fff; background: var(--dot-red); clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px); }
+.ctl-stop:hover { filter: brightness(1.15); }
+.ctl-throttle { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 58px; }
+.ctl-throttle label { font-size: 9px; font-weight: 800; letter-spacing: 0.14em; color: var(--gray-600); }
+.ctl-throttle button { width: 30px; height: 24px; font-size: 13px; font-weight: 800; color: var(--gray-300); background: var(--bg-white-05); border: 1px solid var(--border-white-01); }
+.ctl-throttle button:hover { color: #fff; border-color: var(--primary); }
+.ctl-throttle input[type="range"] { width: 26px; height: 108px; writing-mode: vertical-lr; direction: rtl; -webkit-appearance: slider-vertical; accent-color: var(--primary); }
+.ctl-thr-pct { font-size: 12px; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
+.ctl-thr-keys { font-size: 8px; letter-spacing: 0.12em; color: var(--gray-600); }
+.ctl-wheel-head { display: flex; justify-content: space-between; margin: 18px 0 8px; font-size: 9px; font-weight: 800; letter-spacing: 0.16em; color: var(--gray-600); }
+.ctl-wheel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+@media (max-width: 900px) { .ctl-wheel-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .ctl-wheel-grid { grid-template-columns: 1fr; } }
+.ctl-wheel { padding: 12px; background: var(--bg-0a0a0a); border: 1px solid var(--border-white-008); }
+.ctl-wheel-head-row { display: flex; align-items: center; justify-content: space-between; }
+.ctl-wheel-name { font-size: 10px; color: var(--gray-500); }
+.ctl-wheel-name b { margin-right: 4px; font-size: 12px; color: var(--gray-300); }
+.ctl-flip { height: 26px; padding: 0 8px; font-size: 9px; font-weight: 800; letter-spacing: 0.08em; color: var(--gray-600); background: transparent; border: 1px solid var(--border-white-008); }
+.ctl-flip.on { color: var(--dot-yellow); background: rgba(234,179,8,0.1); border-color: var(--dot-yellow); }
+.ctl-wheel-bar { position: relative; height: 10px; margin: 10px 0; background: var(--zinc-900); transform: skewX(-10deg); }
+.ctl-wheel-bar i { position: absolute; top: 0; height: 100%; background: var(--primary); }
+.ctl-wheel-zero { position: absolute; top: -2px; left: 50%; width: 1px; height: 14px; background: var(--gray-600); }
+.ctl-wheel-buttons { display: flex; gap: 4px; }
+.ctl-jog-btn { flex: 1; height: 30px; font-size: 9px; font-weight: 800; color: var(--gray-300); background: var(--bg-white-05); border: 1px solid var(--border-white-01); }
+.ctl-jog-btn:hover { color: #fff; border-color: var(--primary); }
+.ctl-jog-btn.stop:hover { color: var(--dot-red); border-color: var(--dot-red); }
+.ctl-wheel-speed { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.ctl-wheel-speed button { width: 24px; height: 24px; font-weight: 800; color: var(--gray-400); background: var(--bg-white-05); border: 1px solid var(--border-white-008); }
+.ctl-wheel-speed span { flex: 1; text-align: center; font-size: 11px; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }

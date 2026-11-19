@@ -3,6 +3,7 @@
 //! (home), `/next/detailed`, `/next/test`. Calibration + setup stay vanilla.
 
 mod calibration_page;
+mod control_page;
 mod env_ui;
 mod home_page;
 mod shell;
@@ -15,7 +16,7 @@ use wasm_bindgen::JsCast;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement};
 
 use crate::shell::{app_shell, route_path};
-use ws::{fetch_device_online, get_json, motor_param, now_ms, ws_url, MotorSample};
+use ws::{fetch_device_online, get_json, motor_param, non_reactive, now_ms, ws_url, MotorSample};
 
 use serde_json::Value;
 
@@ -36,6 +37,59 @@ const ENV_HEAT_SERIES: [(&str, &str, &str); 2] =
     [("L", "heat_l", "#f97316"), ("R", "heat_r", "#38bdf8")];
 /// Chart range buttons: label + minutes.
 const ENV_RANGES: [(&str, i64); 3] = [("1 min", 1), ("10 min", 10), ("1 hour", 60)];
+
+/// Bento placement for every Detailed page card, pre-rendered as the CSS custom
+/// properties `.detail-bento` reads: `--c` column, `--r` row, `--w` width and
+/// `--h` height in 24 px row units on a 12 column grid. The numbers come from
+/// the newest `tools/layout*.json` export, arranged by hand in the studio.
+const PLACE: &[(&str, &str)] = &[
+    ("header", "--c:1;--r:1;--w:12;--h:3"),
+    ("motor-tabs", "--c:1;--r:5;--w:12;--h:3"),
+    ("motor-meta", "--c:1;--r:8;--w:12;--h:3"),
+    ("band-motor", "--c:1;--r:11;--w:12;--h:1"),
+    ("val-temp", "--c:4;--r:12;--w:3;--h:4"),
+    ("chart-temp", "--c:7;--r:12;--w:6;--h:7"),
+    ("chart-voltage", "--c:1;--r:17;--w:6;--h:7"),
+    ("val-volt", "--c:7;--r:20;--w:3;--h:4"),
+    ("val-current", "--c:4;--r:25;--w:3;--h:4"),
+    ("chart-current", "--c:7;--r:25;--w:6;--h:7"),
+    ("chart-vib", "--c:1;--r:30;--w:6;--h:7"),
+    ("val-vib", "--c:7;--r:33;--w:3;--h:4"),
+    ("val-health", "--c:4;--r:38;--w:3;--h:4"),
+    ("chart-health", "--c:7;--r:38;--w:6;--h:7"),
+    ("band-sensors", "--c:1;--r:45;--w:12;--h:2"),
+    ("gas-panel", "--c:2;--r:47;--w:5;--h:6"),
+    ("gas-chart", "--c:7;--r:47;--w:6;--h:7"),
+    ("o2-chart", "--c:1;--r:54;--w:6;--h:7"),
+    ("o2-panel", "--c:7;--r:55;--w:5;--h:6"),
+    ("flame-panel", "--c:2;--r:62;--w:5;--h:6"),
+    ("flame-chart", "--c:7;--r:62;--w:6;--h:7"),
+    ("heat-chart", "--c:1;--r:69;--w:6;--h:7"),
+    ("heat-panel", "--c:7;--r:70;--w:5;--h:6"),
+    ("range", "--c:1;--r:78;--w:12;--h:3"),
+    ("band-node", "--c:1;--r:81;--w:12;--h:2"),
+    ("node-panel", "--c:3;--r:83;--w:4;--h:5"),
+    ("imu-panel", "--c:7;--r:84;--w:3;--h:6"),
+];
+
+/// Grid placement for one card. Unknown ids land in the first full-width slot
+/// so a new card is never invisible while it waits for a row in the table.
+fn place(id: &str) -> &'static str {
+    PLACE
+        .iter()
+        .find(|(k, _)| *k == id)
+        .map_or("--c:1;--r:1;--w:12;--h:3", |(_, v)| *v)
+}
+
+/// Placement ids for the five motor value cards, in metric order
+/// (temperature, voltage, current, health, vibration).
+const VAL_PLACE: [&str; 5] = [
+    "val-temp",
+    "val-volt",
+    "val-current",
+    "val-health",
+    "val-vib",
+];
 /// Largest client-side ring kept: the 1 h window + slack. Frames past it
 /// append live on top of the fetched sketch; the backend ring is the long
 /// memory and the exporter reads that one.
@@ -259,6 +313,27 @@ fn draw_sensor_chart(
         let _ = ctx.fill_text("Waiting for live data...", 12.0, h / 2.0);
         return;
     }
+    // Decimate to roughly one sample per two pixels. The 1 hour range is ~900
+    // points per series, and drawing all of them with the 6px glow into a
+    // ~500px box fills the card into a solid block, which is what the gas
+    // chart turned into after a range switch.
+    let ts_all: Vec<Option<f64>> = frames
+        .iter()
+        .map(|f| f.get("at").and_then(|v| v.as_f64()))
+        .collect();
+    let cols = ((w * 2.0) as usize).max(16);
+    let stride = (frames.len() / cols).max(1);
+    // Decimating widens the step, so the feed-hole test has to follow it or a
+    // normal sample spacing would read as a hole.
+    let gap_limit = GAP_BREAK_MS * stride as f64;
+    // More samples than pixel columns: the 6px glow on every segment fills the
+    // space between samples and turns a noisy long window into a solid block,
+    // so dense charts draw without it.
+    let dense = frames.len() as f64 > w;
+    let keep: Vec<usize> = (0..frames.len())
+        .step_by(stride)
+        .chain(std::iter::once(frames.len() - 1))
+        .collect();
     let (mut lo, mut hi) = match fixed {
         Some(r) => r,
         None => {
@@ -284,9 +359,10 @@ fn draw_sensor_chart(
     // stretched thinned history against fresh frames, so range switches
     // looked like a different (wrong) waveform. Falls back to index spacing
     // when fewer than two stamps are present.
-    let ts: Vec<Option<f64>> = frames
+    let ts: Vec<Option<f64>> = keep.iter().map(|&i| ts_all[i]).collect();
+    let data: Vec<Vec<Option<f64>>> = data
         .iter()
-        .map(|f| f.get("at").and_then(|v| v.as_f64()))
+        .map(|s| keep.iter().map(|&i| s[i]).collect())
         .collect();
     let time_mode = ts.iter().flatten().count() >= 2;
     let t_end = ts.iter().flatten().last().copied().unwrap_or(0.0);
@@ -295,7 +371,7 @@ fn draw_sensor_chart(
         if time_mode {
             8.0 + ((ts[i].unwrap_or(t_end) - (t_end - t_span)) / t_span) * (w - 16.0)
         } else {
-            (i as f64) / ((frames.len() - 1).max(1) as f64) * (w - 16.0) + 8.0
+            (i as f64) / ((ts.len() - 1).max(1) as f64) * (w - 16.0) + 8.0
         }
     };
     let y = |v: f64| h - 14.0 - ((v - lo) / (hi - lo).max(1e-6)) * (h - 28.0);
@@ -309,47 +385,47 @@ fn draw_sensor_chart(
         ctx.line_to(w, gy);
         ctx.stroke();
     }
-    // one polyline per series, nulls break the line
-    for (s, vals) in data.iter().enumerate() {
-        let color = series.get(s).map(|d| d.2).unwrap_or("#a1a1aa");
-        ctx.set_stroke_style_str(color);
-        ctx.set_line_width(2.0);
-        ctx.set_shadow_color(color);
-        ctx.set_shadow_blur(6.0);
-        ctx.begin_path();
-        let mut started = false;
-        let mut prev_at: Option<f64> = None;
-        for (i, v) in vals.iter().enumerate() {
-            match v {
-                Some(val) => {
-                    // A feed hole stays a hole; never chord across it.
-                    if time_mode
-                        && prev_at
-                            .zip(ts[i])
-                            .is_some_and(|(p, c)| c - p > GAP_BREAK_MS)
-                    {
-                        started = false;
+    if dense {
+        draw_dense_series(&ctx, &data, series, &x, &y, w, cols.max(1));
+    } else {
+        // one polyline per series, nulls break the line
+        for (s, vals) in data.iter().enumerate() {
+            let color = series.get(s).map(|d| d.2).unwrap_or("#a1a1aa");
+            ctx.set_stroke_style_str(color);
+            ctx.set_line_width(2.0);
+            ctx.set_shadow_color(color);
+            ctx.set_shadow_blur(6.0);
+            ctx.begin_path();
+            let mut started = false;
+            let mut prev_at: Option<f64> = None;
+            for (i, v) in vals.iter().enumerate() {
+                match v {
+                    Some(val) => {
+                        // A feed hole stays a hole; never chord across it.
+                        if time_mode && prev_at.zip(ts[i]).is_some_and(|(p, c)| c - p > gap_limit) {
+                            started = false;
+                        }
+                        if started {
+                            ctx.line_to(x(i), y(*val));
+                        } else {
+                            ctx.move_to(x(i), y(*val));
+                            started = true;
+                        }
+                        prev_at = ts[i];
                     }
-                    if started {
-                        ctx.line_to(x(i), y(*val));
-                    } else {
-                        ctx.move_to(x(i), y(*val));
-                        started = true;
-                    }
-                    prev_at = ts[i];
+                    None => started = false,
                 }
-                None => started = false,
             }
+            ctx.stroke();
+            ctx.set_shadow_blur(0.0);
         }
-        ctx.stroke();
-        ctx.set_shadow_blur(0.0);
     }
     // legend: swatch + name per series, top-left
     ctx.set_font("600 10px Inter, sans-serif");
     let mut lx = 10.0;
     for (name, _, color) in series {
         ctx.set_fill_style_str(color);
-        let _ = ctx.fill_rect(lx, 9.0, 6.0, 6.0);
+        ctx.fill_rect(lx, 9.0, 6.0, 6.0);
         ctx.set_fill_style_str("#a1a1aa");
         let _ = ctx.fill_text(name, lx + 10.0, 16.0);
         lx += 16.0 + name.chars().count() as f64 * 6.5;
@@ -369,6 +445,89 @@ fn draw_sensor_chart(
     }
 }
 
+/// Dense chart path: one bucket per pixel column, drawn as a faint min..max
+/// envelope with the mean through it. Drawing ~900 raw samples per series into a
+/// ~570px box is what made the 10 min / 1 hour ranges unreadable; spikes
+/// survive as band thickness, per-sample noise does not. An empty bucket breaks
+/// the line, so a feed hole still reads as a hole.
+#[allow(clippy::too_many_arguments)]
+fn draw_dense_series(
+    ctx: &CanvasRenderingContext2d,
+    data: &[Vec<Option<f64>>],
+    series: &[(&str, &str, &str)],
+    x: &dyn Fn(usize) -> f64,
+    y: &dyn Fn(f64) -> f64,
+    w: f64,
+    nb: usize,
+) {
+    let span_px = (w - 16.0).max(1.0);
+    let px = |b: usize| 8.0 + (b as f64 + 0.5) / nb as f64 * span_px;
+    for (s, vals) in data.iter().enumerate() {
+        let color = series.get(s).map(|d| d.2).unwrap_or("#a1a1aa");
+        let mut lo_v = vec![f64::NAN; nb];
+        let mut hi_v = vec![f64::NAN; nb];
+        let mut sum = vec![0.0f64; nb];
+        let mut cnt = vec![0usize; nb];
+        for (i, v) in vals.iter().enumerate() {
+            let Some(val) = v else { continue };
+            let b = ((((x(i) - 8.0) / span_px) * nb as f64) as usize).min(nb - 1);
+            if cnt[b] == 0 {
+                lo_v[b] = *val;
+                hi_v[b] = *val;
+            } else {
+                lo_v[b] = lo_v[b].min(*val);
+                hi_v[b] = hi_v[b].max(*val);
+            }
+            sum[b] += *val;
+            cnt[b] += 1;
+        }
+        // Upper edge left to right, lower edge back: one closed polygon.
+        ctx.begin_path();
+        let mut open = false;
+        for b in 0..nb {
+            if cnt[b] == 0 {
+                open = false;
+                continue;
+            }
+            if open {
+                ctx.line_to(px(b), y(hi_v[b]));
+            } else {
+                ctx.move_to(px(b), y(hi_v[b]));
+                open = true;
+            }
+        }
+        for b in (0..nb).rev() {
+            if cnt[b] == 0 {
+                continue;
+            }
+            ctx.line_to(px(b), y(lo_v[b]));
+        }
+        ctx.close_path();
+        ctx.set_fill_style_str(color);
+        ctx.set_global_alpha(0.22);
+        ctx.fill();
+        ctx.set_global_alpha(1.0);
+        ctx.begin_path();
+        open = false;
+        for b in 0..nb {
+            if cnt[b] == 0 {
+                open = false;
+                continue;
+            }
+            let my = y(sum[b] / cnt[b] as f64);
+            if open {
+                ctx.line_to(px(b), my);
+            } else {
+                ctx.move_to(px(b), my);
+                open = true;
+            }
+        }
+        ctx.set_stroke_style_str(color);
+        ctx.set_line_width(1.6);
+        ctx.stroke();
+    }
+}
+
 /// Compact span label for the chart time axis: 45s / 10m / 2h.
 fn fmt_span(ms: f64) -> String {
     let s = ms / 1000.0;
@@ -382,13 +541,11 @@ fn fmt_span(ms: f64) -> String {
 }
 
 fn size_canvas(canvas: &HtmlCanvasElement) {
-    if let Some(parent) = canvas.parent_element() {
-        let w = parent.client_width().max(50);
-        // Backing store only; CSS class .chart-canvas sizes the element.
-        // (Vanilla uses raw client width at 140px fixed height — kept 1:1.)
-        canvas.set_width(w as u32);
-        canvas.set_height(140);
-    }
+    // Backing store only; CSS sizes the element. Every canvas on the Detailed
+    // page sits in a fixed grid cell, so read the box the card gave us instead
+    // of assuming vanilla's flat 140px.
+    canvas.set_width(canvas.client_width().max(50) as u32);
+    canvas.set_height(canvas.client_height().max(40) as u32);
 }
 
 /// Clonable handle bundle for the WS loop. All fields are `Copy` signals
@@ -554,6 +711,17 @@ fn connect_ws(ctx: WsCtx) {
 fn DetailedPage() -> impl IntoView {
     let initial_motor = motor_param(1);
     let current_motor = RwSignal::new(initial_motor);
+    // Brief flag for the content-swap animation (Re:ANIME's `gc-swap` idea):
+    // set when the motor or the chart range changes, cleared on a timer so the CSS
+    // keyframe can restart on the next press.
+    let swap = RwSignal::new(false);
+    // Flipped one frame after mount so the entrance transition can run; until then
+    // the cards sit at the transition's start state.
+    let shown = RwSignal::new(false);
+    wasm_bindgen_futures::spawn_local(async move {
+        gloo_timers::future::TimeoutFuture::new(16).await;
+        shown.set(true);
+    });
     let device_online = RwSignal::new(false);
     let tick = RwSignal::new(0u64);
     // latest sample + last-rx wall time (ms) per motor 1-4.
@@ -592,6 +760,7 @@ fn DetailedPage() -> impl IntoView {
     let heat_ref = NodeRef::<leptos::html::Canvas>::new();
 
     let redraw = move || {
+        let _nz = non_reactive();
         let m = (current_motor.get() as usize).saturating_sub(1).min(3);
         let refs = [temp_ref, volt_ref, curr_ref, health_ref, vib_ref];
         let h = hist.get();
@@ -631,6 +800,7 @@ fn DetailedPage() -> impl IntoView {
     let redraw_tab = redraw_rc.clone();
 
     let redraw_env = move || {
+        let _nz = non_reactive();
         let full = env_ring.get();
         let range_ms = env_range.get().max(1) as f64 * 60_000.0;
         let keep = (env_range.get().max(1) as usize) * 60 + 30;
@@ -667,7 +837,7 @@ fn DetailedPage() -> impl IntoView {
         draw(gas_ref, &ENV_GAS_SERIES, "", None);
         draw(
             o2_ref,
-            &[("O2", "o2_pct", "#22c55e")],
+            &[("O2 est.", "o2_pct", "#22c55e")],
             "%",
             Some((19.0, 22.0)),
         );
@@ -711,7 +881,12 @@ fn DetailedPage() -> impl IntoView {
         wasm_bindgen_futures::spawn_local(async move {
             let mine = seq.get() + 1;
             seq.set(mine);
-            if let Some(v) = get_json("/api/env/history?minutes=1").await {
+            if let Some(v) = get_json(&format!(
+                "/api/env/history?minutes={}",
+                env_range.get_untracked()
+            ))
+            .await
+            {
                 if seq.get() != mine {
                     return; // a range click asked for different data
                 }
@@ -763,23 +938,30 @@ fn DetailedPage() -> impl IntoView {
         {app_shell(view! {
             <div class="body-wrap">
                 <main class="main-content">
-                    <div class="content-wrap">
-                        <div class="page-header">
+                    <div class="content-wrap detail-bento" class:shown=move || shown.get()>
+                        <div class="page-header" style=place("header")>
                             <div><h1 class="page-h1">"Detailed View"</h1></div>
                             <div style="display:flex;align-items:center;gap:10px;">
                                 <div class="live-badge">
                                     <span class={move || if device_online.get() { "status-dot dot-green pulse" } else { "status-dot dot-red" }} id="detail-live-dot"></span>
                                     <span id="detail-live-label">{move || if device_online.get() { "Online" } else { "Offline" }}</span>
                                 </div>
-                                <button class="export-btn" on:click=move |_| {
+                                <button class="btn-primary" style="padding:7px 18px;" on:click=move |_| {
                                     if let Some(w) = web_sys::window() {
                                         let _ = w.location().set_href("/api/history/export");
                                     }
-                                }>"Export Excel"</button>
+                                }>
+                                    <span class="btn-corner-tl"></span>
+                                    <span class="btn-corner-br"></span>
+                                    <span class="btn-sweep"><span class="btn-sweep-inner"></span></span>
+                                    <span class="btn-content" style="font-size:10px;gap:6px;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+                                        "Export Excel"
+                                    </span>
+                                </button>
                             </div>
                         </div>
-                        <h2 class="detail-section-title">"Motor data"</h2>
-                        <div class="detail-motor-tabs" id="motor-tabs">
+                        <div class="detail-motor-tabs" style=place("motor-tabs")>
                             {(1u8..=4u8).map(|m| {
                                 let label = MOTOR_NAMES[(m - 1) as usize];
                                 let rt = redraw_tab.clone();
@@ -787,12 +969,33 @@ fn DetailedPage() -> impl IntoView {
                                     <button
                                         class={move || if current_motor.get() == m { "detail-motor-tab active" } else { "detail-motor-tab" }}
                                         data-motor={m.to_string()}
-                                        on:click=move |_| { current_motor.set(m); rt(); }
-                                    >{label}</button>
+                                        aria-label={label}
+                                        title={label}
+                                        on:click=move |_| {
+                                            // One task, strict order: arm the dip,
+                                            // let the class land a frame, then swap
+                                            // the numbers and repaint. Leptos
+                                            // flushed the reactive value cards in
+                                            // the click's own frame, so they showed
+                                            // the new motor at full brightness for
+                                            // one frame before the dim arrived.
+                                            let cm = current_motor;
+                                            let rt2 = rt.clone();
+                                            let sw = swap;
+                                            leptos::task::spawn_local(async move {
+                                                sw.set(true);
+                                                gloo_timers::future::TimeoutFuture::new(16).await;
+                                                cm.set(m);
+                                                rt2();
+                                                gloo_timers::future::TimeoutFuture::new(460).await;
+                                                sw.set(false);
+                                            });
+                                        }
+                                    ><span class="tab-code">{MOTOR_SHORT[(m - 1) as usize]}</span></button>
                                 }
                             }).collect::<Vec<_>>()}
                         </div>
-                        <div style="margin:-16px 0 24px;font-size:11px;color:var(--gray-500);font-weight:500;">
+                        <div class="motor-meta" style=place("motor-meta")>
                             "Updated "
                             <span id="update-time">
                                 {move || { let _ = tick.get(); js_sys::Date::new_0().to_locale_time_string("en-US").as_string().unwrap_or_default() }}
@@ -800,11 +1003,15 @@ fn DetailedPage() -> impl IntoView {
                             <span style="margin-left:12px;color:var(--gray-600);">"Rust UI · /next/ · vanilla at /detailed/"</span>
                             <span style="margin-left:8px;">{move || { let m = current_motor.get() as usize; format!("· {} #{}", MOTOR_SHORT[m-1], m) }}</span>
                         </div>
-                        <div class="detail-values-grid" id="value-cards" style="margin-bottom:24px;">
+                        <div class="band-label" style=place("band-motor")>
+                            <span class="band-name">"Motor data"</span>
+                            <span class="band-rule"></span>
+                        </div>
+                        <div class="detail-values-grid" id="value-cards" class:swap=move || swap.get()>
                             {(0usize..5usize).map(|metric| {
                                 let titles = ["Temperature (°C)", "Voltage (V)", "Current (A)", "Health (%)", "Vibration (g)"];
                                 view! {
-                                    <div class="value-card">
+                                    <div class="value-card" style=place(VAL_PLACE[metric])>
                                         <div class="value-label">{titles[metric]}</div>
                                         <div class="value-number">
                                             {move || {
@@ -841,25 +1048,34 @@ fn DetailedPage() -> impl IntoView {
                                 }
                             }).collect::<Vec<_>>()}
                         </div>
-                        <div class="detail-chart-grid" id="chart-grid">
-                            <div class="chart-card"><div class="chart-title">"Temperature "</div><canvas class="chart-canvas" id="chart-temp" node_ref=temp_ref></canvas></div>
-                            <div class="chart-card"><div class="chart-title">"Voltage "</div><canvas class="chart-canvas" id="chart-voltage" node_ref=volt_ref></canvas></div>
-                            <div class="chart-card"><div class="chart-title">"Current "</div><canvas class="chart-canvas" id="chart-current" node_ref=curr_ref></canvas></div>
-                            <div class="chart-card"><div class="chart-title">"Health "</div><canvas class="chart-canvas" id="chart-health" node_ref=health_ref></canvas></div>
-                            <div class="chart-card"><div class="chart-title">"Vibration "</div><canvas class="chart-canvas" id="chart-vib" node_ref=vib_ref></canvas></div>
+                        <div class="detail-chart-grid" id="chart-grid" class:swap=move || swap.get()>
+                            <div class="chart-card" style=place("chart-temp")><div class="chart-title">"Temperature "</div><canvas class="chart-canvas" id="chart-temp" node_ref=temp_ref></canvas></div>
+                            <div class="chart-card" style=place("chart-voltage")><div class="chart-title">"Voltage "</div><canvas class="chart-canvas" id="chart-voltage" node_ref=volt_ref></canvas></div>
+                            <div class="chart-card" style=place("chart-current")><div class="chart-title">"Current "</div><canvas class="chart-canvas" id="chart-current" node_ref=curr_ref></canvas></div>
+                            <div class="chart-card" style=place("chart-health")><div class="chart-title">"Health "</div><canvas class="chart-canvas" id="chart-health" node_ref=health_ref></canvas></div>
+                            <div class="chart-card" style=place("chart-vib")><div class="chart-title">"Vibration "</div><canvas class="chart-canvas" id="chart-vib" node_ref=vib_ref></canvas></div>
                         </div>
 
-                        <h2 class="detail-section-title">"Gas sensor"</h2>
-                        <div class="sensor-charts">
-                            <div class="panel panel-pad" class:stale=move || { let _ = tick.get(); env_ui::stale_at(env_last_rx.get(), now_ms()) }>
+                        <div class="band-label" style=place("band-sensors")>
+                            <span class="band-name">"Sensors"</span>
+                            <span class="band-rule"></span>
+                        </div>
+                        <div class="sensor-charts" class:swap=move || swap.get()>
+                            <div class="panel panel-pad" style=place("gas-panel") class:stale=move || { let _ = tick.get(); env_ui::stale_at(env_last_rx.get(), now_ms()) }>
+                                <div class="card-label">"Gas sensor"
+                                    <span class="env-info" tabindex="0">"i"
+                                        <span class="env-tip">"Relative MQ cell response (R0/Rs), 1.00 = clean air. Indicative trend, not a gas concentration."</span>
+                                    </span>
+                                </div>
                                 {(0..env_ui::GAS.len()).map(|i| {
                                     let (key, label) = env_ui::GAS[i];
                                     view! {
                                         <div class="env-gas">
                                             <span class="env-gas-name">{label}</span>
                                             <div class="env-track">
-                                                <i class="base"></i>
-                                                <i class="fill" style=move || env_ui::gas_fill_style(&env_msg.get(), key)></i>
+                                                {(0..env_ui::GAS_SEGMENTS).map(|s| view! {
+                                                    <i class=move || env_ui::gas_seg_class(&env_msg.get(), key, s)></i>
+                                                }).collect::<Vec<_>>()}
                                             </div>
                                             <span class="env-gas-val" style=move || format!("color:{}", env_ui::gas_color(&env_msg.get(), key))>
                                                 {move || env_ui::gas_text(&env_msg.get(), key)}
@@ -867,34 +1083,45 @@ fn DetailedPage() -> impl IntoView {
                                         </div>
                                     }
                                 }).collect::<Vec<_>>()}
-                                <div class="env-note">"Relative MQ cell response (R0/Rs), 1.00 = clean air. Colors follow the node's own lines: 2.0 warn, 3.5 high."</div>
                             </div>
-                            <div class="chart-card"><div class="chart-title">"Gas response (R0/Rs) "</div><canvas class="chart-canvas" id="chart-gas" node_ref=gas_ref></canvas></div>
+                            <div class="chart-card" style=place("gas-chart")><div class="chart-title">"Gas response (R0/Rs) "</div><canvas class="chart-canvas" id="chart-gas" node_ref=gas_ref></canvas></div>
                         </div>
 
-                        <h2 class="detail-section-title">"O2 sensor"</h2>
-                        <div class="sensor-charts">
-                            <div class="panel panel-pad" class:stale=move || { let _ = tick.get(); env_ui::stale_at(env_last_rx.get(), now_ms()) }>
+                        <div class="sensor-charts" class:swap=move || swap.get()>
+                            <div class="panel panel-pad" style=place("o2-panel") class:stale=move || { let _ = tick.get(); env_ui::stale_at(env_last_rx.get(), now_ms()) }>
+                                <div class="card-label">"O2 estimate"
+                                    <span class="env-info" tabindex="0">"i"
+                                        <span class="env-tip">"Derived from the gas ratios, flame and heat, not measured. 20.9 % is the clean-air anchor and 16.9 % the floor; warn below 20.0 %, alarm below 19.5 %. A real galvanic cell would replace it automatically, and no estimate appears when the sensors cannot back one."</span>
+                                    </span>
+                                </div>
                                 <div class="sensor-big" style=move || {
                                     let f = env_msg.get();
                                     format!("color:{}", env_ui::guarded_color(&f, env_ui::num(&f, "o2_pct"), &["o2_low"]))
                                 }>
-                                    {move || env_ui::fmt(env_ui::num(&env_msg.get(), "o2_pct"), 2)}<small>"% O2"</small>
+                                    {move || {
+                                        let s = env_ui::fmt(env_ui::num(&env_msg.get(), "o2_pct"), 2);
+                                        if s == "--" { s } else { format!("~{s}") }
+                                    }}<small>"% O2"</small>
                                 </div>
                                 <div class="sensor-row">
-                                    <span class="k">"Cell output"</span>
-                                    <span class="v" style=move || format!("color:{}", env_ui::guarded_color(&env_msg.get(), env_ui::num(&env_msg.get(), "o2_mv"), &[]))>
-                                        {move || format!("{} mV", env_ui::fmt(env_ui::num(&env_msg.get(), "o2_mv"), 2))}
-                                    </span>
+                                    <span class="k">"Model load"</span>
+                                    <span class="v">{move || env_ui::fmt(env_ui::num(&env_msg.get(), "o2_load"), 2)}</span>
                                 </div>
-                                <div class="env-note">"Galvanic cell: clean air reads about 10 to 13 mV and 20.9 %. Warn below 20.0 %, alarm below 19.5 %."</div>
-                            </div>
-                            <div class="chart-card"><div class="chart-title">"O2 (%) "</div><canvas class="chart-canvas" id="chart-o2" node_ref=o2_ref></canvas></div>
+                                <div class="sensor-row">
+                                    <span class="k">"Inputs"</span>
+                                    <span class="v">{move || env_msg.get().get("o2_src").and_then(|v| v.as_str()).unwrap_or("--").to_string()}</span>
+                                </div>
+                                </div>
+                            <div class="chart-card" style=place("o2-chart")><div class="chart-title">"O2 estimate (%) "</div><canvas class="chart-canvas" id="chart-o2" node_ref=o2_ref></canvas></div>
                         </div>
 
-                        <h2 class="detail-section-title">"Flame sensor"</h2>
-                        <div class="sensor-charts">
-                            <div class="panel panel-pad" class:stale=move || { let _ = tick.get(); env_ui::stale_at(env_last_rx.get(), now_ms()) }>
+                        <div class="sensor-charts" class:swap=move || swap.get()>
+                            <div class="panel panel-pad" style=place("flame-panel") class:stale=move || { let _ = tick.get(); env_ui::stale_at(env_last_rx.get(), now_ms()) }>
+                                <div class="card-label">"Flame sensor"
+                                    <span class="env-info" tabindex="0">"i"
+                                        <span class="env-tip">"Level is the module's analog output. A lit dot is the direction whose line fired (1 = GPIO 34, 2 = 35, 3 = 36, 4 = 39, 5 = 32)."</span>
+                                    </span>
+                                </div>
                                 <div class="sensor-big" style=move || {
                                     let f = env_msg.get();
                                     format!("color:{}", env_ui::guarded_color(&f, env_ui::num(&f, "flame_lvl"), &["flame"]))
@@ -939,14 +1166,17 @@ fn DetailedPage() -> impl IntoView {
                                         }}
                                     </span>
                                 </div>
-                                <div class="env-note">"Level is the module's analog output. A lit dot is the direction whose line fired (1 = GPIO 34, 2 = 35, 3 = 36, 4 = 39, 5 = 32)."</div>
-                            </div>
-                            <div class="chart-card"><div class="chart-title">"Flame level (V) "</div><canvas class="chart-canvas" id="chart-flame" node_ref=flame_ref></canvas></div>
+                                </div>
+                            <div class="chart-card" style=place("flame-chart")><div class="chart-title">"Flame level (V) "</div><canvas class="chart-canvas" id="chart-flame" node_ref=flame_ref></canvas></div>
                         </div>
 
-                        <h2 class="detail-section-title">"Heat sensor (MLX pair)"</h2>
-                        <div class="sensor-charts">
-                            <div class="panel panel-pad" class:stale=move || { let _ = tick.get(); env_ui::stale_at(env_last_rx.get(), now_ms()) }>
+                        <div class="sensor-charts" class:swap=move || swap.get()>
+                            <div class="panel panel-pad" style=place("heat-panel") class:stale=move || { let _ = tick.get(); env_ui::stale_at(env_last_rx.get(), now_ms()) }>
+                                <div class="card-label">"Heat sensor (MLX pair)"
+                                    <span class="env-info" tabindex="0">"i"
+                                        <span class="env-tip">"Warn when |L-R| >= 8 °C, alarm >= 15 °C. Aim both at the same wall to sanity-check the pair."</span>
+                                    </span>
+                                </div>
                                 <div class="sensor-big" style=move || {
                                     let f = env_msg.get();
                                     format!("color:{}", env_ui::guarded_color(&f, env_ui::num(&f, "heat_l"), &["heat_delta"]))
@@ -967,12 +1197,11 @@ fn DetailedPage() -> impl IntoView {
                                         }
                                     }}</span>
                                 </div>
-                                <div class="env-note">"Warn when |L-R| >= 8 °C, alarm >= 15 °C. Aim both at the same wall to sanity-check the pair."</div>
-                            </div>
-                            <div class="chart-card"><div class="chart-title">"Heat L / R (°C) "</div><canvas class="chart-canvas" id="chart-heat" node_ref=heat_ref></canvas></div>
+                                </div>
+                            <div class="chart-card" style=place("heat-chart")><div class="chart-title">"Heat L / R (°C) "</div><canvas class="chart-canvas" id="chart-heat" node_ref=heat_ref></canvas></div>
                         </div>
 
-                        <div class="sensor-range">
+                        <div class="sensor-range" style=place("range")>
                             <span class="lbl">"Chart range"</span>
                             {ENV_RANGES.iter().copied().map(|(label, mins)| {
                                 let rr = redraw_env_rc.clone();
@@ -982,9 +1211,22 @@ fn DetailedPage() -> impl IntoView {
                                     <button
                                         class={move || if env_range.get() == mins { "range-btn active" } else { "range-btn" }}
                                         on:click=move |_| {
-                                            env_range.set(mins);
+                                            // Same order as the motor tabs: arm the
+                                            // dip, wait a frame for the class, then
+                                            // change the range and repaint.
+                                            let er = env_range;
+                                            let sw = swap;
+                                            let rr3 = rr2.clone();
                                             let rr = rr.clone();
                                             let seq = seq.clone();
+                                            leptos::task::spawn_local(async move {
+                                                sw.set(true);
+                                                gloo_timers::future::TimeoutFuture::new(16).await;
+                                                er.set(mins);
+                                                rr3();
+                                                gloo_timers::future::TimeoutFuture::new(460).await;
+                                                sw.set(false);
+                                            });
                                             wasm_bindgen_futures::spawn_local(async move {
                                                 let mine = seq.get() + 1;
                                                 seq.set(mine);
@@ -998,15 +1240,22 @@ fn DetailedPage() -> impl IntoView {
                                                 }
                                                 rr();
                                             });
-                                            rr2();
                                         }
-                                    >{label}</button>
+                                    ><span>{label}</span></button>
                                 }
                             }).collect::<Vec<_>>()}
                         </div>
 
-                        <h2 class="detail-section-title">"Node"</h2>
-                        <div class="panel panel-pad" class:stale=move || { let _ = tick.get(); env_ui::stale_at(env_last_rx.get(), now_ms()) }>
+                        <div class="band-label" style=place("band-node")>
+                            <span class="band-name">"Node + IMU"</span>
+                            <span class="band-rule"></span>
+                        </div>
+                        <div class="panel panel-pad" style=place("node-panel") class:stale=move || { let _ = tick.get(); env_ui::stale_at(env_last_rx.get(), now_ms()) }>
+                            <div class="card-label">"Node"
+                            <span class="env-info" tabindex="0">"i"
+                                <span class="env-tip">"Burn-in is the node's own powered time. MQ cells need 24 to 48 h before the baseline means anything. Green means the board answered, not that a gas is safe."</span>
+                            </span>
+                        </div>
                             <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
                                 {[("ADS", "ads_ok"), ("MLX pair", "mlx_ok"), ("baseline", "baseline_ok")].iter().copied().map(|(label, key)| view! {
                                     <span class={move || match env_ui::ok_flag(&env_msg.get(), key) {
@@ -1028,11 +1277,14 @@ fn DetailedPage() -> impl IntoView {
                                 }}</b></span>
                                 <span class="chip-sm">"state "<b>{move || env_status.get().get("state").and_then(|v| v.as_str()).unwrap_or("--").to_string()}</b></span>
                             </div>
-                            <div class="env-note">"Burn-in is the node's own powered time. MQ cells need 24 to 48 h before the baseline means anything. Green means the board answered, not that a gas is safe."</div>
-                        </div>
+                            </div>
 
-                        <h2 class="detail-section-title">"IMU (mid board)"</h2>
-                        <div class="panel panel-pad" class:stale=move || { let _ = tick.get(); env_ui::stale_at(imu_last_rx.get(), now_ms()) }>
+                        <div class="panel panel-pad" style=place("imu-panel") class:stale=move || { let _ = tick.get(); env_ui::stale_at(imu_last_rx.get(), now_ms()) }>
+                            <div class="card-label">"IMU (mid board)"
+                            <span class="env-info" tabindex="0">"i"
+                                <span class="env-tip">"Localization feed, 4 Hz; recorded with the ENV log into the Excel export (IMU sheet). The map view lands with the Pi work."</span>
+                            </span>
+                        </div>
                             <div class="sensor-row"><span class="k">"Yaw"</span><span class="v">{move || format!("{} deg", env_ui::fmt(env_ui::num(&imu_msg.get(), "yaw"), 1))}</span></div>
                             <div class="sensor-row"><span class="k">"Pitch / roll"</span><span class="v">{move || format!("{} / {} deg", env_ui::fmt(env_ui::num(&imu_msg.get(), "pitch"), 1), env_ui::fmt(env_ui::num(&imu_msg.get(), "roll"), 1))}</span></div>
                             <div class="sensor-row"><span class="k">"Accel x / y / z"</span><span class="v">{move || format!("{} / {} / {} g", env_ui::fmt(env_ui::num(&imu_msg.get(), "ax"), 2), env_ui::fmt(env_ui::num(&imu_msg.get(), "ay"), 2), env_ui::fmt(env_ui::num(&imu_msg.get(), "az"), 2))}</span></div>
@@ -1042,8 +1294,7 @@ fn DetailedPage() -> impl IntoView {
                                 Some(false) => "no answer".to_string(),
                                 None => "--".to_string(),
                             }}</span></div>
-                            <div class="env-note">"Localization feed, 4 Hz; recorded with the ENV log into the Excel export (IMU sheet). The map view lands with the Pi work."</div>
-                        </div>
+                            </div>
                     </div>
                 </main>
             </div>
@@ -1053,9 +1304,9 @@ fn DetailedPage() -> impl IntoView {
 
 #[component]
 fn App() -> impl IntoView {
-    // Manual pathname routing (leptos_router deferred): /test -> Motor Test,
-    // /detailed -> Detailed, /calibration -> Calibration, everything else ->
-    // Home. The server serves this same index.html at the root routes AND
+    // Manual pathname routing (leptos_router deferred): /control -> Control,
+    // /test -> Motor Test, /detailed -> Detailed, /calibration -> Calibration,
+    // everything else -> Home. The server serves this same index.html at the root routes AND
     // under /next/*, so match on the alias-normalized path (route_path).
     // Plain <a> links keep deep-links and back-button behavior.
     // Page-level once-per-load effects: `.no-vt` fallback flag + header
@@ -1107,7 +1358,9 @@ fn App() -> impl IntoView {
         .map(|w| w.location().pathname().unwrap_or_default())
         .unwrap_or_default();
     let view_path = route_path(&path);
-    if view_path.starts_with("/test") {
+    if view_path.starts_with("/control") {
+        view! { <control_page::ControlPage/> }.into_any()
+    } else if view_path.starts_with("/test") {
         view! { <test_page::TestPage/> }.into_any()
     } else if view_path.starts_with("/detailed") {
         view! { <DetailedPage/> }.into_any()

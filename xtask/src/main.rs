@@ -237,12 +237,13 @@ fn cmd_dev() -> i32 {
 // doctor — Doctor.bat: plain-language health checks.
 // ---------------------------------------------------------------------------
 
-const PAGES: [(&str, &str); 6] = [
+const PAGES: [(&str, &str); 7] = [
     ("/", "dashboard (Rust UI)"),
     ("/next/", "rust home alias"),
     ("/next/detailed", "detailed"),
     ("/next/test", "motor test"),
     ("/next/calibration", "calibration"),
+    ("/next/control", "cockpit control"),
     ("/setup/", "setup page"),
 ];
 
@@ -373,6 +374,7 @@ fn cmd_package() -> i32 {
         "libssl-3-x64.dll",
         "libmicrohttpd-dll.dll",
         "cjson.dll",
+        "mosquitto.conf",
     ] {
         if !cp(bin.join(f), f) {
             return 1;

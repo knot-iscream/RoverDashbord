@@ -2,6 +2,7 @@
 //! `main()` over this. Splitting the lib out lets integration tests (and
 //! later the Tauri shell) link the backend instead of shelling out to it.
 
+pub mod bench;
 pub mod calibration;
 pub mod config;
 pub mod data;
@@ -9,7 +10,9 @@ pub mod env_alarm;
 pub mod export;
 pub mod history;
 pub mod mqtt;
+pub mod o2_estimate;
 pub mod routes;
+pub mod sensor_cal;
 pub mod sensor_log;
 pub mod ws;
 
@@ -47,6 +50,18 @@ pub struct AppState {
     /// parity goldens stay untouched.
     pub env: Arc<tokio::sync::RwLock<Value>>,
     pub imu: Arc<tokio::sync::RwLock<Value>>,
+    /// Swing arm servo + AS5600 (ESP-2). Same raw-frame rule as env/imu.
+    pub servo: Arc<tokio::sync::RwLock<Value>>,
+    /// Latest RPLIDAR A1 scan (Pi-side serial bridge). Same null rule: a
+    /// full revolution is published as one frame, never a fabricated point.
+    pub lidar: Arc<tokio::sync::RwLock<Value>>,
+    /// Derived O2 for the ENV node (no galvanic cell fitted). Stateful
+    /// because of the attack/release filter; brief std::sync locks only.
+    pub o2: Arc<std::sync::Mutex<o2_estimate::O2Estimator>>,
+    /// The one-press bench capture: stage, what it captured, what it could
+    /// not. Separate from `cal` because the motor FSM's status payload stays
+    /// byte-identical with the Python original.
+    pub bench: bench::BenchSlot,
     /// Rolling ENV + IMU logs behind the Detailed charts and the Excel
     /// export. In-memory: resets with the process, disk persistence is the
     /// planned Pi-session item.
@@ -66,6 +81,9 @@ impl AppState {
             motor_status: self.motor_status.clone(),
             env: self.env.clone(),
             imu: self.imu.clone(),
+            servo: self.servo.clone(),
+            lidar: self.lidar.clone(),
+            o2: self.o2.clone(),
             sensors: self.sensors.clone(),
             device: self.device.clone(),
             bcast: self.bcast.clone(),
@@ -89,6 +107,12 @@ pub fn build_router(state: AppState) -> Router {
             "/api/calibration/baseline/:motor_id",
             post(routes::set_baseline),
         )
+        .route(
+            "/api/calibration/sensor/:key/capture",
+            post(routes::capture_sensor),
+        )
+        .route("/api/calibration/bench/start", post(routes::bench_start))
+        .route("/api/calibration/bench/stop", post(routes::bench_stop))
         .route("/api/config", post(routes::post_config))
         .route(
             "/api/auth/token",
@@ -129,6 +153,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/env", get(routes::env))
         .route("/api/env/history", get(routes::env_history))
         .route("/api/imu", get(routes::imu))
+        .route("/api/servo", get(routes::servo))
+        .route("/api/lidar", get(routes::lidar))
         .route("/api/calibration", get(routes::calibration))
         .route("/api/calibration/status", get(routes::calibration_status))
         .route("/api/calibration/export", get(routes::calibration_export))
@@ -147,6 +173,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/test/", next_page.clone())
         .route("/calibration", next_page.clone())
         .route("/calibration/", next_page.clone())
+        .route("/control", next_page.clone())
+        .route("/control/", next_page.clone())
+        .route("/next/control", next_page.clone())
         .route("/next/test", next_page.clone())
         .route("/next/detailed", next_page.clone())
         .route("/next/calibration", next_page)
@@ -231,6 +260,10 @@ pub async fn build_state() -> AppState {
     // object: null renders `--`, an empty object would look like real zeros.
     let env = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let imu = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let servo = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let lidar = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let o2 = Arc::new(std::sync::Mutex::new(o2_estimate::O2Estimator::new()));
+    let bench = bench::new_bench();
     let sensors = Arc::new(std::sync::Mutex::new(SensorLog::default()));
     let device = Arc::new(tokio::sync::RwLock::new(DeviceState::default()));
     let ctx = mqtt::Ctx {
@@ -240,6 +273,9 @@ pub async fn build_state() -> AppState {
         motor_status: motor_status.clone(),
         env: env.clone(),
         imu: imu.clone(),
+        servo: servo.clone(),
+        lidar: lidar.clone(),
+        o2: o2.clone(),
         sensors: sensors.clone(),
         device: device.clone(),
         bcast: bcast.clone(),
@@ -254,6 +290,10 @@ pub async fn build_state() -> AppState {
         motor_status,
         env,
         imu,
+        servo,
+        lidar,
+        o2,
+        bench,
         sensors,
         device,
         mqtt: Arc::new(tokio::sync::RwLock::new(slot)),

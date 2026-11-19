@@ -77,6 +77,18 @@ pub async fn imu(State(s): State<AppState>) -> Json<Value> {
     Json(json!({"imu": s.imu.read().await.clone()}))
 }
 
+/// Latest swing-arm frame (ESP-2): commanded angle, the AS5600's measured one
+/// when a calibration exists, and the sweep flags.
+pub async fn servo(State(s): State<AppState>) -> Json<Value> {
+    Json(json!({"servo": s.servo.read().await.clone()}))
+}
+
+/// Latest RPLIDAR A1 revolution (Pi serial bridge). `null` until the first
+/// full turn; points are `[angle_deg, distance_mm, quality]` from the sensor.
+pub async fn lidar(State(s): State<AppState>) -> Json<Value> {
+    Json(json!({"lidar": s.lidar.read().await.clone()}))
+}
+
 fn coerce_motor(v: Option<&Value>) -> i64 {
     v.and_then(|x| x.as_i64()).unwrap_or(0)
 }
@@ -134,8 +146,117 @@ pub async fn motor_status(State(s): State<AppState>) -> Json<Value> {
     Json(s.motor_status.read().await.clone())
 }
 
+/// Everything the Calibration page needs in one read: the motor baselines
+/// (which feed health drift), the sensor baselines, and the bench run's stage.
+/// The bench state rides here rather than as an idle socket frame on every
+/// connect; live stages still arrive as `bench_capture` while a run is going.
 pub async fn calibration(State(s): State<AppState>) -> Json<Value> {
-    Json(json!({"baselines": s.data.read().await.baselines}))
+    // One read guard for both maps: two in one statement could deadlock
+    // against a queued writer on tokio's write-preferring RwLock.
+    let data = s.data.read().await;
+    let bench = s.bench.read().await.payload();
+    Json(json!({
+        "baselines": &data.baselines,
+        "sensor_baselines": &data.sensor_baselines,
+        "bench": bench,
+    }))
+}
+
+/// Publish one board-side capture command. Shared by the bench triggers and
+/// the per-row capture so they all answer the same way as `motor_control`:
+/// `sent:false` plus the MQTT state when the broker is not connected, rather
+/// than a 200 that pretends the rover did something.
+async fn publish_command(s: &AppState, topic: &str, action: &str) -> Value {
+    let sent = s
+        .mqtt
+        .read()
+        .await
+        .handle
+        .publish(topic, &json!({"action": action}))
+        .await;
+    if sent {
+        json!({"status": "ok", "sent": true, "topic": topic, "action": action})
+    } else {
+        json!({
+            "status": "error",
+            "detail": "MQTT not connected",
+            "sent": false,
+            "topic": topic,
+            "action": action,
+            "mqtt_connected": s.mqtt.read().await.handle.is_connected(),
+        })
+    }
+}
+
+/// Capture one sensor's reference: the app averages the last
+/// `CAPTURE_WINDOW_S` of frames and writes them down, and the owning board is
+/// told to re-capture its own copy where it has one.
+///
+/// The two halves are deliberately independent. The host record works with no
+/// board involved; the command is what makes the board's own maths (gas R0/Rs,
+/// the arm's AS5600) use the new reference, and it can fail on its own.
+pub async fn capture_sensor(State(s): State<AppState>, Path(key): Path<String>) -> Response {
+    if !crate::sensor_cal::is_known(&key) {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "status": "error",
+                "detail": format!("unknown sensor '{key}'"),
+                "keys": crate::sensor_cal::SPECS.iter().map(|s| s.key).collect::<Vec<_>>(),
+            })),
+        )
+            .into_response();
+    }
+    // The sensor log is a std Mutex: read the servo frame first so no await
+    // ever happens while the guard is alive (handlers must be Send).
+    let servo = s.servo.read().await.clone();
+    let (env, imu) = {
+        let log = s.sensors.lock().unwrap();
+        (
+            log.env_recent(crate::sensor_cal::CAPTURE_WINDOW_S),
+            log.imu_recent(crate::sensor_cal::CAPTURE_WINDOW_S),
+        )
+    };
+    let Some(reference) = crate::sensor_cal::reference_for(&key, &env, &imu, &servo) else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "status": "error",
+                "detail": format!("{key} has not sent a reading yet, nothing to capture"),
+                "sensor": key,
+            })),
+        )
+            .into_response();
+    };
+    s.data
+        .write()
+        .await
+        .capture_sensor_baseline(&key, reference.clone());
+
+    let mut out = json!({"status": "ok", "sensor": key, "reference": reference});
+    if let Some((topic, action)) = crate::sensor_cal::SPECS
+        .iter()
+        .find(|spec| spec.key == key)
+        .and_then(|spec| spec.command)
+    {
+        out["board_command"] = publish_command(&s, topic, action).await;
+    }
+    Json(out).into_response()
+}
+
+/// POST /api/calibration/bench/start - the one press. IMU zero first while the
+/// rover is still, then the ENV baseline and the arm sweep, then the motors.
+pub async fn bench_start(State(s): State<AppState>) -> Response {
+    if crate::bench::is_running(&s.bench).await {
+        return (StatusCode::CONFLICT, Json(s.bench.read().await.payload())).into_response();
+    }
+    let started = crate::bench::start(s.ctx(), s.mqtt.clone(), s.bench.clone()).await;
+    (StatusCode::ACCEPTED, Json(started.payload())).into_response()
+}
+
+pub async fn bench_stop(State(s): State<AppState>) -> Response {
+    crate::bench::cancel(&s.bench).await;
+    Json(s.bench.read().await.payload()).into_response()
 }
 
 pub async fn set_baseline(
@@ -162,6 +283,9 @@ pub async fn calibration_start(State(s): State<AppState>) -> Json<Value> {
 
 pub async fn calibration_stop(State(s): State<AppState>) -> Json<Value> {
     let result = s.cal.write().await.stop();
+    // Stop means stop: a bench sequence still sleeping through its steps bows
+    // out here too, rather than quietly starting the motors a second later.
+    crate::bench::cancel(&s.bench).await;
     let _ = s
         .mqtt
         .read()
@@ -316,7 +440,7 @@ pub async fn post_config(State(s): State<AppState>, Json(body): Json<Value>) -> 
 // Root routes AND their /next aliases: the SPA answers on both, so a first
 // visit via either URL must end up with the cookie (the WASM UI's WS
 // upgrade and mutations read it).
-const ENTRY_PATHS: [&str; 9] = [
+const ENTRY_PATHS: [&str; 11] = [
     "/",
     "/test",
     "/test/",
@@ -324,6 +448,8 @@ const ENTRY_PATHS: [&str; 9] = [
     "/detailed/",
     "/calibration",
     "/calibration/",
+    "/control",
+    "/control/",
     "/setup/",
     "/setup",
 ];

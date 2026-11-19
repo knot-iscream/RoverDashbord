@@ -14,7 +14,7 @@ use web_sys::Element;
 
 use crate::env_ui;
 use crate::shell::app_shell;
-use crate::ws::{fetch_device_online, get_json, now_ms, ws_url};
+use crate::ws::{camera_url, fetch_device_online, get_json, non_reactive, now_ms, ws_url};
 
 const LABELS: [&str; 4] = ["FL", "FR", "RL", "RR"];
 const PARTS: [&str; 4] = ["wheelFL", "wheelFR", "wheelRL", "wheelRR"];
@@ -39,6 +39,7 @@ fn temp_color(temp: f64) -> String {
 }
 
 fn q(hud: NodeRef<leptos::html::Div>, sel: &str) -> Option<Element> {
+    let _nz = non_reactive();
     hud.get()?.query_selector(sel).ok()?
 }
 
@@ -192,7 +193,7 @@ fn sim_step(m: &mut HomeMotor) {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct HomeCtx {
     motors: RwSignal<[HomeMotor; 4]>,
     live: RwSignal<[bool; 4]>,
@@ -205,10 +206,21 @@ struct HomeCtx {
     env_msg: RwSignal<serde_json::Value>,
     env_seen: RwSignal<f64>,
     env_stale: RwSignal<bool>,
+    /// Latest RPLIDAR A1 revolution and its freshness. Null until the first
+    /// full turn, same rule as the other feeds.
+    lidar_msg: RwSignal<serde_json::Value>,
+    lidar_seen: RwSignal<f64>,
+    lidar_stale: RwSignal<bool>,
+    /// Manually stacked rings for the rough 3D view: (pitch_deg, points).
+    lidar_rings: RwSignal<Vec<(f64, Vec<[f64; 3]>)>>,
+    lidar_view: RwSignal<u8>,
+    lidar_pitch: RwSignal<f64>,
     hud: NodeRef<leptos::html::Div>,
+    lidar_canvas: NodeRef<leptos::html::Canvas>,
 }
 
 fn repaint(ctx: &HomeCtx) {
+    let _nz = non_reactive();
     paint_hud(
         ctx.hud,
         &ctx.motors.get(),
@@ -218,13 +230,180 @@ fn repaint(ctx: &HomeCtx) {
     );
 }
 
+/// 2D polar plot of the latest A1 revolution. Imperative like the HUD: the
+/// canvas is touched only when a scan arrives, not on every reactive tick.
+fn paint_lidar(ctx: &HomeCtx) {
+    let _nz = non_reactive();
+    let Some(canvas) = ctx.lidar_canvas.get() else {
+        return;
+    };
+    let Ok(Some(rc)) = canvas.get_context("2d") else {
+        return;
+    };
+    let Some(g) = rc.dyn_into::<web_sys::CanvasRenderingContext2d>().ok() else {
+        return;
+    };
+    let w = canvas.width() as f64;
+    let h = canvas.height() as f64;
+    let (cx, cy) = (w / 2.0, h / 2.0);
+    let rmax = (h / 2.0 - 14.0).min(w / 2.0 - 14.0);
+    g.clear_rect(0.0, 0.0, w, h);
+    if ctx.lidar_view.get() == 1 {
+        paint_lidar_3d(ctx, &g, cx, cy, rmax);
+        return;
+    }
+    g.set_line_width(1.0);
+    g.set_stroke_style_str("rgba(255,255,255,0.10)");
+    for i in 1..=4 {
+        g.begin_path();
+        g.arc(
+            cx,
+            cy,
+            rmax * i as f64 / 4.0,
+            0.0,
+            std::f64::consts::PI * 2.0,
+        )
+        .ok();
+        g.stroke();
+    }
+    for a in 0..12 {
+        let t = a as f64 * std::f64::consts::PI / 6.0;
+        g.begin_path();
+        g.move_to(cx, cy);
+        g.line_to(cx + t.cos() * rmax, cy + t.sin() * rmax);
+        g.stroke();
+    }
+    let frame = ctx.lidar_msg.get();
+    let pts = frame.get("points").and_then(|p| p.as_array());
+    let mut dmax = 2000.0f64;
+    if let Some(ps) = pts {
+        for p in ps {
+            if let Some(d) = p.get(1).and_then(|x| x.as_f64()) {
+                if d > dmax {
+                    dmax = d;
+                }
+            }
+        }
+    }
+    dmax = dmax.clamp(500.0, 6000.0);
+    if let Some(ps) = pts {
+        for p in ps {
+            let (Some(a), Some(d)) = (
+                p.get(0).and_then(|x| x.as_f64()),
+                p.get(1).and_then(|x| x.as_f64()),
+            ) else {
+                continue;
+            };
+            if d <= 0.0 {
+                continue;
+            }
+            let q = p.get(2).and_then(|x| x.as_f64()).unwrap_or(15.0);
+            let rr = (d / dmax).min(1.0) * rmax;
+            let t = a.to_radians() - std::f64::consts::PI / 2.0;
+            let alpha = (0.30 + (q / 15.0).clamp(0.0, 1.0) * 0.70).min(1.0);
+            g.set_fill_style_str(&format!("rgba(249,115,22,{alpha:.2})"));
+            g.begin_path();
+            g.arc(
+                cx + t.cos() * rr,
+                cy + t.sin() * rr,
+                2.0,
+                0.0,
+                std::f64::consts::PI * 2.0,
+            )
+            .ok();
+            g.fill();
+        }
+    }
+    g.set_fill_style_str("rgba(255,255,255,0.65)");
+    g.set_font("11px sans-serif");
+    let label = if ctx.lidar_stale.get() || pts.is_none() {
+        "NO SCAN - waiting for A1".to_string()
+    } else {
+        format!(
+            "A1  {} pts   scale {:.1} m",
+            pts.map_or(0, |p| p.len()),
+            dmax / 1000.0
+        )
+    };
+    g.fill_text(&label, 10.0, h - 10.0).ok();
+}
+
+/// Rough 3D from stacked 2D rings. Each ring was captured by hand at a known
+/// pitch; the A1's own angle is the horizontal axis. No angle is invented.
+fn paint_lidar_3d(
+    ctx: &HomeCtx,
+    g: &web_sys::CanvasRenderingContext2d,
+    cx: f64,
+    cy: f64,
+    rmax: f64,
+) {
+    g.set_line_width(1.0);
+    g.set_stroke_style_str("rgba(255,255,255,0.15)");
+    g.begin_path();
+    g.move_to(cx - rmax * 0.75, cy);
+    g.line_to(cx + rmax * 0.75, cy);
+    g.stroke();
+    g.begin_path();
+    g.move_to(cx, cy + rmax * 0.55);
+    g.line_to(cx, cy - rmax * 0.55);
+    g.stroke();
+    let rings = ctx.lidar_rings.get();
+    if rings.is_empty() {
+        g.set_fill_style_str("rgba(255,255,255,0.65)");
+        g.fill_text(
+            "3D - capture a ring at each tilt",
+            10.0,
+            cy + rmax * 0.55 + 16.0,
+        )
+        .ok();
+        return;
+    }
+    let mut dmax = 1000.0f64;
+    for (_, pts) in &rings {
+        for p in pts {
+            if p[1] > dmax {
+                dmax = p[1];
+            }
+        }
+    }
+    dmax = dmax.clamp(500.0, 6000.0);
+    let scale = rmax / dmax;
+    for (i, (pitch, pts)) in rings.iter().enumerate() {
+        let pr = pitch.to_radians();
+        let (cp, sp) = (pr.cos(), pr.sin());
+        let light = 42 + (i as i64 * 11 % 30);
+        g.set_fill_style_str(&format!("hsl(24, 95%, {light}%)"));
+        for p in pts {
+            if p[1] <= 0.0 {
+                continue;
+            }
+            let a = p[0].to_radians();
+            let x = p[1] * a.cos();
+            let y = p[1] * a.sin();
+            let (xx, yy, zz) = (x, y * cp, y * sp);
+            let sx = cx + (xx - yy * 0.35) * scale;
+            let sy = cy - (zz + yy * 0.22) * scale;
+            g.begin_path();
+            g.arc(sx, sy, 2.0, 0.0, std::f64::consts::PI * 2.0).ok();
+            g.fill();
+        }
+    }
+    g.set_fill_style_str("rgba(255,255,255,0.65)");
+    let last = rings.last().map_or(0.0, |r| r.0);
+    g.fill_text(
+        &format!("3D stepped - {} rings - tilt {:+.0} deg", rings.len(), last),
+        10.0,
+        cy + rmax * 0.55 + 16.0,
+    )
+    .ok();
+}
+
 /// Home WS loop: motor_update feeds live motors (latching each one),
 /// device_status drives the corner badge. No snapshot replay (vanilla home
 /// never had WS at all — only fresh frames drive the HUD).
 fn connect_home_ws(ctx: HomeCtx) {
     let url = ws_url();
     let Ok(socket) = web_sys::WebSocket::new(&url) else {
-        let ctx = ctx.clone();
         wasm_bindgen_futures::spawn_local(async move {
             gloo_timers::future::TimeoutFuture::new(3000).await;
             connect_home_ws(ctx);
@@ -241,7 +420,6 @@ fn connect_home_ws(ctx: HomeCtx) {
     onopen.forget();
 
     let onmessage = Closure::<dyn FnMut(_)>::new({
-        let ctx = ctx.clone();
         move |e: web_sys::MessageEvent| {
             let Some(text) = e.data().as_string() else {
                 return;
@@ -304,6 +482,12 @@ fn connect_home_ws(ctx: HomeCtx) {
                     ctx.env_msg.set(v.clone());
                     ctx.env_seen.set(now_ms());
                 }
+                "lidar_update" => {
+                    ctx.lidar_msg.set(v.clone());
+                    ctx.lidar_seen.set(now_ms());
+                    ctx.lidar_stale.set(false);
+                    paint_lidar(&ctx);
+                }
                 _ => {}
             }
         }
@@ -312,9 +496,7 @@ fn connect_home_ws(ctx: HomeCtx) {
     onmessage.forget();
 
     let onclose = Closure::<dyn FnMut(_)>::new({
-        let ctx = ctx.clone();
         move |_: web_sys::CloseEvent| {
-            let ctx = ctx.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 gloo_timers::future::TimeoutFuture::new(3000).await;
                 connect_home_ws(ctx);
@@ -394,14 +576,23 @@ pub fn HomePage() -> impl IntoView {
     let dot_txt = RwSignal::new("All systems nominal".to_string());
     let queue = RwSignal::new(Vec::<String>::new());
     let cam = RwSignal::new(0u8);
+    let cam_live = RwSignal::new(false);
     let env_msg = RwSignal::new(serde_json::Value::Null);
     let env_seen = RwSignal::new(0.0f64);
     let env_stale = RwSignal::new(true);
+    let lidar_msg = RwSignal::new(serde_json::Value::Null);
+    let lidar_seen = RwSignal::new(0.0f64);
+    let lidar_stale = RwSignal::new(true);
+    let lidar_rings = RwSignal::new(Vec::new());
+    let lidar_view = RwSignal::new(0u8);
+    let lidar_pitch = RwSignal::new(0.0f64);
 
     let hud = NodeRef::<leptos::html::Div>::new();
+    let lidar_canvas = NodeRef::<leptos::html::Canvas>::new();
     let viewport = NodeRef::<leptos::html::Div>::new();
     let placeholder = NodeRef::<leptos::html::Div>::new();
     let cam_label = NodeRef::<leptos::html::Span>::new();
+    let cam_img = NodeRef::<leptos::html::Img>::new();
 
     let ctx = HomeCtx {
         motors,
@@ -413,19 +604,25 @@ pub fn HomePage() -> impl IntoView {
         env_msg,
         env_seen,
         env_stale,
+        lidar_msg,
+        lidar_seen,
+        lidar_stale,
+        lidar_rings,
+        lidar_view,
+        lidar_pitch,
         hud,
+        lidar_canvas,
     };
 
     // -- setup: WS, polls, sim fallback, overlay ticker (refs post-mount) --
     {
-        let ctx = ctx.clone();
-        connect_home_ws(ctx.clone());
+        connect_home_ws(ctx);
         wasm_bindgen_futures::spawn_local(async move {
             ctx.device_online.set(fetch_device_online().await);
         });
         // ENV fetch folds `GET /api/env` into the flat `env_update` shape the
         // WS feeds, so the panel is populated even between frames.
-        let c = ctx.clone();
+        let c = ctx;
         wasm_bindgen_futures::spawn_local(async move {
             if let Some(v) = get_json("/api/env").await {
                 let frame = env_ui::fold_api_env(&v);
@@ -435,25 +632,39 @@ pub fn HomePage() -> impl IntoView {
                 }
             }
         });
-        let ctx = ctx.clone();
+        // Same for the A1 scan: a page opened between revolutions still shows
+        // the last full turn instead of an empty canvas.
+        let c = ctx;
         wasm_bindgen_futures::spawn_local(async move {
+            if let Some(v) = get_json("/api/lidar").await {
+                if let Some(frame) = v.get("lidar") {
+                    if !frame.is_null() {
+                        c.lidar_msg.set(frame.clone());
+                        c.lidar_seen.set(now_ms());
+                        paint_lidar(&c);
+                    }
+                }
+            }
+        });
+        wasm_bindgen_futures::spawn_local(async move {
+            let _nz = non_reactive();
             // Inject the static HUD, then paint the initial frame.
             if let Some(wrap) = ctx.hud.get() {
                 wrap.set_inner_html(HUD_SVG);
             }
             repaint(&ctx);
             // Device poll every 3s.
-            let c = ctx.clone();
+            let c = ctx;
             let _iv = gloo_timers::callback::Interval::new(3000, move || {
-                let c = c.clone();
                 wasm_bindgen_futures::spawn_local(async move {
                     c.device_online.set(fetch_device_online().await);
                 });
             });
             _iv.forget();
             // Sim fallback every 600ms: only motors with no live sample yet.
-            let c = ctx.clone();
+            let c = ctx;
             let _iv = gloo_timers::callback::Interval::new(600, move || {
+                let _nz = non_reactive();
                 let live = c.live.get();
                 if live.iter().any(|l| !l) {
                     c.motors.update(|arr| {
@@ -468,8 +679,9 @@ pub fn HomePage() -> impl IntoView {
             });
             _iv.forget();
             // Damage-text rotation every 2s (shift/push verbatim).
-            let c = ctx.clone();
+            let c = ctx;
             let _iv = gloo_timers::callback::Interval::new(2000, move || {
+                let _nz = non_reactive();
                 c.queue.update(|q| {
                     if q.is_empty() {
                         q.push("All systems nominal".to_string());
@@ -488,40 +700,144 @@ pub fn HomePage() -> impl IntoView {
             });
             _iv.forget();
             // ENV staleness (4 s window, vanilla freshness rule).
-            let c = ctx.clone();
+            let c = ctx;
             let _iv = gloo_timers::callback::Interval::new(1000, move || {
+                let _nz = non_reactive();
                 let seen = c.env_seen.get();
                 c.env_stale
                     .set(seen == 0.0 || now_ms() - seen > env_ui::FRESH_MS);
             });
             _iv.forget();
+            // A1 scan is stale after 5 s (sensor turns ~5.5 times per second).
+            let c = ctx;
+            let _iv = gloo_timers::callback::Interval::new(1000, move || {
+                let seen = c.lidar_seen.get();
+                c.lidar_stale.set(seen == 0.0 || now_ms() - seen > 5000.0);
+                paint_lidar(&c);
+            });
+            _iv.forget();
         });
     }
 
-    let on_cam = move |mode: u8| {
-        cam.set(mode);
+    let on_lidar_view = move |v: u8| {
+        ctx.lidar_view.set(v);
+        paint_lidar(&ctx);
+    };
+    let on_lidar_tilt = move |d: f64| {
+        ctx.lidar_pitch.update(|p| *p = (*p + d).clamp(-90.0, 90.0));
+    };
+    let on_lidar_capture = move |_| {
+        let pts: Vec<[f64; 3]> = ctx
+            .lidar_msg
+            .get()
+            .get("points")
+            .and_then(|p| p.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|p| {
+                        Some([
+                            p.get(0)?.as_f64()?,
+                            p.get(1)?.as_f64()?,
+                            p.get(2)?.as_f64().unwrap_or(15.0),
+                        ])
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !pts.is_empty() {
+            ctx.lidar_rings
+                .update(|r| r.push((ctx.lidar_pitch.get(), pts)));
+        }
+        paint_lidar(&ctx);
+    };
+    let on_lidar_clear = move |_| {
+        ctx.lidar_rings.set(Vec::new());
+        paint_lidar(&ctx);
+    };
+    let c = ctx;
+    let paint_cam = move || {
+        let _nz = non_reactive();
+        let mode = cam.get();
+        let live = cam_live.get();
+        if let Some(img) = cam_img.get() {
+            img.set_attribute(
+                "style",
+                if mode == 0 && live {
+                    "display:block"
+                } else {
+                    "display:none"
+                },
+            )
+            .ok();
+        }
+        if let Some(cv) = lidar_canvas.get() {
+            cv.set_attribute(
+                "style",
+                if mode == 1 {
+                    "display:block"
+                } else {
+                    "display:none"
+                },
+            )
+            .ok();
+        }
         if mode == 1 {
-            if let Some(p) = placeholder.get() {
-                p.set_attribute("style", "opacity:0.4;").ok();
-            }
-            if let Some(v) = viewport.get() {
-                v.set_attribute("style", "background:#050505;").ok();
-            }
-            if let Some(l) = cam_label.get() {
-                l.set_text_content(Some("LiDAR map stream \u{2014} coming soon"));
-            }
-        } else {
-            if let Some(p) = placeholder.get() {
-                p.set_attribute("style", "opacity:1;").ok();
-            }
-            if let Some(v) = viewport.get() {
-                v.set_attribute("style", "background:#0a0a0a;").ok();
-            }
-            if let Some(l) = cam_label.get() {
-                l.set_text_content(Some("Waiting for camera stream..."));
-            }
+            paint_lidar(&c);
+        }
+        if let Some(p) = placeholder.get() {
+            p.set_attribute(
+                "style",
+                if mode == 0 && !live {
+                    "opacity:1;"
+                } else {
+                    "opacity:0.25;"
+                },
+            )
+            .ok();
+        }
+        if let Some(l) = cam_label.get() {
+            let text = if mode == 1 {
+                let pts = c
+                    .lidar_msg
+                    .get()
+                    .get("points")
+                    .and_then(|p| p.as_array())
+                    .map_or(0, |p| p.len());
+                if c.lidar_stale.get() {
+                    "A1 scan offline - waiting for 360 turn".to_string()
+                } else {
+                    format!("A1 live - {pts} points per turn")
+                }
+            } else if live {
+                "Live feed connected".to_string()
+            } else {
+                "Waiting for camera stream...".to_string()
+            };
+            l.set_text_content(Some(&text));
         }
     };
+    let on_cam = move |mode: u8| {
+        cam.set(mode);
+        paint_cam();
+    };
+    let on_cam_load = move |_: web_sys::Event| {
+        cam_live.set(true);
+        paint_cam();
+    };
+    let on_cam_error = move |_: web_sys::ErrorEvent| {
+        cam_live.set(false);
+        paint_cam();
+    };
+    // The Pi serves MJPEG on the broker host; /api/config tells us which host
+    // that is, so no address is hardcoded for home vs the Saturday hotspot.
+    {
+        wasm_bindgen_futures::spawn_local(async move {
+            let url = camera_url().await;
+            if let Some(img) = cam_img.get() {
+                img.set_attribute("src", &url).ok();
+            }
+        });
+    }
 
     view! {
         {app_shell(view! {
@@ -551,7 +867,12 @@ pub fn HomePage() -> impl IntoView {
 
                                 <div class="panel panel-pad" class:stale=move || env_stale.get()>
                                     <div class="panel-head">
-                                        <h2 class="panel-title-muted">"Gas response"</h2>
+                                        <div class="panel-title-row">
+                                            <h2 class="panel-title-muted">"Gas response"</h2>
+                                            <span class="env-info" tabindex="0">"i"
+                                                <span class="env-tip">"Relative MQ cell response (R0/Rs), 1.00 = clean air. Indicative trend, not a gas concentration."</span>
+                                            </span>
+                                        </div>
                                         <div style="display:flex;align-items:center;gap:8px;">
                                             <span class={move || env_ui::level_dot(&env_msg.get(), env_stale.get())}></span>
                                             <span style="font-size:10px;color:var(--gray-500);">{move || env_ui::level_text(&env_msg.get(), env_stale.get())}</span>
@@ -563,8 +884,9 @@ pub fn HomePage() -> impl IntoView {
                                             <div class="env-gas">
                                                 <span class="env-gas-name">{label}</span>
                                                 <div class="env-track">
-                                                    <i class="base"></i>
-                                                    <i class="fill" style=move || env_ui::gas_fill_style(&env_msg.get(), key)></i>
+                                                    {(0..env_ui::GAS_SEGMENTS).map(|s| view! {
+                                                        <i class=move || env_ui::gas_seg_class(&env_msg.get(), key, s)></i>
+                                                    }).collect::<Vec<_>>()}
                                                 </div>
                                                 <span class="env-gas-val" style=move || format!("color:{}", env_ui::gas_color(&env_msg.get(), key))>
                                                     {move || env_ui::gas_text(&env_msg.get(), key)}
@@ -572,7 +894,6 @@ pub fn HomePage() -> impl IntoView {
                                             </div>
                                         }
                                     }).collect::<Vec<_>>()}
-                                    <div class="env-note">"Relative MQ cell response (R0/Rs), 1.00 = clean air. Indicative trend, not a gas concentration."</div>
                                 </div>
                             </div>
 
@@ -586,6 +907,31 @@ pub fn HomePage() -> impl IntoView {
                                         </div>
                                     </div>
                                     <div class="camera-viewport" id="camera-viewport" node_ref=viewport>
+                                        <img
+                                            class="cam-feed"
+                                            alt="Rover camera"
+                                            style="display:none"
+                                            node_ref=cam_img
+                                            on:load=on_cam_load
+                                            on:error=on_cam_error
+                                        />
+                                        <canvas
+                                            class="lidar-canvas"
+                                            id="lidar-canvas"
+                                            width="600"
+                                            height="450"
+                                            style="display:none"
+                                            node_ref=lidar_canvas
+                                        ></canvas>
+                                        <div class="lidar-controls" style=move || if cam.get() == 1 { "display:flex" } else { "display:none" }>
+                                            <button class="lidar-btn" on:click=move |_| on_lidar_view(0)>"2D"</button>
+                                            <button class="lidar-btn" on:click=move |_| on_lidar_view(1)>"3D"</button>
+                                            <button class="lidar-btn" on:click=move |_| on_lidar_tilt(-5.0)>"-"</button>
+                                            <span class="lidar-pitch">{move || format!("{:+.0}", ctx.lidar_pitch.get())}</span>
+                                            <button class="lidar-btn" on:click=move |_| on_lidar_tilt(5.0)>"+"</button>
+                                            <button class="lidar-btn" on:click=on_lidar_capture>"Capture"</button>
+                                            <button class="lidar-btn" on:click=on_lidar_clear>"Clear"</button>
+                                        </div>
                                         <div class="camera-placeholder" id="cam-placeholder" node_ref=placeholder>
                                             <div class="cam-dot-wrap">
                                                 <span class="cam-dot"></span>

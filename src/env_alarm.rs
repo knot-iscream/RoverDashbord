@@ -8,13 +8,19 @@
 //! - when nothing in the frame is evaluable the level is `unknown`, never
 //!   `ok` ("no data" must not be dressed up as "all clear").
 //!
+//! `o2_pct` is a real cell reading when the board sends one. With no cell
+//! fitted the backend derives it and tags the frame `o2_est:1`; the verdict
+//! then carries `"estimated": true` so nobody reads it as a measurement.
+//!
 //! `baseline_ok:0` means the gas ratios have no reference yet, so the gas
 //! rules are skipped and the verdict carries `"uncalibrated": true`.
 
 use serde_json::{json, Value};
 
-/// O2 cell, percent. Fresh air reads near 20.9% but aged galvanic cells sag,
-/// so the warn line sits close to air on purpose. Tune on the bench.
+/// O2 percent. With a real cell, fresh air reads near 20.9 % but aged
+/// galvanic cells sag, so the warn line sits close to air on purpose. With
+/// the derived estimate the same lines apply, and the item says so. Tune on
+/// the bench.
 pub const O2_WARN_PCT: f64 = 20.0;
 pub const O2_LOW_PCT: f64 = 19.5;
 /// Gas bars: `R0/Rs` against the captured clean-air baseline (thin tick at
@@ -60,13 +66,29 @@ pub fn evaluate(frame: &Value) -> Value {
     let mut items: Vec<Value> = Vec::new();
     let mut evaluated = false;
 
-    // O2 is the one reading in real units; evaluate it first.
+    // O2 is the one reading in real units, so it goes first. The estimate
+    // wears its name in the label and a machine-readable flag, because a
+    // derived number must never look like a cell reading.
     if let Some(pct) = num(frame, "o2_pct") {
         evaluated = true;
-        if pct < O2_LOW_PCT {
-            items.push(item("o2_low", "alarm", "O2 low", pct, O2_LOW_PCT));
+        let estimated = num(frame, "o2_est") == Some(1.0);
+        let label = if estimated {
+            "O2 low (estimated)"
+        } else {
+            "O2 low"
+        };
+        let hit = if pct < O2_LOW_PCT {
+            Some(item("o2_low", "alarm", label, pct, O2_LOW_PCT))
         } else if pct < O2_WARN_PCT {
-            items.push(item("o2_low", "warn", "O2 low", pct, O2_WARN_PCT));
+            Some(item("o2_low", "warn", label, pct, O2_WARN_PCT))
+        } else {
+            None
+        };
+        if let Some(mut it) = hit {
+            if estimated {
+                it["estimated"] = json!(true);
+            }
+            items.push(it);
         }
     }
 

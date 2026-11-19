@@ -23,8 +23,10 @@ const HEADERS: [&str; 10] = [
     "vibration",
 ];
 /// Fixed column lists for the sensor sheets: a new firmware field joins the
-/// workbook only when it is added here on purpose.
-const ENV_KEYS: [&str; 17] = [
+/// workbook only when it is added here on purpose. `o2_mv` stays for old
+/// workbooks; with no cell fitted it is empty. `o2_est` marks the derived
+/// value so a later reader cannot mistake it for a measurement.
+const ENV_KEYS: [&str; 18] = [
     "co",
     "lpg",
     "ch4",
@@ -32,6 +34,7 @@ const ENV_KEYS: [&str; 17] = [
     "air",
     "o2_mv",
     "o2_pct",
+    "o2_est",
     "flame_lvl",
     "flame_dir",
     "heat_l",

@@ -27,32 +27,34 @@
 #define PORTAL_TIMEOUT_S 180
 
 // ============================================================
-// Motor drivers — 2x L298N H-Bridge (2 channels each = 4 motors)
+// Motor drivers — one 4-channel 6 A board (RBD-3658, "DC_MOTOR_4")
+// Two logic inputs per channel and NO enable pin: one input takes
+// the PWM duty, the other stays low. Direction is which input
+// pulses, so the old ENA wires simply come off the harness.
 // NOTE: GPIO 6-11 are tied to the internal SPI flash on
 // ESP32-WROOM and CANNOT be used as general purpose I/O.
 // GPIO 1/3 are UART0. GPIO 34-39 are input-only.
 // ============================================================
 
-// L298N #1 — Motors 1 (FL) & 2 (FR)
-#define L298N1_ENA 13   // PWM speed — Motor 1
-#define L298N1_IN1 15   // Motor 1 direction
-#define L298N1_IN2 14   // Motor 1 direction
-#define L298N1_ENB 18   // PWM speed — Motor 2
-#define L298N1_IN3 19   // Motor 2 direction
-#define L298N1_IN4 23   // Motor 2 direction
+// Input pairs per channel, motor order FL, FR, RL, RR (backend 1-4).
+// The four pins per motor keep the old L298N direction wiring.
+#define MOTOR1_IN_A 15   // FL  (was L298N1 IN1)
+#define MOTOR1_IN_B 14   // FL  (was L298N1 IN2)
+#define MOTOR2_IN_A 19   // FR  (was L298N1 IN3)
+#define MOTOR2_IN_B 23   // FR  (was L298N1 IN4)
+#define MOTOR3_IN_A 33   // RL  (was L298N2 IN1)
+#define MOTOR3_IN_B 27   // RL  (was L298N2 IN2)
+#define MOTOR4_IN_A 17   // RR  (was L298N2 IN3)
+#define MOTOR4_IN_B 16   // RR  (was L298N2 IN4)
 
-// L298N #2 — Motors 3 (RL) & 4 (RR)
-#define L298N2_ENA 32   // PWM speed — Motor 3
-#define L298N2_IN1 33   // Motor 3 direction
-#define L298N2_IN2 27   // Motor 3 direction
-#define L298N2_ENB 25   // PWM speed — Motor 4
-#define L298N2_IN3 17   // Motor 4 direction
-#define L298N2_IN4 16   // Motor 4 direction
-
-// PWM configuration for the L298N enable pins
+// Both inputs of every channel are LEDC channels, so either side
+// can carry the duty; motor_driver.h picks the side per command.
 #define MOTOR_PWM_FREQ   1000   // Hz
 #define MOTOR_PWM_RES    8      // bits (0-255 duty)
 #define DEFAULT_MOTOR_SPEED 0   // duty on boot / idle (0-255)
+// 0 = coast on zero command (both inputs LOW), the old real
+// behaviour. 1 = brake (both inputs HIGH). Confirm on the bench.
+#define MOTOR_STOP_BRAKE 0
 
 // Calibration sweep profile: warm up, then sweep every speed % forward+reverse
 #define CALIB_WARMUP_MS    120000  // total warmup (split: 1min +255, 1min -255)
@@ -99,8 +101,10 @@
 #define INA226_ADDR_4 0x40
 
 // INA226 calibration — 10 mOhm 1 W shunt (stock R100 replaced).
-// P = I^2*R -> 1 W / 0.01 ohm = 10 A max; firmware caps at 4 A
-// (2x the L298N 2 A channel limit) for finer current_LSB resolution.
+// P = I^2*R -> 1 W / 0.01 ohm = 10 A max; firmware caps at 4 A.
+// One 37GB motor stalls around 2.5 A, so 4 A leaves headroom above
+// the load and stays well under the shunt limit. The old L298N 2 A
+// channel ceiling no longer applies; the new board is rated 6 A peak.
 #define INA226_SHUNT_OHM 0.01f
 #define INA226_MAX_A     4.0f
 

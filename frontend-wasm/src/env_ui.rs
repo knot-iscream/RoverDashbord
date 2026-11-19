@@ -1,8 +1,7 @@
 //! Shared ENV presentation for the home gas panel and the Detailed sensor
-//! sections: the gas channel table, the severity -> color language, and the
-//! small value formatters. Severities come from the backend `alarms` block
-//! riding on every `env_update`, so the thresholds live in exactly one place
-//! (`src/env_alarm.rs`).
+//! sections: the gas channel table, the gas bar bands, and the small value
+//! formatters. Severities come from the backend `alarms` block riding on every
+//! `env_update`; the bar colors are baked into the scale, see `GAS_SEGMENTS`.
 
 use serde_json::Value;
 
@@ -17,6 +16,15 @@ pub const GAS: [(&str, &str); 5] = [
 ];
 /// Bar scale: `R0/Rs` 3.0 fills the track (vanilla GAS_MAX).
 pub const GAS_MAX: f64 = 3.0;
+/// A gas bar is 30 segment ticks of 0.1 each, so clean air (1.0) and the warn
+/// line (2.0) land exactly on seams (`GAS_SEAMS`). The color ramp is baked into
+/// the scale: 5 bands of 6 ticks, blue -> green -> yellow -> orange -> red
+/// (`--band-1`..`--band-5` in `web/style.css`, drawn by `.env-seg.cN`).
+pub const GAS_SEGMENTS: usize = 30;
+pub const GAS_BANDS: usize = 5;
+/// First tick of each graduation: clean air 1.0 and the warn line 2.0
+/// (`GAS_WARN_RATIO` in `src/env_alarm.rs`). They get a wider gap.
+const GAS_SEAMS: [usize; 2] = [10, 20];
 /// Freshness window for the ENV/IMU feeds (4 s, vanilla whole-page rule).
 pub const FRESH_MS: f64 = 4000.0;
 
@@ -125,32 +133,48 @@ pub fn stale_at(last_rx: Option<f64>, now: f64) -> bool {
     }
 }
 
-/// Gas row severity: value present -> its alarm item or ok; value missing ->
-/// unknown (renders `--` dim, never a fabricated green).
-pub fn gas_severity(frame: &Value, key: &str) -> Severity {
-    if num(frame, key).is_none() {
-        return Severity::Unknown;
+/// Band 1..=5 of a reading: fifths of the 0..3.0 scale. `None` when the cell
+/// has no value, so the bar stays empty and the number stays dim.
+pub fn gas_band(frame: &Value, key: &str) -> Option<usize> {
+    num(frame, key).map(|v| {
+        let band = (v / GAS_MAX * GAS_BANDS as f64).floor() as i64 + 1;
+        band.clamp(1, GAS_BANDS as i64) as usize
+    })
+}
+
+/// Lit tick count: any non-zero reading lights at least one, so a small rise
+/// is never invisible. 0 when the cell has no value.
+pub fn gas_lit(frame: &Value, key: &str) -> usize {
+    let lit = match num(frame, key) {
+        Some(v) => (v / GAS_MAX * GAS_SEGMENTS as f64).ceil() as i64,
+        None => 0,
+    };
+    lit.clamp(0, GAS_SEGMENTS as i64) as usize
+}
+
+/// Class for tick `i` (0-based): band color, graduation seam, lit state.
+pub fn gas_seg_class(frame: &Value, key: &str, i: usize) -> String {
+    let band = i / (GAS_SEGMENTS / GAS_BANDS) + 1;
+    let mut c = format!("env-seg c{band}");
+    if GAS_SEAMS.contains(&i) {
+        c.push_str(" seam");
     }
-    item_severity(frame, key).unwrap_or(Severity::Ok)
+    if i < gas_lit(frame, key) {
+        c.push_str(" lit");
+    }
+    c
 }
 
 pub fn gas_text(frame: &Value, key: &str) -> String {
     fmt(num(frame, key), 2)
 }
 
-pub fn gas_color(frame: &Value, key: &str) -> &'static str {
-    gas_severity(frame, key).color()
-}
-
-/// `width:..%;background:..` for one gas bar.
-pub fn gas_fill_style(frame: &Value, key: &str) -> String {
-    let w = num(frame, key)
-        .map(|v| (v / GAS_MAX).clamp(0.0, 1.0) * 100.0)
-        .unwrap_or(0.0);
-    format!(
-        "width:{w:.1}%;background:{}",
-        gas_severity(frame, key).color()
-    )
+/// Number color: the reading's band, dim gray when the cell has no value.
+pub fn gas_color(frame: &Value, key: &str) -> String {
+    match gas_band(frame, key) {
+        Some(band) => format!("var(--band-{band})"),
+        None => Severity::Unknown.color().to_string(),
+    }
 }
 
 /// Color for a value guarded by one of `alarm_keys` (`o2_low` / `flame` /

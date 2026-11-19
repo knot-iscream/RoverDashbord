@@ -101,8 +101,10 @@ tells you what to do in plain language.
 | 4x DS18B20 waterproof probes + 4x 4.7kΩ resistors | One probe per motor, 3.3V, pull-up per pin |
 | 4x ADXL345 accelerometer modules (GY-291) + 1x TCA9548A I2C mux | Range vibration per corner motor; mux required (all 4 ADXL345 share address 0x53) |
 | 4x INA226 current/voltage modules, 10mΩ 1W shunts fitted | Unique I2C address per module via A0/A1 jumpers; stock 0.1Ω shunt replaced |
-| 3x L298N H-bridge boards | Two boards for the 4 corners, one for the 2 blind middles |
-| 6x 37GB 12V 100RPM gear motors + 12V supply | 4 corners monitored, 2 middles blind |
+| 1x 4-channel 6A driver board (RBD-3658, "DC_MOTOR_4", MJKDZ) | Drives the 4 corners: two logic inputs per channel, no enable pin |
+| 1x L298N H-bridge board | Drives the 2 blind middles only |
+| 6x 37GB 12V 100RPM gear motors | 4 corners monitored, 2 middles blind |
+| 3S LiPo 4500mAh 11.1V (XT-60) + 20A fuse + 3S buzzer | Motor/rail supply; full charge is 12.6V, floor 9.0V |
 | Arduino IDE + ESP32 core | Firmware flash (libraries listed below) |
 | Rust stable + Mosquitto | Backend + broker for source runs |
 
@@ -117,15 +119,20 @@ input-only.
 
 ### Pinout table (ESP-1 corners)
 
-| Motor | ADXL345 (mux ch) | INA226 (addr) | DS18B20 (OneWire) | L298N channel |
-|-------|------------------|---------------|-------------------|---------------|
-| 1 (FL) | ch 0 | 0x41 | GPIO 5 | L298N #1 A (ENA=13, IN1=15, IN2=14) |
-| 2 (FR) | ch 1 | 0x44 | GPIO 26 | L298N #1 B (ENB=18, IN3=19, IN4=23) |
-| 3 (RL) | ch 2 | 0x45 | GPIO 2 | L298N #2 A (ENA=32, IN1=33, IN2=27) |
-| 4 (RR) | ch 3 | 0x40 | GPIO 4 | L298N #2 B (ENB=25, IN3=17, IN4=16) |
+| Motor | ADXL345 (mux ch) | INA226 (addr) | DS18B20 (OneWire) | 6A driver inputs |
+|-------|------------------|---------------|-------------------|------------------|
+| 1 (FL) | ch 0 | 0x41 | GPIO 5 | IN1=15, IN2=14 |
+| 2 (FR) | ch 1 | 0x44 | GPIO 26 | IN3=19, IN4=23 |
+| 3 (RL) | ch 2 | 0x45 | GPIO 2 | IN5=33, IN6=27 |
+| 4 (RR) | ch 3 | 0x40 | GPIO 4 | IN7=17, IN8=16 |
 
 - Motor PWM is 8-bit (0-255) at 1kHz. Speed command range is -255..255
-  (negative = reverse, 0 = active brake with both IN pins LOW).
+  (negative = reverse, 0 = coast with both inputs LOW; `MOTOR_STOP_BRAKE`
+  switches the stop to a brake on both-HIGH).
+- The 6A board has no enable pin: one input takes the duty, the other stays
+  low, and the direction is which input pulses. This is the standard
+  two-input H-bridge interface (DRV8870/DRV8871, RZ7889, LTK8329), so the
+  old L298N `ENA` wires simply come off the harness.
 - ADXL345 reports a range (magnitude in g, rest ~= 1.0g). A reading
   counts as vibration when |mag - 1g| exceeds `VIB_THRESHOLD_G` (0.25g
   default, tune on the bench). A missing chip reports `vib_valid:0` and
@@ -175,33 +182,46 @@ Presence is re-checked every 5s. A chip that answers but returns NaN, or
 a bus voltage outside 3-36V, counts as `ina_ok:false` and voltage/current
 show as `--`.
 
-### L298N wiring (motor drivers)
+### 4-channel 6A driver wiring (corner motors)
 
-Two L298N boards drive the four motors (one board per two motors):
+One RBD-3658 board (`DC_MOTOR_4`, MJKDZ) drives the four corners. It has two
+logic inputs per channel and no enable pin:
 
-- **12V motor supply** goes to L298N `VS` (both boards share it).
-- **Common ground is critical**: tie ESP32 GND, both L298N `GND`,
-  all INA226 GND, and the 12V supply GND together. Without it the logic
-  inputs float and motors misbehave.
-- L298N `ENA`/`ENB` and `IN1`-`IN4` go to the ESP32 GPIOs in the pinout
-  table. The inputs are high-impedance, so 3.3V ESP32 logic drives them.
-- The L298N onboard 5V regulator can power its own logic, but **do not**
-  back-feed it into the ESP32 5V pin while the ESP32 is powered.
+- **Pack positive** reaches the board's `3-12V` terminal through the 20 A
+  fuse and the master switch. The MID L298N and both buck converters tap the
+  same post-fuse rail.
+- **Common ground is critical**: ESP32 GND, the 6A board GND, the L298N GND,
+  every INA226 GND and the pack negative meet at one point.
+- Logic is the 9-pin header `IN1..IN8 + GND`. The 5-pin JST labelled
+  `IN1 IN2 IN5 IN6 GND` is a duplicate tap for two channels, not a second
+  interface.
+- The board makes its own logic supply from the motor rail, so there is no
+  separate 5 V pin. Confirm that a 3.3 V ESP32 output actually switches a
+  channel before trusting it; if it needs 5 V logic, put a 74HCT245 in
+  between.
+- PWM on one input with the other held low drives that direction at the
+  duty. Both low coasts, both high brakes. The `A B C D` pads are not part
+  of this interface and stay as shipped.
 
 ### INA226 current sensing (per motor)
 
-Place each INA226 **in series with one motor lead, between the L298N
+Place each INA226 **in series with one motor lead, between the driver
 output and the motor terminal**, so it measures the actual load current.
-The 12V supply goes to L298N `VS`, not through the INA226.
+The pack goes to the driver input, not through the INA226.
 
-- Never wire VIN+/VIN- across the motor in parallel. That puts 12V
-  across the shunt and burns it open (seen on the bench: chip alive,
-  ~7V coupled through, ~0A forever).
-- The stock 0.1Ω shunt is replaced with a **10mΩ 1W shunt** (10A
-  thermal max). Firmware calibrates for 0.01Ω with a 4A cap (2x the
-  L298N 2A channel limit) — see `INA226_SHUNT_OHM` / `INA226_MAX_A` in
-  `config.h`. Reverse drive reads negative current; that is normal.
+- Never wire VIN+/VIN- across the motor in parallel. That puts pack voltage
+  across the shunt and burns it open (seen on the bench: chip alive, ~7V
+  coupled through, ~0A forever).
+- The stock 0.1Ω shunt is replaced with a **10mΩ 1W shunt** (10A thermal
+  max). Firmware calibrates for 0.01Ω with a 4A cap, which sits above the
+  ~2.5A stall of one motor and well under the shunt limit. The old L298N 2A
+  channel ceiling no longer applies; the 6A board is rated 6A peak per
+  channel. Reverse drive reads negative current; that is normal.
 - Bus range is 36V max (was 16V on the old INA219).
+- The reading is the PWM-averaged motor terminal voltage, not the pack.
+  Near full duty it approximates the pack; at half throttle it reads about
+  half. That is why the low-voltage rule only runs at `|speed| >= 200`
+  (see `LOW_VOLTAGE_V` in `src/data.rs`).
 
 ### Power connections
 
@@ -219,8 +239,42 @@ The 12V supply goes to L298N `VS`, not through the INA226.
    (SDA/SCL + addresses, 10mΩ shunts fitted).
 2. Connect each DS18B20 DATA pin with its own 4.7kΩ pull-up.
 3. Connect the 4 ADXL345 boards through the mux (SDO→GND each).
-4. Wire both corner L298N boards (VS 12V, IN/ENA to ESP-1) and the common GND.
-5. Run each corner motor lead through its INA226 in series, then to the L298N output.
+4. Wire the 6A board's `IN1..IN8` to ESP-1 and the pack rail to its
+   `3-12V` input. Ground everything to one point.
+5. Run each corner motor lead through its INA226 in series, then to the
+   driver output.
+
+### 3S LiPo power tree
+
+One pack feeds the whole rover. The old 12 V SLA is gone.
+
+```
+3S LiPo 11.1V 4500mAh (XT-60, JST-XH balance)
+  |
+  +-- 20A fuse ---- master switch / E-stop
+        |
+        +-- 6A driver  --> 4 corner motors (INA226 in series per lead)
+        +-- L298N      --> 2 middle motors
+        +-- XL4016     --> 5.1V 8A --> Pi 5, LiDAR, USB hub -> 3x ESP32
+        +-- 12V->6V    --> arm servo rail
+```
+
+- Full charge is 12.6 V, nominal 11.1 V, floor 9.0 V (3.0 V per cell).
+  The driver's 3-12 V rating is nominal; soak-test one channel at 12.6 V
+  before the first run.
+- The low-voltage rule warns at 10.2 V (3.4 V per cell) and only while the
+  motors are near full duty. Do not rely on it to protect the pack: fit a
+  3S low-voltage buzzer on the balance lead (3.5 V per cell) and never
+  discharge below 3.0 V per cell.
+- 20 A main fuse: four motors stalling near 2.5 A each plus the Pi and the
+  arm can reach about 18 A together. 12 AWG for the main run, 18 AWG per
+  motor lead.
+- Charge with a balance charger (B6-AC class, about an hour at 1C), with
+  the pack out of the rover. The B3 is 10 W and takes most of a night.
+- Run time is about an hour while driving, several hours parked.
+- The L298N dropped 1.4-3 V, so the motors used to see 9-10.5 V. On 11.1 V
+  with a ~0.1 V driver they see slightly more and the top speed stays
+  flatter across the discharge curve.
 
 ### ESP-2 middles (second ESP32) + localization
 
@@ -244,11 +298,11 @@ Firmware: `firmware/ESP32-WROOM-32-MID/rover_mid.ino`.
 Sweeps are step-and-settle: move, wait, publish `settled:1`, hold, next step.
 The Pi captures lidar frames only while settled, so MQTT latency cannot smear
 the cloud. `{"action":"servo_cal"}` on `rover/lidar/command` runs the AS5600
-two-point calibration. Same 12V supply and common GND as the corners; own
+two-point calibration. Same pack rail and common GND as the corners; own
 MQTT namespace `rover/mid/*` (portal AP `Rover-Setup-MID`), so boards never
 fight over motor commands.
 
-### ESP-3 ENV (gas, O2, flame, MLX90614)
+### ESP-3 ENV (gas, flame, MLX90614, derived O2)
 
 Third board, no motors. Firmware: `firmware/ESP32-WROOM-32-ENV/rover_env.ino`,
 portal AP `Rover-Setup-ENV`, namespace `rover/env/*`.
@@ -257,10 +311,14 @@ portal AP `Rover-Setup-ENV`, namespace `rover/env/*`.
 |-------|--------|
 | MQ-7 / MQ-6 / MQ-4 / MQ-8 | ADS1115 0x48 A0..A3, single ended, 2:1 divider each if the ADS runs at 3.3 V |
 | MQ-135 (air quality) | ADS1115 0x49 A2, same divider rule |
-| Galvanic O2 cell | ADS1115 0x49 A0-A1 differential, PGA +/-0.256 V (7.8 uV/LSB) |
 | Flame magnitude | ADS1115 0x49 A3 |
 | Flame direction | GPIO 34, 35, 36, 39, 32 (module digital outs) |
 | MLX90614 left / right | 0x5A / 0x5B (re-address one via EEPROM 0xC7), 20 mm shroud tube each |
+
+The galvanic O2 cell is **not fitted** (not purchasable here). `ADS1115 0x49`
+A0/A1 are free, and the board publishes `o2_ok:0` so the backend knows no real
+cell is behind the number. If a cell is fitted later, publish `o2_ok:1` plus
+`o2_mv` and the backend stops estimating on its own.
 
 Gas values are relative (`R0/Rs`, 1.0 = clean air) after
 `{"action":"baseline"}` captures the clean-air reference into NVS. MQ cells
@@ -268,12 +326,23 @@ need 24-48 h of powered burn-in first; powered time accumulates as
 `burn_in_s` on the heartbeat. Serial at 115200 prints raw volts every second
 for the bench.
 
+**Derived O2** (`src/o2_estimate.rs`): the frame gains `o2_pct`, `o2_est:1`,
+`o2_load` and `o2_src`. The model builds a 0..1 combustion load from the peak
+gas ratio (skipped until `baseline_ok:1`), the flame channels and the MLX
+object temperature, then maps it onto 20.9 % down to 16.9 %:
+`0.35*gas + 0.80*flame + 0.40*heat`, clamped. Attack is 2 s, release 20 s, and
+a 10 s feed hole resets the filter. No evaluable input means no estimate at
+all, so the card shows `--` instead of a fake clean-air number. The 20.0 /
+19.5 warnings apply to it, and the verdict labels it "estimated". Gas ratios
+are relative concentrations; a real fire does displace oxygen, but this number
+is an indicator, never a measurement.
+
 Live view: the ENV cards live inside the app now. `/` carries the gas
 response panel (bars in the node's own green/orange/red with an OK/WARN/ALARM
-chip), `/detailed` carries the gas, O2, flame, heat, node and IMU sections
-with 1 min / 10 min / 1 h charts plus the Excel export (Telemetry + Sensors +
-IMU sheets). Null values render `--`, never a fabricated zero, so a cell that
-has no baseline yet cannot be mistaken for clean air.
+chip), `/detailed` carries the gas, O2 estimate, flame, heat, node and IMU
+sections with 1 min / 10 min / 1 h charts plus the Excel export (Telemetry +
+Sensors + IMU sheets). Null values render `--`, never a fabricated zero, so a
+cell that has no baseline yet cannot be mistaken for clean air.
 
 No new Arduino libraries: the ADS1115, MLX90614, MPU6050 and AS5600 are all
 driven by hand-rolled register code.
@@ -385,7 +454,7 @@ keeps whatever was flushed.
 | `rover/imu` | ESP-2 → broker | `{"imu_ok":1,"ax":..,"ay":..,"az":..,"gz":..,"yaw":..,"pitch":..,"roll":..}` @4Hz, yaw drifts by design |
 | `rover/lidar/servo` | ESP-2 → broker | `{"servo_ok":1,"angle":15.0,"angle_real":14.8,"as5600_ok":1,"cal_ok":1,"settled":1,"sweeping":1,"step":3,"steps":17}` on change + 1Hz |
 | `rover/lidar/command` | Backend/Pi → ESP-2 | `{"action":"sweep"}` / `{"action":"stop"}` / `{"action":"goto","angle":15}` / `{"action":"servo_cal"}` |
-| `rover/env/telemetry` | ESP-3 → broker | `{"ads_ok":1,"mlx_ok":1,"flame_ok":1,"baseline_ok":1,"co":1.4,"lpg":1.1,"ch4":1.0,"h2":1.2,"air":1.3,"o2_mv":11.8,"o2_pct":20.6,"flame_lvl":0.2,"flame_dir":0,"heat_l":34.2,"heat_r":31.7,"heat_l_amb":27.5,"heat_r_amb":27.6}` @1Hz |
+| `rover/env/telemetry` | ESP-3 → broker | `{"ads_ok":1,"mlx_ok":1,"flame_ok":1,"baseline_ok":1,"o2_ok":0,"co":1.4,"lpg":1.1,"ch4":1.0,"h2":1.2,"air":1.3,"flame_lvl":0.2,"flame_dir":0,"heat_l":34.2,"heat_r":31.7,"heat_l_amb":27.5,"heat_r_amb":27.6}` @1Hz. `o2_ok:0` = no cell; the backend adds `o2_pct`, `o2_est`, `o2_load`, `o2_src` before relaying |
 | `rover/env/status` | ESP-3 → broker | `{"state":"running","source":"env","burn_in_s":7200,"baseline_ok":1}` (~2s) |
 | `rover/env/command` | Backend → ESP-3 | `{"action":"baseline"}` (clean-air R0 capture into NVS) |
 

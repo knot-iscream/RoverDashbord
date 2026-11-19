@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Detailed page layout studio</title>
+<style>
+  :root {
+    --bg: #09090b;
+    --panel: #18181b;
+    --panel-2: #1f1f24;
+    --line: rgba(255,255,255,.09);
+    --line-strong: rgba(255,255,255,.18);
+    --txt: #e4e4e7;
+    --dim: #a1a1aa;
+    --dimmer: #71717a;
+    --accent: #f97316;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --blue: #3b82f6;
+    --red: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--txt);
+    font: 13px/1.45 Inter, "Segoe UI", system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header.bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    background: #0d0d10;
+    flex: none;
+  }
+  header.bar h1 { font-size: 14px; font-weight: 800; margin: 0; letter-spacing: -.01em; }
+  header.bar .sub { color: var(--dimmer); font-size: 11px; }
+  header.bar .spacer { flex: 1; }
+  button.tool {
+    font: 600 10px/1 Inter, sans-serif;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--txt);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px 11px;
+    cursor: pointer;
+  }
+  button.tool:hover { border-color: var(--line-strong); color: #fff; }
+  button.tool.hot { background: var(--accent); color: #120800; border-color: transparent; }
+  button.tool.hot:hover { filter: brightness(1.08); }
+  label.ctl { color: var(--dimmer); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+
+  .shell { flex: 1; display: flex; min-height: 0; }
+  aside {
+    width: 252px;
+    flex: none;
+    border-right: 1px solid var(--line);
+    background: #0d0d10;
+    padding: 12px;
+    overflow: auto;
+  }
+  aside h2 {
+    font-size: 10px; font-weight: 700; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--dimmer);
+    margin: 16px 0 8px;
+  }
+  aside h2:first-child { margin-top: 0; }
+  .block {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 7px 10px;
+    margin-bottom: 5px;
+    background: var(--panel);
+    cursor: pointer;
+  }
+  .block:hover { border-color: var(--accent); }
+  .block.placed { opacity: .4; }
+  .block.placed:hover { opacity: .8; }
+  .block b { display: block; font-size: 12px; font-weight: 600; }
+  .block span { color: var(--dimmer); font-size: 11px; }
+  .block .id { color: #52525b; font: 10px/1.3 ui-monospace, Consolas, monospace; }
+  textarea {
+    width: 100%;
+    background: #0a0a0c;
+    color: var(--txt);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px;
+    font: 11px/1.4 ui-monospace, Consolas, monospace;
+    resize: vertical;
+  }
+  .hint { color: var(--dimmer); font-size: 11px; margin: 6px 0 0; }
+
+  .wrap { flex: 1; overflow: auto; padding: 26px; }
+  #canvas {
+    position: relative;
+    width: 1160px;
+    margin: 0 auto;
+    background:
+      repeating-linear-gradient(to bottom, rgba(255,255,255,.05) 0 1px, transparent 1px 24px),
+      #0b0b0e;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  #cols { position: absolute; inset: 0; pointer-events: none; }
+  #cols div { position: absolute; top: 0; bottom: 0; background: rgba(255,255,255,.028); }
+  .card {
+    position: absolute;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.02);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+  }
+  .card.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .card-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 22px;
+    padding: 0 5px 0 9px;
+    background: rgba(255,255,255,.05);
+    border-bottom: 1px solid var(--line);
+    cursor: grab;
+  }
+  .card-head:active { cursor: grabbing; }
+  .card-head .t { font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+  .card-head .pos { color: var(--dimmer); font: 9px/1 ui-monospace, Consolas, monospace; }
+  .card-head .grow { flex: 1; }
+  .mini {
+    font: 700 9px/1 Inter, sans-serif; color: var(--dim);
+    background: transparent; border: 1px solid var(--line);
+    border-radius: 4px; padding: 2px 5px; cursor: pointer;
+  }
+  .mini:hover { color: #fff; border-color: var(--line-strong); }
+  .card-body { flex: 1; min-height: 0; padding: 8px 10px; overflow: hidden; display: flex; flex-direction: column; }
+  .rs {
+    position: absolute; right: 0; bottom: 0;
+    width: 16px; height: 16px; cursor: nwse-resize;
+    background: linear-gradient(135deg, transparent 0 46%, var(--accent) 46% 54%, transparent 54% 74%, var(--accent) 74% 82%, transparent 82%);
+  }
+
+  /* previews: one block == one real card on the page */
+  .chart { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .chart .ct { font-size: 9px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; }
+  .chart .plot { flex: 1; min-height: 0; display: flex; align-items: flex-end; }
+  .chart .plot svg { width: 100%; height: 100%; display: block; }
+  .chart .plot svg polyline { fill: none; stroke-width: 1.4; vector-effect: non-scaling-stroke; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 4px; }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; font-size: 9px; color: var(--dim); }
+  .legend u { width: 7px; height: 7px; border-radius: 1px; text-decoration: none; display: inline-block; }
+
+  .pv { display: flex; flex-direction: column; gap: 5px; }
+  .pv-row { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+  .pv-k { width: 40px; color: var(--dim); flex: none; }
+  .pv-v { width: 40px; text-align: right; font-weight: 700; flex: none; font-variant-numeric: tabular-nums; }
+  .pv-track { flex: 1; height: 7px; display: flex; gap: 1px; transform: skewX(-12deg); overflow: hidden; }
+  .pv-track i { flex: 1; background: rgba(255,255,255,.07); }
+  .pv-track i.lit { background: var(--blue); }
+  .pv-track i.lit.warm { background: var(--green); }
+  .pv-track i.lit.hot { background: var(--yellow); }
+
+  .big { display: flex; align-items: baseline; gap: 6px; }
+  .big b { font-size: 24px; font-weight: 800; letter-spacing: -.02em; }
+  .big span { color: var(--dim); font-size: 10px; }
+  .kv { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--dim); }
+  .kv b { color: var(--txt); font-weight: 600; }
+  .note { color: var(--dimmer); font-size: 10px; line-height: 1.35; margin-top: auto; }
+  .dots { display: flex; gap: 5px; }
+  .dots u { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,.14); text-decoration: none; }
+
+  .vcard { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; text-align: center; }
+  .vcard i { font-style: normal; font-size: 9px; font-weight: 600; color: var(--dimmer); text-transform: uppercase; letter-spacing: .05em; }
+  .vcard b { font-size: 18px; font-weight: 800; }
+  .vcard u { text-decoration: none; font-size: 9px; color: var(--dimmer); }
+
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .chip { border: 1px solid var(--line); border-radius: 5px; padding: 5px 10px; font-size: 10px; color: var(--dim); }
+  .chip.on { border-color: var(--accent); color: #fff; }
+  .chip.tiny { padding: 3px 7px; font-size: 9px; }
+  .chip.tiny b { color: var(--txt); }
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dim); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+  .btn-orange { font: 700 10px/1 Inter, sans-serif; letter-spacing: .05em; text-transform: uppercase; background: var(--accent); color: #150900; border-radius: 5px; padding: 7px 11px; }
+  .meta { font-size: 10px; color: var(--dimmer); }
+  h1.studio { font-size: 14px; font-weight: 800; }
+
+  #status {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    background: #f4f4f5; color: #18181b; border-radius: 8px;
+    padding: 9px 14px; font-size: 12px; font-weight: 600;
+    opacity: 0; pointer-events: none; transition: opacity .18s;
+  }
+  #status.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <h1 class="studio">Detailed page layout studio</h1>
+  <span class="sub">one block = one card on the live page; seeded from the live screenshot</span>
+  <span class="spacer"></span>
+  <label class="ctl"><input type="checkbox" id="gridOn" checked> grid</label>
+  <button class="tool" id="reset">Reset to current</button>
+  <button class="tool" id="copyText">Copy as text</button>
+  <button class="tool" id="download">Download json</button>
+  <button class="tool hot" id="copyJson">Copy json</button>
+</header>
+
+<div class="shell">
+  <aside>
+    <h2>Blocks</h2>
+    <div id="list"></div>
+    <p class="hint">Click a block to add it back. Ctrl+Z undoes any move, resize, add or delete.</p>
+    <h2>Notes</h2>
+    <textarea id="notes" rows="4" placeholder="e.g. chart range goes up in the header"></textarea>
+    <h2>Layout json</h2>
+    <textarea id="out" rows="12" readonly></textarea>
+    <p class="hint">Paste this back into chat. 12 columns, 1 row = 24 px.</p>
+  </aside>
+  <div class="wrap">
+    <div id="canvas"><div id="cols"></div></div>
+  </div>
+</div>
+
+<div id="status"></div>
+
+<script>
+"use strict";
+
+const COLS = 12;
+const ROW = 24;      // px per row unit
+const GAP = 12;      // px between columns, same as --bento-col-gap
+const SLACK = 12;    // px off the bottom of every card, same as --bento-row-slack
+const CANVAS_W = 1160;
+const CW = (CANVAS_W - GAP * (COLS - 1)) / COLS;
+
+// Colours copied off the live charts so the fakes read the same way.
+const CO = "#f97316", LPG = "#22c55e", CH4 = "#eab308", H2 = "#3b82f6", AIR = "#e4e4e7";
+
+// One block per real card. The seed below is measured off a live 1500px
+// screenshot: content is 968px wide, so 1 column is about 80px. Sensor rows are
+// a 384px panel next to a 571px chart (5 + 7 cols), motor values are 4 across
+// at 233px each (3 cols), motor charts 2 across at 476px (6 cols).
+const BLOCKS = [
+  { id: "header",       label: "Page header",    kind: "chrome", hint: "title + Online badge + Export Excel" },
+
+  { id: "motorTabs",    label: "Motor tabs",     kind: "tabs",   hint: "FL / FR / RL / RR" },
+  { id: "motorMeta",    label: "Motor meta line", kind: "meta",  hint: "updated time + source paths" },
+
+  { id: "valTemp",      label: "Value: temperature", kind: "value", hint: "°C", val: "--", sub: "no probe" },
+  { id: "valVolt",      label: "Value: voltage",     kind: "value", hint: "V", val: "24.8", sub: "" },
+  { id: "valCurrent",   label: "Value: current",     kind: "value", hint: "A", val: "1.82", sub: "" },
+  { id: "valHealth",    label: "Value: health",      kind: "value", hint: "%", val: "98", sub: "" },
+  { id: "valVib",       label: "Value: vibration",   kind: "value", hint: "G", val: "0.02", sub: "" },
+
+  { id: "mChartTemp",   label: "Chart: temperature", kind: "chart", hint: "motor chart 1/5", seed: "Temperature", spark: "31,32,31,33,34,33,32,34,35,34,33,35", colors: [CO] },
+  { id: "mChartVolt",   label: "Chart: voltage",     kind: "chart", hint: "motor chart 2/5", seed: "Voltage", spark: "24,24,24,25,25,24,25,25,24,24,25,25", colors: [H2] },
+  { id: "mChartCurrent", label: "Chart: current",    kind: "chart", hint: "motor chart 3/5", seed: "Current", spark: "1,2,1,3,2,4,3,2,5,3,2,4", colors: [CH4] },
+  { id: "mChartHealth", label: "Chart: health",      kind: "chart", hint: "motor chart 4/5", seed: "Health", spark: "90,95,92,97,94,99,96,98,95,99,97,99", colors: [LPG] },
+  { id: "mChartVib",    label: "Chart: vibration",   kind: "chart", hint: "motor chart 5/5", seed: "Vibration", spark: "0,1,0,2,1,3,2,1,4,2,3,2", colors: ["#a855f7"] },
+
+  { id: "gasPanel",     label: "Panel: gas bars",   kind: "gas",    hint: "CO LPG CH4 H2 Air" },
+  { id: "gasChart",     label: "Chart: gas response", kind: "chart", hint: "5 series", seed: "Gas response (R0/Rs)",
+    spark: "1,3,2,5,4,7,6,9,8,11,10,13", colors: [CO, LPG, CH4, H2, AIR], legend: ["CO", "LPG", "CH4", "H2", "Air"] },
+  { id: "o2Panel",      label: "Panel: O2",         kind: "o2",     hint: "% + cell mV" },
+  { id: "o2Chart",      label: "Chart: O2",         kind: "chart",  hint: "%", seed: "O2 (%)",
+    spark: "20,21,21,20,19,20,21,21,20,20,21,21", colors: [LPG], legend: ["O2"] },
+  { id: "flamePanel",   label: "Panel: flame",      kind: "flame",  hint: "level + direction" },
+  { id: "flameChart",   label: "Chart: flame level", kind: "chart", hint: "V", seed: "Flame level (V)",
+    spark: "0,0,1,0,0,3,5,4,2,0,1,0", colors: ["#ef4444"], legend: ["Flame"] },
+  { id: "heatPanel",    label: "Panel: heat MLX",   kind: "heat",   hint: "L / R + ambient" },
+  { id: "heatChart",    label: "Chart: heat",       kind: "chart",  hint: "L / R °C", seed: "Heat L / R (°C)",
+    spark: "24,25,26,25,27,26,25,27,28,27,26,28", colors: [CO, H2], legend: ["L", "R"] },
+
+  { id: "rangeCtl",     label: "Chart range",      kind: "range",  hint: "1 min / 10 min / 1 hour" },
+  { id: "nodePanel",    label: "Panel: node",       kind: "node",   hint: "chips + burn-in" },
+  { id: "imuPanel",     label: "Panel: IMU",        kind: "imu",    hint: "yaw / pitch / accel" }
+];
+
+// The live page, seeded from the newest tools/layout*.json export. The gaps
+// drawn here (12 px both ways) are the real ones, so what looks right here is
+// what the page renders.
+const SEED = [
+  { id: "header",      col: 1,  row: 1,   w: 12, h: 3 },
+  { id: "motorTabs",   col: 1,  row: 5,   w: 12, h: 3 },
+  { id: "motorMeta",   col: 1,  row: 8,   w: 12, h: 3 },
+  { id: "valTemp",     col: 4,  row: 12,  w: 3,  h: 4 },
+  { id: "mChartTemp",  col: 7,  row: 12,  w: 6,  h: 7 },
+  { id: "mChartVolt",  col: 1,  row: 17,  w: 6,  h: 7 },
+  { id: "valVolt",     col: 7,  row: 20,  w: 3,  h: 4 },
+  { id: "valCurrent",  col: 4,  row: 25,  w: 3,  h: 4 },
+  { id: "mChartCurrent", col: 7, row: 25, w: 6,  h: 7 },
+  { id: "mChartVib",     col: 1, row: 30, w: 6,  h: 7 },
+  { id: "valVib",        col: 7, row: 33, w: 3,  h: 4 },
+  { id: "valHealth",     col: 4, row: 38, w: 3,  h: 4 },
+  { id: "mChartHealth",  col: 7, row: 38, w: 6,  h: 7 },
+  { id: "gasPanel",    col: 2,  row: 47,  w: 5,  h: 6 },
+  { id: "gasChart",    col: 7,  row: 47,  w: 6,  h: 7 },
+  { id: "o2Chart",     col: 1,  row: 54,  w: 6,  h: 7 },
+  { id: "o2Panel",     col: 7,  row: 55,  w: 5,  h: 6 },
+  { id: "flamePanel",  col: 2,  row: 62,  w: 5,  h: 6 },
+  { id: "flameChart",  col: 7,  row: 62,  w: 6,  h: 7 },
+  { id: "heatChart",   col: 1,  row: 69,  w: 6,  h: 7 },
+  { id: "heatPanel",   col: 7,  row: 70,  w: 5,  h: 6 },
+  { id: "rangeCtl",    col: 1,  row: 78,  w: 12, h: 3 },
+  { id: "nodePanel",   col: 3,  row: 83,  w: 4,  h: 5 },
+  { id: "imuPanel",    col: 7,  row: 84,  w: 3,  h: 6 }
+];
+
+const byId = Object.fromEntries(BLOCKS.map(b => [b.id, b]));
+const state = { items: SEED.map(o => ({ ...o })), sel: null };
+const history = [];
+
+const canvas = document.getElementById("canvas");
+const colsLayer = document.getElementById("cols");
+const listEl = document.getElementById("list");
+const outEl = document.getElementById("out");
+const notesEl = document.getElementById("notes");
+
+function defaultSize(id) {
+  const s = SEED.find(x => x.id === id);
+  return s ? { w: s.w, h: s.h } : { w: 6, h: 4 };
+}
+function snapshot() { history.push(state.items.map(i => ({ ...i }))); }
+function clamp(n, lo, hi) { return Math.min(hi, Math.max(lo, n)); }
+
+function place(el, it) {
+  el.style.left = (it.col - 1) * (CW + GAP) + "px";
+  el.style.top = (it.row - 1) * ROW + "px";
+  el.style.width = it.w * CW + (it.w - 1) * GAP + "px";
+  el.style.height = it.h * ROW - SLACK + "px";
+}
+
+/* ---------- previews ---------- */
+// One svg, one polyline per series, shared y scale (like the real charts).
+function plot(b) {
+  const base = b.spark.split(",").map(Number);
+  const series = b.colors.map((_, i) =>
+    base.map((v, idx) => v + Math.sin((idx + 1) * (0.6 + i * 0.4)) * (1.5 + i)).map(n => n.toFixed(1)).join(","));
+  const all = series.flatMap(s => s.split(",").map(Number));
+  const lo = Math.min(...all), hi = Math.max(...all), span = Math.max(1, hi - lo);
+  const polys = series.map((s, i) => {
+    const pts = s.split(",").map((v, idx) =>
+      (idx / (base.length - 1) * 100).toFixed(1) + "," + (30 - (Number(v) - lo) / span * 26).toFixed(1));
+    return '<polyline points="' + pts.join(" ") + '" stroke="' + b.colors[i] + '"/>';
+  }).join("");
+  return '<svg viewBox="0 0 100 34" preserveAspectRatio="none">' + polys + "</svg>";
+}
+
+function gasRow(name, value, lit, band) {
+  let ticks = "";
+  for (let i = 0; i < 16; i++) ticks += '<i class="' + (i < lit ? "lit " + (band || "") : "").trim() + '"></i>';
+  return '<div class="pv-row"><span class="pv-k">' + name + '</span>' +
+    '<span class="pv-track">' + ticks + '</span><span class="pv-v">' + value + "</span></div>";
+}
+
+const PREVIEW = {
+  chrome: () =>
+    '<div class="chips"><b style="font-size:15px;margin-right:auto;">Detailed View</b>' +
+    '<span class="badge"><span class="dot"></span>Online</span>' +
+    '<span class="btn-orange">&#8681; Export Excel</span></div>',
+  tabs: () =>
+    '<div class="chips"><span class="chip on">FL Motor</span><span class="chip">FR Motor</span>' +
+    '<span class="chip">RL Motor</span><span class="chip">RR Motor</span></div>',
+  meta: () => '<div class="meta">Updated 15:09 PM &nbsp; Rust UI · /next/ · vanilla at /detailed/ · FL #1</div>',
+  value: b =>
+    '<div class="vcard"><i>' + b.label.replace("Value: ", "") + ' (' + b.hint + ')</i>' +
+    '<b>' + b.val + '</b><u>' + (b.sub || " ") + "</u></div>",
+  chart: b =>
+    '<div class="chart"><div class="ct">' + b.seed + "</div>" +
+    (b.legend ? '<div class="legend">' + b.legend.map((l, i) =>
+      '<span><u style="background:' + b.colors[i] + '"></u>' + l + "</span>").join("") + "</div>" : "") +
+    '<div class="plot">' + plot(b) + "</div></div>",
+  gas: () =>
+    '<div class="pv">' +
+    gasRow("CO", "1.33", 6) + gasRow("LPG", "0.88", 4, "warm") + gasRow("CH4", "0.94", 5, "hot") +
+    gasRow("H2", "1.06", 6, "warm") + gasRow("Air", "0.61", 3) + "</div>",
+  o2: () =>
+    '<div class="pv"><div class="big"><b style="color:' + LPG + '">21.51</b><span>% O2</span></div>' +
+    '<div class="kv"><span>Cell output</span><b style="color:' + LPG + '">11.83 mV</b></div>' +
+    '<div class="note">Galvanic cell: clean air reads about 10 to 13 mV and 20.9 %. Warn below 20.0 %, alarm below 19.5 %.</div></div>',
+  flame: () =>
+    '<div class="pv"><div class="big"><b style="color:' + LPG + '">0.07</b><span>V</span></div>' +
+    '<div class="kv"><span>Direction</span><b style="color:' + LPG + '">no flame seen</b></div>' +
+    '<div class="kv"><span>Array</span><span class="dots"><u></u><u></u><u></u><u></u><u></u></span></div>' +
+    '<div class="kv"><span>Module</span><b style="color:' + LPG + '">ok</b></div>' +
+    '<div class="note">Level is the module analog output. A lit dot is the direction whose line fired.</div></div>',
+  heat: () =>
+    '<div class="pv"><div class="big"><b style="color:' + LPG + '">24.3 / 24.8</b><span>°C L/R object</span></div>' +
+    '<div class="kv"><span>Ambient L/R</span><b>22.4 / 22.5 °C</b></div>' +
+    '<div class="kv"><span>Difference L-R</span><b>-0.4 °C</b></div>' +
+    '<div class="note">Warn when |L-R| &gt;= 8 °C, alarm &gt;= 15 °C. Aim both at the same wall to sanity-check the pair.</div></div>',
+  range: () =>
+    '<div class="chips"><span style="color:var(--dimmer);font-size:9px;text-transform:uppercase;letter-spacing:.06em;">Chart range</span>' +
+    '<span class="chip on">1 min</span><span class="chip">10 min</span><span class="chip">1 hour</span></div>',
+  node: () =>
+    '<div class="chips" style="margin-bottom:6px;">' +
+    '<span class="chip tiny">ADS <b>ok</b></span><span class="chip tiny">MLX pair <b>ok</b></span>' +
+    '<span class="chip tiny">baseline <b>ok</b></span><span class="chip tiny">burn-in <b>--</b></span>' +
+    '<span class="chip tiny">state <b>--</b></span></div>' +
+    '<div class="note">Burn-in is the node own powered time. MQ cells need 24 to 48 h before the baseline means anything. Green means the board answered, not that a gas is safe.</div>',
+  imu: () =>
+    '<div class="pv">' +
+    '<div class="kv"><span>Yaw</span><b>306.5 deg</b></div>' +
+    '<div class="kv"><span>Pitch / roll</span><b>-3.4 / 2.8 deg</b></div>' +
+    '<div class="kv"><span>Accel x / y / z</span><b>0.00 / 0.02 / 0.93 g</b></div>' +
+    '<div class="kv"><span>Turn rate gz</span><b>0.00 deg/s</b></div>' +
+    '<div class="kv"><span>Module</span><b>ok</b></div>' +
+    '<div class="note">Localization feed, 4 Hz; recorded with the ENV log into the Excel export (IMU sheet).</div></div>'
+};
+
+function preview(b) {
+  const fn = PREVIEW[b.kind];
+  if (!fn) return "";
+  try {
+    return fn(b);
+  } catch (e) {
+    // one broken fake preview must not take the whole canvas down
+    console.error("preview failed for " + b.id, e);
+    return '<div class="note">' + b.label + " (preview failed)</div>";
+  }
+}
+
+/* ---------- render ---------- */
+function render() {
+  canvas.querySelectorAll(".card").forEach(n => n.remove());
+  for (const it of state.items) canvas.appendChild(cardEl(it));
+  const maxRow = state.items.reduce((m, i) => Math.max(m, i.row + i.h - 1), 1);
+  canvas.style.height = maxRow * ROW + 30 + "px";
+  renderList();
+  outEl.value = toJson();
+}
+
+function cardEl(it) {
+  const b = byId[it.id];
+  const el = document.createElement("div");
+  el.className = "card" + (state.sel === it.id ? " sel" : "");
+  place(el, it);
+  el.innerHTML =
+    '<div class="card-head"><span class="t">' + b.label + "</span>" +
+    '<span class="pos">c' + it.col + " w" + it.w + " r" + it.row + " h" + it.h + "</span>" +
+    '<span class="grow"></span>' +
+    '<button class="mini" data-act="wide" title="Full width">W</button>' +
+    '<button class="mini" data-act="del" title="Remove">x</button></div>' +
+    '<div class="card-body">' + preview(b) + '</div><div class="rs"></div>';
+
+  el.querySelector('[data-act="del"]').onclick = ev => {
+    ev.stopPropagation();
+    snapshot();
+    state.items = state.items.filter(x => x.id !== it.id);
+    state.sel = null;
+    render();
+  };
+  el.querySelector('[data-act="wide"]').onclick = ev => {
+    ev.stopPropagation();
+    snapshot();
+    const cur = state.items.find(x => x.id === it.id);
+    cur.w = COLS - cur.col + 1;
+    render();
+  };
+  el.addEventListener("pointerdown", ev => {
+    state.sel = it.id;
+    canvas.querySelectorAll(".card").forEach(c => c.classList.remove("sel"));
+    el.classList.add("sel");
+    const corner = el.querySelector(".rs");
+    if (corner === ev.target || corner.contains(ev.target)) startResize(ev, el, it);
+    else if (ev.target.closest(".card-head") && !ev.target.closest(".mini")) startMove(ev, el, it);
+  });
+  return el;
+}
+
+function renderList() {
+  listEl.innerHTML = "";
+  for (const b of BLOCKS) {
+    const placed = state.items.some(i => i.id === b.id);
+    const d = document.createElement("div");
+    d.className = "block" + (placed ? " placed" : "");
+    d.innerHTML = "<b>" + b.label + "</b><span>" + b.hint + '</span><div class="id">' + b.id + "</div>";
+    d.onclick = () => {
+      if (placed) return;
+      snapshot();
+      const size = defaultSize(b.id);
+      const row = state.items.reduce((m, i) => Math.max(m, i.row + i.h), 1);
+      state.items.push({ id: b.id, col: 1, row, w: size.w, h: size.h });
+      state.sel = b.id;
+      render();
+    };
+    listEl.appendChild(d);
+  }
+}
+
+/* ---------- drag + resize ---------- */
+function startMove(ev, el, it) {
+  snapshot();
+  const x0 = ev.clientX, y0 = ev.clientY, c0 = it.col, r0 = it.row;
+  el.setPointerCapture(ev.pointerId);
+  let next = { col: c0, row: r0 };
+  const move = e => {
+    next.col = clamp(c0 + Math.round((e.clientX - x0) / (CW + GAP)), 1, COLS - it.w + 1);
+    next.row = Math.max(1, r0 + Math.round((e.clientY - y0) / ROW));
+    place(el, { ...it, ...next });
+    el.querySelector(".pos").textContent = "c" + next.col + " w" + it.w + " r" + next.row + " h" + it.h;
+  };
+  const up = () => {
+    el.removeEventListener("pointermove", move);
+    el.removeEventListener("pointerup", up);
+    it.col = next.col;
+    it.row = next.row;
+    if (it.col === c0 && it.row === r0) history.pop();
+    render();
+  };
+  el.addEventListener("pointermove", move);
+  el.addEventListener("pointerup", up);
+}
+
+function startResize(ev, el, it) {
+  snapshot();
+  const x0 = ev.clientX, y0 = ev.clientY, c0 = it.col, w0 = it.w, h0 = it.h;
+  el.setPointerCapture(ev.pointerId);
+  let next = { w: w0, h: h0 };
+  const move = e => {
+    next.w = clamp(w0 + Math.round((e.clientX - x0) / (CW + GAP)), 1, COLS - c0 + 1);
+    next.h = Math.max(1, h0 + Math.round((e.clientY - y0) / ROW));
+    place(el, { ...it, ...next });
+    el.querySelector(".pos").textContent = "c" + it.col + " w" + next.w + " r" + it.row + " h" + next.h;
+  };
+  const up = () => {
+    el.removeEventListener("pointermove", move);
+    el.removeEventListener("pointerup", up);
+    it.w = next.w;
+    it.h = next.h;
+    if (it.w === w0 && it.h === h0) history.pop();
+    render();
+  };
+  el.addEventListener("pointermove", move);
+  el.addEventListener("pointerup", up);
+}
+
+document.addEventListener("keydown", ev => {
+  if (/^(TEXTAREA|INPUT)$/.test(ev.target.tagName)) return;
+  if (ev.ctrlKey && ev.key.toLowerCase() === "z") {
+    ev.preventDefault();
+    const prev = history.pop();
+    if (prev) { state.items = prev; state.sel = null; render(); }
+    return;
+  }
+  const it = state.items.find(i => i.id === state.sel);
+  if (!it) return;
+  const dir = ev.key === "ArrowUp" ? -1 : ev.key === "ArrowDown" ? 1 : ev.key === "ArrowLeft" ? -1 : ev.key === "ArrowRight" ? 1 : 0;
+  if (!dir) return;
+  ev.preventDefault();
+  snapshot();
+  if (ev.shiftKey) it.w = clamp(it.w + dir, 1, COLS - it.col + 1);
+  else {
+    it.col = clamp(it.col + dir, 1, COLS - it.w + 1);
+    if (ev.key === "ArrowUp" || ev.key === "ArrowDown") it.row = Math.max(1, it.row + dir);
+  }
+  render();
+});
+
+/* ---------- export ---------- */
+function sorted() { return [...state.items].sort((a, b) => a.row - b.row || a.col - b.col); }
+
+function toJson() {
+  return JSON.stringify({
+    page: "detailed",
+    cols: COLS,
+    rowPx: ROW,
+    notes: notesEl.value.trim(),
+    items: sorted().map(i => ({ id: i.id, label: byId[i.id].label, col: i.col, row: i.row, w: i.w, h: i.h }))
+  }, null, 2);
+}
+
+function toText() {
+  const lines = ["Detailed page layout, " + COLS + " columns, " + ROW + " px rows", ""];
+  for (const i of sorted()) {
+    lines.push("row " + String(i.row).padStart(3) + ": " + i.id.padEnd(13) +
+      " cols " + i.col + "-" + (i.col + i.w - 1) + "  h" + i.h + "   " + byId[i.id].label);
+  }
+  const notes = notesEl.value.trim();
+  if (notes) lines.push("", "notes: " + notes);
+  return lines.join("\n");
+}
+
+function status(msg) {
+  const el = document.getElementById("status");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(status.timer);
+  status.timer = setTimeout(() => el.classList.remove("show"), 2600);
+}
+
+async function copy(text, what) {
+  try {
+    await navigator.clipboard.writeText(text);
+    status(what + " copied to clipboard");
+  } catch (e) {
+    outEl.removeAttribute("readonly");
+    outEl.select();
+    status("clipboard blocked, text selected: press Ctrl+C");
+  }
+}
+
+document.getElementById("copyJson").onclick = () => copy(toJson(), "json");
+document.getElementById("copyText").onclick = () => copy(toText(), "text");
+document.getElementById("download").onclick = () => {
+  const blob = new Blob([toJson()], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "layout.json";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  status("layout.json saved with your downloads");
+};
+document.getElementById("reset").onclick = () => {
+  snapshot();
+  state.items = SEED.map(o => ({ ...o }));
+  state.sel = null;
+  render();
+  status("back to today's layout");
+};
+notesEl.oninput = () => { outEl.value = toJson(); };
+document.getElementById("gridOn").onchange = ev => {
+  colsLayer.style.display = ev.target.checked ? "" : "none";
+  canvas.style.background = ev.target.checked ? "" : "#0b0b0e";
+};
+
+/* ---------- go ---------- */
+for (let c = 0; c < COLS; c++) {
+  const d = document.createElement("div");
+  d.style.left = c * (CW + GAP) + "px";
+  d.style.width = CW + "px";
+  colsLayer.appendChild(d);
+}
+render();
+</script>
+</body>
+</html>

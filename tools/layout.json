@@ -1,0 +1,200 @@
+{
+  "page": "detailed",
+  "cols": 12,
+  "rowPx": 24,
+  "notes": "",
+  "items": [
+    {
+      "id": "header",
+      "label": "Page header",
+      "col": 1,
+      "row": 1,
+      "w": 12,
+      "h": 3
+    },
+    {
+      "id": "motorTabs",
+      "label": "Motor tabs",
+      "col": 1,
+      "row": 5,
+      "w": 12,
+      "h": 3
+    },
+    {
+      "id": "motorMeta",
+      "label": "Motor meta line",
+      "col": 1,
+      "row": 8,
+      "w": 12,
+      "h": 3
+    },
+    {
+      "id": "valTemp",
+      "label": "Value: temperature",
+      "col": 4,
+      "row": 12,
+      "w": 3,
+      "h": 4
+    },
+    {
+      "id": "mChartTemp",
+      "label": "Chart: temperature",
+      "col": 7,
+      "row": 12,
+      "w": 6,
+      "h": 7
+    },
+    {
+      "id": "mChartVolt",
+      "label": "Chart: voltage",
+      "col": 1,
+      "row": 16,
+      "w": 6,
+      "h": 7
+    },
+    {
+      "id": "valVolt",
+      "label": "Value: voltage",
+      "col": 7,
+      "row": 19,
+      "w": 3,
+      "h": 4
+    },
+    {
+      "id": "valCurrent",
+      "label": "Value: current",
+      "col": 4,
+      "row": 23,
+      "w": 3,
+      "h": 4
+    },
+    {
+      "id": "mChartCurrent",
+      "label": "Chart: current",
+      "col": 7,
+      "row": 23,
+      "w": 6,
+      "h": 7
+    },
+    {
+      "id": "mChartVib",
+      "label": "Chart: vibration",
+      "col": 1,
+      "row": 27,
+      "w": 6,
+      "h": 7
+    },
+    {
+      "id": "valVib",
+      "label": "Value: vibration",
+      "col": 7,
+      "row": 30,
+      "w": 3,
+      "h": 4
+    },
+    {
+      "id": "valHealth",
+      "label": "Value: health",
+      "col": 4,
+      "row": 34,
+      "w": 3,
+      "h": 4
+    },
+    {
+      "id": "mChartHealth",
+      "label": "Chart: health",
+      "col": 7,
+      "row": 34,
+      "w": 6,
+      "h": 7
+    },
+    {
+      "id": "gasPanel",
+      "label": "Panel: gas bars",
+      "col": 2,
+      "row": 45,
+      "w": 5,
+      "h": 6
+    },
+    {
+      "id": "gasChart",
+      "label": "Chart: gas response",
+      "col": 7,
+      "row": 45,
+      "w": 6,
+      "h": 7
+    },
+    {
+      "id": "o2Chart",
+      "label": "Chart: O2",
+      "col": 1,
+      "row": 51,
+      "w": 6,
+      "h": 7
+    },
+    {
+      "id": "o2Panel",
+      "label": "Panel: O2",
+      "col": 7,
+      "row": 52,
+      "w": 5,
+      "h": 6
+    },
+    {
+      "id": "flamePanel",
+      "label": "Panel: flame",
+      "col": 2,
+      "row": 58,
+      "w": 5,
+      "h": 6
+    },
+    {
+      "id": "flameChart",
+      "label": "Chart: flame level",
+      "col": 7,
+      "row": 58,
+      "w": 6,
+      "h": 7
+    },
+    {
+      "id": "heatChart",
+      "label": "Chart: heat",
+      "col": 1,
+      "row": 64,
+      "w": 6,
+      "h": 7
+    },
+    {
+      "id": "heatPanel",
+      "label": "Panel: heat MLX",
+      "col": 7,
+      "row": 65,
+      "w": 5,
+      "h": 6
+    },
+    {
+      "id": "rangeCtl",
+      "label": "Chart range",
+      "col": 1,
+      "row": 71,
+      "w": 12,
+      "h": 3
+    },
+    {
+      "id": "nodePanel",
+      "label": "Panel: node",
+      "col": 3,
+      "row": 76,
+      "w": 4,
+      "h": 5
+    },
+    {
+      "id": "imuPanel",
+      "label": "Panel: IMU",
+      "col": 7,
+      "row": 77,
+      "w": 3,
+      "h": 6
+    }
+  ]
+}

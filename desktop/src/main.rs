@@ -85,8 +85,11 @@ fn ensure_broker(cfg: &AppConfig) -> Option<std::process::Child> {
         );
         return None;
     };
+    // Without -c, mosquitto 2.x binds loopback only and a board on the LAN
+    // can never reach the app's broker. The conf sits beside the sidecar.
     let mut cmd = std::process::Command::new(&exe);
     cmd.current_dir(&workdir)
+        .args(["-c", "mosquitto.conf"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     #[cfg(windows)]
