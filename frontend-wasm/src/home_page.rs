@@ -403,6 +403,7 @@ fn paint_lidar_3d(
     let rings = ctx.lidar_rings.get();
     let cloud = ctx.lidar_cloud.get();
     let cloud_pts = cloud.get("points").and_then(|p| p.as_array());
+    let cloud_rings = cloud.get("rings").and_then(|v| v.as_u64()).unwrap_or(0);
     let ring_count: usize = rings.iter().map(|(_, p)| p.len()).sum();
     let cloud_count = cloud_pts.map_or(0, |p| p.len());
     let yaw = ctx.lidar_yaw.get();
@@ -536,11 +537,14 @@ fn paint_lidar_3d(
     let label = if cloud_count > 0 {
         if ctx.cloud_stale.get() {
             format!(
-                "ROS cloud offline - {} pts (stale) - drag orbit",
-                cloud_count
+                "SAVED SCAN - {} pts / {} rings - start rover-ros for live",
+                cloud_count, cloud_rings
             )
         } else {
-            format!("ROS cloud - {} pts - drag orbit / wheel zoom", cloud_count)
+            format!(
+                "LIVE - {} pts / {} rings - drag orbit / wheel zoom",
+                cloud_count, cloud_rings
+            )
         }
     } else {
         format!(
@@ -1073,8 +1077,20 @@ pub fn HomePage() -> impl IntoView {
                     .get("points")
                     .and_then(|p| p.as_array())
                     .map_or(0, |p| p.len());
-                if c.lidar_stale.get() {
-                    "A1 scan offline - waiting for 360 turn".to_string()
+                let cloud_pts = c
+                    .lidar_cloud
+                    .get()
+                    .get("points")
+                    .and_then(|p| p.as_array())
+                    .map_or(0, |p| p.len());
+                if cloud_pts > 0 {
+                    if c.cloud_stale.get() {
+                        "Saved 3D scan - start rover-ros for live".to_string()
+                    } else {
+                        "ROS cloud live - drag or Expand".to_string()
+                    }
+                } else if c.lidar_stale.get() {
+                    "A1 idle - start rover-ros".to_string()
                 } else {
                     format!("A1 live - {pts} points per turn")
                 }
