@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Bridge the host's MQTT tilt angle (degrees) into ROS as /tilt."""
+import json
+
 import rospy
 from std_msgs.msg import Float32
 import paho.mqtt.client as mqtt
@@ -13,10 +15,16 @@ def main():
     client.loop_start()
 
     def on_message(_client, _userdata, msg):
+        text = msg.payload.decode("utf-8", "replace").strip()
         try:
-            pub.publish(Float32(float(msg.payload)))
-        except (ValueError, TypeError):
-            pass
+            body = json.loads(text)
+            angle = float(body["angle"])
+        except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+            try:
+                angle = float(text)
+            except (ValueError, TypeError):
+                return
+        pub.publish(Float32(max(-90.0, min(90.0, angle))))
 
     client.on_message = on_message
     client.subscribe("rover/lidar/tilt_deg")

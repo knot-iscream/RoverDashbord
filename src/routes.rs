@@ -95,6 +95,46 @@ pub async fn lidar_cloud(State(s): State<AppState>) -> Json<Value> {
     Json(json!({"cloud": s.lidar_cloud.read().await.clone()}))
 }
 
+/// Manual tilt for the ROS pipeline. The bracket must be moved by hand to
+/// match this angle until the servo/IMU is wired. The ROS node subscribes to
+/// the same topic, so the point cloud gets a real pitch instead of z = 0.
+pub async fn lidar_tilt(State(s): State<AppState>, Json(body): Json<Value>) -> Json<Value> {
+    let angle = body
+        .get("angle")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0)
+        .clamp(-90.0, 90.0);
+    let sent = s
+        .mqtt
+        .read()
+        .await
+        .handle
+        .publish("rover/lidar/tilt_deg", &json!({"angle": angle}))
+        .await;
+    Json(json!({
+        "status": if sent { "ok" } else { "error" },
+        "angle": angle,
+        "sent": sent,
+        "mqtt_connected": s.mqtt.read().await.handle.is_connected(),
+    }))
+}
+
+/// Clear the ROS-side accumulated rings, so the next sweep starts clean.
+pub async fn lidar_cloud_clear(State(s): State<AppState>) -> Json<Value> {
+    let sent = s
+        .mqtt
+        .read()
+        .await
+        .handle
+        .publish("rover/lidar/cloud/clear", &json!({"action": "clear"}))
+        .await;
+    Json(json!({
+        "status": if sent { "ok" } else { "error" },
+        "sent": sent,
+        "mqtt_connected": s.mqtt.read().await.handle.is_connected(),
+    }))
+}
+
 fn coerce_motor(v: Option<&Value>) -> i64 {
     v.and_then(|x| x.as_i64()).unwrap_or(0)
 }

@@ -490,6 +490,41 @@ async fn lidar_cloud_route_is_public_and_null_until_published() {
 }
 
 #[tokio::test]
+async fn lidar_tilt_and_clear_require_the_token_and_report_offline() {
+    let (r, _g) = app().await;
+    let (s, _, _) = req(
+        r.clone(),
+        "POST",
+        "/api/lidar/tilt",
+        None,
+        Some(json!({"angle": 15})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, v, _) = req(
+        r.clone(),
+        "POST",
+        "/api/lidar/tilt",
+        Some(TEST_TOKEN),
+        Some(json!({"angle": 15})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["angle"], 15.0);
+    assert_eq!(v["sent"], false, "dead broker in tests");
+    let (s, v, _) = req(
+        r,
+        "POST",
+        "/api/lidar/cloud/clear",
+        Some(TEST_TOKEN),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["sent"], false);
+}
+
+#[tokio::test]
 async fn history_empty_and_export_400() {
     let (r, _g) = app().await;
     let (s, v, _) = req(r, "GET", "/api/history/days", None, None).await;

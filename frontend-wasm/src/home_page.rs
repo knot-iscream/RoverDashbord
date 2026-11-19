@@ -14,7 +14,9 @@ use web_sys::Element;
 
 use crate::env_ui;
 use crate::shell::app_shell;
-use crate::ws::{camera_url, fetch_device_online, get_json, non_reactive, now_ms, ws_url};
+use crate::ws::{
+    camera_url, fetch_device_online, get_json, non_reactive, now_ms, post_json, ws_url,
+};
 
 const LABELS: [&str; 4] = ["FL", "FR", "RL", "RR"];
 const PARTS: [&str; 4] = ["wheelFL", "wheelFR", "wheelRL", "wheelRR"];
@@ -227,8 +229,10 @@ struct HomeCtx {
     lidar_el: RwSignal<f64>,
     lidar_zoom: RwSignal<f64>,
     lidar_drag: RwSignal<Option<(f64, f64)>>,
+    lidar_full: RwSignal<bool>,
     hud: NodeRef<leptos::html::Div>,
     lidar_canvas: NodeRef<leptos::html::Canvas>,
+    lidar_canvas_big: NodeRef<leptos::html::Canvas>,
 }
 
 fn repaint(ctx: &HomeCtx) {
@@ -242,13 +246,20 @@ fn repaint(ctx: &HomeCtx) {
     );
 }
 
+/// Repaint both the card canvas and the expanded overlay canvas, if mounted.
+fn paint_lidar(ctx: &HomeCtx) {
+    if let Some(canvas) = ctx.lidar_canvas.get() {
+        paint_lidar_canvas(ctx, &canvas);
+    }
+    if let Some(canvas) = ctx.lidar_canvas_big.get() {
+        paint_lidar_canvas(ctx, &canvas);
+    }
+}
+
 /// 2D polar plot of the latest A1 revolution. Imperative like the HUD: the
 /// canvas is touched only when a scan arrives, not on every reactive tick.
-fn paint_lidar(ctx: &HomeCtx) {
+fn paint_lidar_canvas(ctx: &HomeCtx, canvas: &web_sys::HtmlCanvasElement) {
     let _nz = non_reactive();
-    let Some(canvas) = ctx.lidar_canvas.get() else {
-        return;
-    };
     let Ok(Some(rc)) = canvas.get_context("2d") else {
         return;
     };
@@ -720,16 +731,18 @@ pub fn HomePage() -> impl IntoView {
     let cloud_stale = RwSignal::new(true);
     let lidar_rings = RwSignal::new(Vec::new());
     let lidar_acc = RwSignal::new(Vec::new());
-    let lidar_view = RwSignal::new(0u8);
+    let lidar_view = RwSignal::new(1u8);
     let lidar_pitch = RwSignal::new(0.0f64);
     let lidar_wire = RwSignal::new(true);
     let lidar_yaw = RwSignal::new(0.0f64);
     let lidar_el = RwSignal::new(0.35f64);
     let lidar_zoom = RwSignal::new(1.0f64);
     let lidar_drag = RwSignal::new(None);
+    let lidar_full = RwSignal::new(false);
 
     let hud = NodeRef::<leptos::html::Div>::new();
     let lidar_canvas = NodeRef::<leptos::html::Canvas>::new();
+    let lidar_canvas_big = NodeRef::<leptos::html::Canvas>::new();
     let viewport = NodeRef::<leptos::html::Div>::new();
     let placeholder = NodeRef::<leptos::html::Div>::new();
     let cam_label = NodeRef::<leptos::html::Span>::new();
@@ -760,8 +773,10 @@ pub fn HomePage() -> impl IntoView {
         lidar_el,
         lidar_zoom,
         lidar_drag,
+        lidar_full,
         hud,
         lidar_canvas,
+        lidar_canvas_big,
     };
 
     // -- setup: WS, polls, sim fallback, overlay ticker (refs post-mount) --
@@ -886,12 +901,19 @@ pub fn HomePage() -> impl IntoView {
         });
     }
 
+    let push_tilt = move |angle: f64| {
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = post_json("/api/lidar/tilt", serde_json::json!({ "angle": angle })).await;
+        });
+    };
     let on_lidar_view = move |v: u8| {
         ctx.lidar_view.set(v);
         paint_lidar(&ctx);
     };
     let on_lidar_tilt = move |d: f64| {
-        ctx.lidar_pitch.update(|p| *p = (*p + d).clamp(-90.0, 90.0));
+        let next = (ctx.lidar_pitch.get() + d).clamp(-90.0, 90.0);
+        ctx.lidar_pitch.set(next);
+        push_tilt(next);
     };
     let on_lidar_capture = move |_| {
         let pts: Vec<[f64; 3]> = ctx
@@ -905,6 +927,7 @@ pub fn HomePage() -> impl IntoView {
             return;
         }
         let pitch = ctx.lidar_pitch.get();
+        push_tilt(pitch);
         ctx.lidar_rings.update(|rings| {
             if let Some(ring) = rings.iter_mut().find(|(p, _)| (*p - pitch).abs() <= 2.0) {
                 // Same tilt pressed again: densify that ring instead of
@@ -927,7 +950,23 @@ pub fn HomePage() -> impl IntoView {
     let on_lidar_clear = move |_| {
         ctx.lidar_rings.set(Vec::new());
         ctx.lidar_acc.set(Vec::new());
+        ctx.lidar_cloud.set(serde_json::Value::Null);
+        ctx.cloud_seen.set(0.0);
+        ctx.cloud_stale.set(true);
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = post_json("/api/lidar/cloud/clear", serde_json::json!({})).await;
+        });
         paint_lidar(&ctx);
+    };
+    let on_lidar_expand = move |_| {
+        ctx.lidar_full.set(true);
+        wasm_bindgen_futures::spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(60).await;
+            paint_lidar(&ctx);
+        });
+    };
+    let on_lidar_close = move |_| {
+        ctx.lidar_full.set(false);
     };
     let on_lidar_wire = move |_| {
         ctx.lidar_wire.update(|w| *w = !*w);
@@ -1027,6 +1066,9 @@ pub fn HomePage() -> impl IntoView {
     };
     let on_cam = move |mode: u8| {
         cam.set(mode);
+        if mode == 1 && ctx.lidar_view.get() == 0 {
+            ctx.lidar_view.set(1);
+        }
         paint_cam();
     };
     let on_cam_load = move |_: web_sys::Event| {
@@ -1147,6 +1189,7 @@ pub fn HomePage() -> impl IntoView {
                                             <button class="lidar-btn" on:click=on_lidar_capture>"Capture"</button>
                                             <button class="lidar-btn" on:click=on_lidar_clear>"Clear"</button>
                                             <button class="lidar-btn" on:click=on_lidar_reset_view>"Reset"</button>
+                                            <button class="lidar-btn" on:click=on_lidar_expand>"Expand"</button>
                                         </div>
                                         <div class="camera-placeholder" id="cam-placeholder" node_ref=placeholder>
                                             <div class="cam-dot-wrap">
@@ -1181,5 +1224,41 @@ pub fn HomePage() -> impl IntoView {
                 </main>
             </div>
         })}
+        <div class="lidar-modal" style=move || if ctx.lidar_full.get() { "display:flex" } else { "display:none" }>
+            <div class="lidar-modal-card">
+                <div class="lidar-modal-head">
+                    <div>
+                        <h2 class="lidar-modal-title">"LiDAR 3D view"</h2>
+                        <span class="lidar-modal-sub">"Tilt by hand, set the angle, wait for the ring, repeat"</span>
+                    </div>
+                    <button class="lidar-btn" on:click=on_lidar_close>"Close"</button>
+                </div>
+                <div class="lidar-modal-view">
+                    <canvas
+                        class="lidar-canvas-big"
+                        width="1400"
+                        height="1000"
+                        node_ref=lidar_canvas_big
+                        on:pointerdown=on_pd
+                        on:pointermove=on_pm
+                        on:pointerup=on_pu
+                        on:pointerleave=on_pu
+                        on:wheel=on_wheel
+                    ></canvas>
+                </div>
+                <div class="lidar-controls lidar-controls-modal">
+                    <button class="lidar-btn" on:click=move |_| on_lidar_view(0)>"2D"</button>
+                    <button class="lidar-btn" on:click=move |_| on_lidar_view(1)>"3D"</button>
+                    <button class="lidar-btn" on:click=on_lidar_wire>"Wire"</button>
+                    <button class="lidar-btn" on:click=move |_| on_lidar_tilt(-5.0)>"-"</button>
+                    <span class="lidar-pitch">{move || format!("{:+.0}", ctx.lidar_pitch.get())}</span>
+                    <button class="lidar-btn" on:click=move |_| on_lidar_tilt(5.0)>"+"</button>
+                    <button class="lidar-btn" on:click=on_lidar_capture>"Capture"</button>
+                    <button class="lidar-btn" on:click=on_lidar_clear>"Clear"</button>
+                    <button class="lidar-btn" on:click=on_lidar_reset_view>"Reset"</button>
+                    <button class="lidar-btn" on:click=on_lidar_close>"Close"</button>
+                </div>
+            </div>
+        </div>
     }
 }

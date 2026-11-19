@@ -776,6 +776,40 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 }
 .lidar-btn:hover { color: #f97316; border-color: rgba(249,115,22,0.6); }
 .lidar-pitch { font-size: 10px; color: #f97316; min-width: 26px; text-align: center; }
+.lidar-controls { flex-wrap: wrap; }
+.lidar-modal {
+  position: fixed; inset: 0;
+  z-index: 2000;
+  align-items: center; justify-content: center;
+  padding: 24px;
+  background: rgba(0,0,0,0.78);
+  backdrop-filter: blur(6px);
+}
+.lidar-modal-card {
+  display: flex; flex-direction: column;
+  width: min(94vw, 1500px);
+  height: min(92vh, 1000px);
+  padding: 14px;
+  border: 1px solid rgba(249,115,22,0.35);
+  border-radius: 14px;
+  background: #0a0a0c;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.7);
+}
+.lidar-modal-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; padding: 0 4px 10px;
+}
+.lidar-modal-title { margin: 0; font-size: 16px; font-weight: 800; color: #fafafa; }
+.lidar-modal-sub { font-size: 11px; color: var(--gray-500); }
+.lidar-modal-view { position: relative; flex: 1; min-height: 0; border-radius: 8px; overflow: hidden; }
+.lidar-canvas-big {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  background: radial-gradient(circle at center, rgba(249,115,22,0.05), transparent 70%);
+  cursor: grab;
+}
+.lidar-canvas-big:active { cursor: grabbing; }
+.lidar-controls-modal { position: static; padding-top: 12px; }
 .camera-placeholder {
   text-align: center;
   color: var(--gray-500);
@@ -2150,11 +2184,17 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 .ctl-throttle label { font-size: 9px; font-weight: 800; letter-spacing: 0.14em; color: var(--gray-600); }
 .ctl-throttle button { width: 30px; height: 24px; font-size: 13px; font-weight: 800; color: var(--gray-300); background: var(--bg-white-05); border: 1px solid var(--border-white-01); }
 .ctl-throttle button:hover { color: #fff; border-color: var(--primary); }
-.ctl-throttle input[type="range"] { width: 26px; height: 108px; writing-mode: vertical-lr; direction: rtl; -webkit-appearance: slider-vertical; accent-color: var(--primary); }
+/* Vertical version of the Motor Test slider: same groove, center tick and
+   skewed glowing thumb, laid out bottom-to-top. */
+.ctl-throttle .motor-control-row.on { padding: 0; background: transparent; box-shadow: none; border-radius: 0; }
+.ctl-throttle-track { flex-direction: column; width: 22px; height: 108px; }
+.ctl-throttle .motor-control-groove { top: 0; bottom: 0; left: 50%; right: auto; width: 4px; height: auto; transform: translateX(-50%); }
+.ctl-throttle .motor-control-fill.fwd, .ctl-throttle .motor-control-fill.rev { top: auto; bottom: 0; left: calc(50% - 2px); right: auto; width: 4px; height: 100%; transform: scaleY(var(--mag, 0)); transform-origin: bottom center; background: linear-gradient(0deg, rgba(var(--primary-rgb), 0.55), var(--primary)); }
+.ctl-throttle .motor-control-tick { top: auto; bottom: 0; left: 50%; width: 12px; height: 2px; transform: translateX(-50%); }
+.ctl-throttle .motor-control-input { width: 22px; height: 108px; writing-mode: vertical-lr; direction: rtl; }
 .ctl-thr-pct { font-size: 12px; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
 .ctl-thr-keys { font-size: 8px; letter-spacing: 0.12em; color: var(--gray-600); }
-.ctl-wheel-head { display: flex; justify-content: space-between; margin: 18px 0 8px; font-size: 9px; font-weight: 800; letter-spacing: 0.16em; color: var(--gray-600); }
-.ctl-wheel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.ctl-wheel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
 @media (max-width: 900px) { .ctl-wheel-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 560px) { .ctl-wheel-grid { grid-template-columns: 1fr; } }
 .ctl-wheel { padding: 12px; background: var(--bg-0a0a0a); border: 1px solid var(--border-white-008); }

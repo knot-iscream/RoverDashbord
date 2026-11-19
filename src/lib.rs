@@ -118,6 +118,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/calibration/bench/start", post(routes::bench_start))
         .route("/api/calibration/bench/stop", post(routes::bench_stop))
         .route("/api/config", post(routes::post_config))
+        .route("/api/lidar/tilt", post(routes::lidar_tilt))
+        .route("/api/lidar/cloud/clear", post(routes::lidar_cloud_clear))
         .route(
             "/api/auth/token",
             get(routes::get_token).post(routes::rotate_token),
