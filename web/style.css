@@ -763,20 +763,23 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   background: radial-gradient(circle at center, rgba(249,115,22,0.04), transparent 70%);
 }
 .lidar-controls {
-  position: absolute; left: 8px; right: 8px; bottom: 8px;
-  gap: 6px; align-items: center; justify-content: center;
-  z-index: 4; pointer-events: auto;
+  position: static;
+  display: flex; flex-wrap: wrap;
+  gap: 8px; align-items: center; justify-content: flex-start;
+  padding-top: 10px;
 }
 .lidar-btn {
-  border: 1px solid rgba(255,255,255,0.14);
-  background: rgba(12,12,14,0.78);
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(20,20,24,0.9);
   color: var(--gray-300);
-  border-radius: 5px; padding: 3px 7px;
-  font-size: 10px; cursor: pointer;
+  border-radius: 6px; padding: 6px 10px;
+  font-size: 11px; font-weight: 600; cursor: pointer;
+  min-height: 30px;
 }
-.lidar-btn:hover { color: #f97316; border-color: rgba(249,115,22,0.6); }
-.lidar-pitch { font-size: 10px; color: #f97316; min-width: 26px; text-align: center; }
-.lidar-controls { flex-wrap: wrap; }
+.lidar-btn:hover { color: #f97316; border-color: rgba(249,115,22,0.65); }
+.lidar-btn-accent { color: #fff; border-color: rgba(249,115,22,0.6); background: rgba(249,115,22,0.18); }
+.lidar-pitch { font-size: 12px; font-weight: 700; color: #f97316; min-width: 42px; text-align: center; }
+.lidar-hint { padding-top: 6px; font-size: 10px; line-height: 1.5; color: var(--gray-500); }
 .lidar-modal {
   position: fixed; inset: 0;
   z-index: 2000;

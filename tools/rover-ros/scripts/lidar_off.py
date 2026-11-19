@@ -13,9 +13,12 @@ import serial
 def main():
     port = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyUSB0"
     s = serial.Serial(port, 115200)
+    # Official A1 adapters use DTR for MOTOCTL. Some clones use RTS instead,
+    # so drive both high before closing.
     s.dtr = True
+    s.rts = True
     s.close()
-    print(f"lidar motor off ({port})")
+    print(f"lidar motor off ({port}, DTR+RTS high)")
 
 
 if __name__ == "__main__":

@@ -260,14 +260,34 @@ fn paint_lidar(ctx: &HomeCtx) {
 /// canvas is touched only when a scan arrives, not on every reactive tick.
 fn paint_lidar_canvas(ctx: &HomeCtx, canvas: &web_sys::HtmlCanvasElement) {
     let _nz = non_reactive();
+    // Match the backing store to the CSS box at the screen's pixel ratio.
+    // Fixed 600x450 / 1400x1000 buffers were being stretched into the card and
+    // the overlay, which made the 2D circle oval and the canvas text blurry.
+    let css_w = canvas.client_width() as f64;
+    let css_h = canvas.client_height() as f64;
+    if css_w < 2.0 || css_h < 2.0 {
+        return;
+    }
+    let dpr = web_sys::window()
+        .map(|w| w.device_pixel_ratio())
+        .unwrap_or(1.0)
+        .max(1.0);
+    let bw = (css_w * dpr).round() as u32;
+    let bh = (css_h * dpr).round() as u32;
+    if canvas.width() != bw {
+        canvas.set_width(bw);
+    }
+    if canvas.height() != bh {
+        canvas.set_height(bh);
+    }
     let Ok(Some(rc)) = canvas.get_context("2d") else {
         return;
     };
     let Some(g) = rc.dyn_into::<web_sys::CanvasRenderingContext2d>().ok() else {
         return;
     };
-    let w = canvas.width() as f64;
-    let h = canvas.height() as f64;
+    g.set_transform(dpr, 0.0, 0.0, dpr, 0.0, 0.0).ok();
+    let (w, h) = (css_w, css_h);
     let (cx, cy) = (w / 2.0, h / 2.0);
     let rmax = (h / 2.0 - 14.0).min(w / 2.0 - 14.0);
     g.clear_rect(0.0, 0.0, w, h);
@@ -1181,18 +1201,6 @@ pub fn HomePage() -> impl IntoView {
                                             on:pointerleave=on_pu
                                             on:wheel=on_wheel
                                         ></canvas>
-                                        <div class="lidar-controls" style=move || if cam.get() == 1 { "display:flex" } else { "display:none" }>
-                                            <button class="lidar-btn" on:click=move |_| on_lidar_view(0)>"2D"</button>
-                                            <button class="lidar-btn" on:click=move |_| on_lidar_view(1)>"3D"</button>
-                                            <button class="lidar-btn" on:click=on_lidar_wire>"Wire"</button>
-                                            <button class="lidar-btn" on:click=move |_| on_lidar_tilt(-5.0)>"-"</button>
-                                            <span class="lidar-pitch">{move || format!("{:+.0}", ctx.lidar_pitch.get())}</span>
-                                            <button class="lidar-btn" on:click=move |_| on_lidar_tilt(5.0)>"+"</button>
-                                            <button class="lidar-btn" on:click=on_lidar_capture>"Capture"</button>
-                                            <button class="lidar-btn" on:click=on_lidar_clear>"Clear"</button>
-                                            <button class="lidar-btn" on:click=on_lidar_reset_view>"Reset"</button>
-                                            <button class="lidar-btn" on:click=on_lidar_expand>"Expand"</button>
-                                        </div>
                                         <div class="camera-placeholder" id="cam-placeholder" node_ref=placeholder>
                                             <div class="cam-dot-wrap">
                                                 <span class="cam-dot"></span>
@@ -1200,6 +1208,21 @@ pub fn HomePage() -> impl IntoView {
                                             <span style="font-size:13px;font-weight:600;color:var(--gray-400);">"Live Feed"</span>
                                             <span class="cam-label" id="cam-label" node_ref=cam_label>"Waiting for camera stream..."</span>
                                         </div>
+                                    </div>
+                                    <div class="lidar-controls" style=move || if cam.get() == 1 { "display:flex" } else { "display:none" }>
+                                        <button class="lidar-btn" on:click=move |_| on_lidar_view(0)>"2D"</button>
+                                        <button class="lidar-btn" on:click=move |_| on_lidar_view(1)>"3D"</button>
+                                        <button class="lidar-btn" on:click=on_lidar_wire>"Wire"</button>
+                                        <button class="lidar-btn" title="Tilt the bracket, then set the matching angle" on:click=move |_| on_lidar_tilt(-5.0)>"Tilt -5°"</button>
+                                        <span class="lidar-pitch">{move || format!("{:+.0}°", ctx.lidar_pitch.get())}</span>
+                                        <button class="lidar-btn" title="Tilt the bracket, then set the matching angle" on:click=move |_| on_lidar_tilt(5.0)>"Tilt +5°"</button>
+                                        <button class="lidar-btn" on:click=on_lidar_capture>"Capture ring"</button>
+                                        <button class="lidar-btn" on:click=on_lidar_clear>"Clear"</button>
+                                        <button class="lidar-btn" on:click=on_lidar_reset_view>"Reset view"</button>
+                                        <button class="lidar-btn lidar-btn-accent" on:click=on_lidar_expand>"Expand"</button>
+                                    </div>
+                                    <div class="lidar-hint" style=move || if cam.get() == 1 { "display:block" } else { "display:none" }>
+                                        "Tilt the bracket by hand, set the matching angle, wait for the ring, repeat. Expand for the large view."
                                     </div>
                                 </div>
 
@@ -1252,12 +1275,12 @@ pub fn HomePage() -> impl IntoView {
                     <button class="lidar-btn" on:click=move |_| on_lidar_view(0)>"2D"</button>
                     <button class="lidar-btn" on:click=move |_| on_lidar_view(1)>"3D"</button>
                     <button class="lidar-btn" on:click=on_lidar_wire>"Wire"</button>
-                    <button class="lidar-btn" on:click=move |_| on_lidar_tilt(-5.0)>"-"</button>
-                    <span class="lidar-pitch">{move || format!("{:+.0}", ctx.lidar_pitch.get())}</span>
-                    <button class="lidar-btn" on:click=move |_| on_lidar_tilt(5.0)>"+"</button>
-                    <button class="lidar-btn" on:click=on_lidar_capture>"Capture"</button>
+                    <button class="lidar-btn" title="Tilt the bracket, then set the matching angle" on:click=move |_| on_lidar_tilt(-5.0)>"Tilt -5°"</button>
+                    <span class="lidar-pitch">{move || format!("{:+.0}°", ctx.lidar_pitch.get())}</span>
+                    <button class="lidar-btn" title="Tilt the bracket, then set the matching angle" on:click=move |_| on_lidar_tilt(5.0)>"Tilt +5°"</button>
+                    <button class="lidar-btn" on:click=on_lidar_capture>"Capture ring"</button>
                     <button class="lidar-btn" on:click=on_lidar_clear>"Clear"</button>
-                    <button class="lidar-btn" on:click=on_lidar_reset_view>"Reset"</button>
+                    <button class="lidar-btn" on:click=on_lidar_reset_view>"Reset view"</button>
                     <button class="lidar-btn" on:click=on_lidar_close>"Close"</button>
                 </div>
             </div>
