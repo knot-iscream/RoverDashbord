@@ -1035,7 +1035,9 @@ pub fn HomePage() -> impl IntoView {
         if let Some(p) = placeholder.get() {
             p.set_attribute(
                 "style",
-                if mode == 0 && !live {
+                if mode == 1 {
+                    "display:none;"
+                } else if !live {
                     "opacity:1;"
                 } else {
                     "opacity:0.25;"
