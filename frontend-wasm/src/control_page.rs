@@ -622,14 +622,33 @@ pub fn ControlPage() -> impl IntoView {
                             <div class="ctl-throttle">
                                 <label for="ctl-drive-speed">"THROTTLE"</label>
                                 <button title="Raise throttle (E)" on:click=on_thr_more>"+"</button>
-                                <input id="ctl-drive-speed" type="range" min="20" max="255" step="1" value="128" node_ref=c.drive_slider on:input=on_speed />
+                                <div
+                                    class="motor-control-row on ctl-throttle-row"
+                                    style={move || format!("--glow:8px;--mag:{:.3}", c.speed.get() as f64 / 255.0)}
+                                >
+                                    <div class="motor-control-track ctl-throttle-track">
+                                        <div class="motor-control-groove ctl-throttle-groove"></div>
+                                        <div class="motor-control-fill fwd ctl-throttle-fill"></div>
+                                        <div class="motor-control-tick ctl-throttle-tick"></div>
+                                        <input
+                                            id="ctl-drive-speed"
+                                            class="motor-control-input ctl-throttle-input"
+                                            type="range"
+                                            min="20"
+                                            max="255"
+                                            step="1"
+                                            value="128"
+                                            node_ref=c.drive_slider
+                                            on:input=on_speed
+                                        />
+                                    </div>
+                                </div>
                                 <button title="Lower throttle (Q)" on:click=on_thr_less>"−"</button>
                                 <span class="ctl-thr-pct">{move || format!("{}%", pct(c.speed.get()))}</span>
                                 <span class="ctl-thr-keys">"E / Q"</span>
                             </div>
                         </div>
 
-                        <div class="ctl-wheel-head"><span>"WHEEL / MOTOR GRID"</span></div>
                         <div class="ctl-wheel-grid">
                             {(1usize..=6usize).map(|m| {
                                 let idx = m - 1;
