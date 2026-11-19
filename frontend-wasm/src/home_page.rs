@@ -211,6 +211,10 @@ struct HomeCtx {
     lidar_msg: RwSignal<serde_json::Value>,
     lidar_seen: RwSignal<f64>,
     lidar_stale: RwSignal<bool>,
+    /// ROS-built 3D cloud from `rover/lidar/cloud`, points in metres.
+    lidar_cloud: RwSignal<serde_json::Value>,
+    cloud_seen: RwSignal<f64>,
+    cloud_stale: RwSignal<bool>,
     /// Manually stacked rings for the 3D view: (pitch_deg, points).
     lidar_rings: RwSignal<Vec<(f64, Vec<[f64; 3]>)>>,
     /// Merged recent turns by 1 degree angle bin, so a still sensor fills in
@@ -366,14 +370,18 @@ fn paint_lidar_3d(
     rmax: f64,
 ) {
     let rings = ctx.lidar_rings.get();
+    let cloud = ctx.lidar_cloud.get();
+    let cloud_pts = cloud.get("points").and_then(|p| p.as_array());
+    let ring_count: usize = rings.iter().map(|(_, p)| p.len()).sum();
+    let cloud_count = cloud_pts.map_or(0, |p| p.len());
     let yaw = ctx.lidar_yaw.get();
     let el = ctx.lidar_el.get();
     let zoom = ctx.lidar_zoom.get();
     let wire = ctx.lidar_wire.get();
-    if rings.is_empty() {
+    if ring_count == 0 && cloud_count == 0 {
         g.set_fill_style_str("rgba(255,255,255,0.65)");
         g.fill_text(
-            "3D - capture a ring at each tilt, then drag to orbit",
+            "3D - waiting for ROS cloud or capture a ring at each tilt",
             10.0,
             cy + rmax * 0.55 + 16.0,
         )
@@ -383,6 +391,11 @@ fn paint_lidar_3d(
     let dmax = rings
         .iter()
         .flat_map(|(_, pts)| pts.iter().map(|p| p[1]))
+        .chain(cloud_pts.into_iter().flatten().filter_map(|p| {
+            p.get(0)
+                .and_then(|v| v.as_f64())
+                .map(|v| (v * 1000.0).abs())
+        }))
         .fold(1000.0f64, f64::max)
         .clamp(500.0, 6000.0);
     let scale = rmax / dmax;
@@ -427,6 +440,20 @@ fn paint_lidar_3d(
             let (x, y_plane) = (p[1] * a.cos(), p[1] * a.sin());
             let (sx, sy, depth) = proj(x, y_plane * cp, y_plane * sp);
             points.push((depth, sx, sy, p[2]));
+        }
+    }
+    // ROS cloud is already in 3D metres; convert to mm for the shared scale.
+    if let Some(ps) = cloud_pts {
+        for p in ps {
+            let (Some(x), Some(y), Some(z)) = (
+                p.get(0).and_then(|v| v.as_f64()),
+                p.get(1).and_then(|v| v.as_f64()),
+                p.get(2).and_then(|v| v.as_f64()),
+            ) else {
+                continue;
+            };
+            let (sx, sy, depth) = proj(x * 1000.0, y * 1000.0, z * 1000.0);
+            points.push((depth, sx, sy, 15.0));
         }
     }
     // Wireframe first, behind the points. Adjacent samples in a ring are
@@ -475,19 +502,25 @@ fn paint_lidar_3d(
         g.fill();
     }
     g.set_fill_style_str("rgba(255,255,255,0.65)");
-    let total: usize = rings.iter().map(|(_, p)| p.len()).sum();
-    g.fill_text(
-        &format!(
+    let label = if cloud_count > 0 {
+        if ctx.cloud_stale.get() {
+            format!(
+                "ROS cloud offline - {} pts (stale) - drag orbit",
+                cloud_count
+            )
+        } else {
+            format!("ROS cloud - {} pts - drag orbit / wheel zoom", cloud_count)
+        }
+    } else {
+        format!(
             "3D room - {} rings / {} pts - tilt {:+.0}..{:+.0} - drag orbit",
             rings.len(),
-            total,
+            ring_count,
             rings.first().map_or(0.0, |r| r.0),
             rings.last().map_or(0.0, |r| r.0)
-        ),
-        10.0,
-        cy + rmax * 0.55 + 16.0,
-    )
-    .ok();
+        )
+    };
+    g.fill_text(&label, 10.0, cy + rmax * 0.55 + 16.0).ok();
 }
 
 /// Home WS loop: motor_update feeds live motors (latching each one),
@@ -579,6 +612,12 @@ fn connect_home_ws(ctx: HomeCtx) {
                     ctx.lidar_seen.set(now_ms());
                     ctx.lidar_stale.set(false);
                     accumulate_lidar(&ctx, &v);
+                    paint_lidar(&ctx);
+                }
+                "lidar_cloud_update" => {
+                    ctx.lidar_cloud.set(v.clone());
+                    ctx.cloud_seen.set(now_ms());
+                    ctx.cloud_stale.set(false);
                     paint_lidar(&ctx);
                 }
                 _ => {}
@@ -676,6 +715,9 @@ pub fn HomePage() -> impl IntoView {
     let lidar_msg = RwSignal::new(serde_json::Value::Null);
     let lidar_seen = RwSignal::new(0.0f64);
     let lidar_stale = RwSignal::new(true);
+    let lidar_cloud = RwSignal::new(serde_json::Value::Null);
+    let cloud_seen = RwSignal::new(0.0f64);
+    let cloud_stale = RwSignal::new(true);
     let lidar_rings = RwSignal::new(Vec::new());
     let lidar_acc = RwSignal::new(Vec::new());
     let lidar_view = RwSignal::new(0u8);
@@ -706,6 +748,9 @@ pub fn HomePage() -> impl IntoView {
         lidar_msg,
         lidar_seen,
         lidar_stale,
+        lidar_cloud,
+        cloud_seen,
+        cloud_stale,
         lidar_rings,
         lidar_acc,
         lidar_view,
@@ -747,6 +792,20 @@ pub fn HomePage() -> impl IntoView {
                         c.lidar_msg.set(frame.clone());
                         c.lidar_seen.set(now_ms());
                         accumulate_lidar(&c, frame);
+                        paint_lidar(&c);
+                    }
+                }
+            }
+        });
+        // And the ROS point cloud, so the 3D view is populated on page load.
+        let c = ctx;
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Some(v) = get_json("/api/lidar/cloud").await {
+                if let Some(frame) = v.get("cloud") {
+                    if !frame.is_null() {
+                        c.lidar_cloud.set(frame.clone());
+                        c.cloud_seen.set(now_ms());
+                        c.cloud_stale.set(false);
                         paint_lidar(&c);
                     }
                 }
@@ -819,6 +878,8 @@ pub fn HomePage() -> impl IntoView {
             let _iv = gloo_timers::callback::Interval::new(1000, move || {
                 let seen = c.lidar_seen.get();
                 c.lidar_stale.set(seen == 0.0 || now_ms() - seen > 5000.0);
+                let cseen = c.cloud_seen.get();
+                c.cloud_stale.set(cseen == 0.0 || now_ms() - cseen > 5000.0);
                 paint_lidar(&c);
             });
             _iv.forget();

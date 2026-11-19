@@ -421,6 +421,22 @@ async fn lidar_scan_caches_and_relays_without_becoming_motor_data() {
 }
 
 #[tokio::test]
+async fn lidar_cloud_caches_and_relays_as_its_own_type() {
+    let mut f = common::fixture("mqtt-lidar-cloud");
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/lidar/cloud",
+        json!({"count": 1, "points": [[0.1, 0.2, 0.3]]}),
+    )
+    .await;
+    assert_eq!(f.lidar_cloud.read().await["points"][0][2], 0.3);
+    let d = common::drain(&mut f.rx);
+    assert!(d.iter().any(|m| m["type"] == "lidar_cloud_update"));
+    assert!(f.data.read().await.latest.is_empty());
+    std::fs::remove_dir_all(&f.dir).ok();
+}
+
+#[tokio::test]
 async fn servo_frames_relay_and_a_lost_calibration_clears_our_record() {
     let mut f = common::fixture("mqtt-servo");
     // The arm reports a calibration, and the app records what it measured.

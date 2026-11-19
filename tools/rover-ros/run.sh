@@ -4,6 +4,13 @@ set -e
 source /opt/ros/noetic/setup.bash
 export ROS_MASTER_URI=http://localhost:11311
 
+# The A1 motor runs while DTR is low. rplidarNode lowers it and does not
+# reliably raise it on exit, so force it high when the container stops.
+cleanup() {
+  python3 /root/rover-ros/scripts/lidar_off.py || true
+}
+trap cleanup EXIT
+
 roscore &
 sleep 3
 

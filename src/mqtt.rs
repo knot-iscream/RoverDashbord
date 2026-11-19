@@ -22,7 +22,7 @@ pub const DEVICE_OFFLINE_TIMEOUT_S: i64 = 8;
 /// echoes are dropped by the `*/command` guard below, same as motor commands.
 /// `rover/lidar/servo` is the swing arm's AS5600: without it the Calibration
 /// page could trigger the two-point calibration but never show the result.
-const SUB_TOPICS: [&str; 7] = [
+const SUB_TOPICS: [&str; 8] = [
     "rover/motor/#",
     "rover/mid/#",
     "rover/calibration/status",
@@ -31,6 +31,8 @@ const SUB_TOPICS: [&str; 7] = [
     "rover/lidar/servo",
     // Pi-side RPLIDAR A1 bridge, one full 360 degree turn per frame.
     "rover/lidar/scan",
+    // ROS-built 3D cloud: [[x, y, z], ...] in metres.
+    "rover/lidar/cloud",
 ];
 
 /// The shared pieces the ingest loop needs. `AppState` (main.rs) builds one
@@ -46,6 +48,7 @@ pub struct Ctx {
     pub imu: Arc<tokio::sync::RwLock<Value>>,
     pub servo: Arc<tokio::sync::RwLock<Value>>,
     pub lidar: Arc<tokio::sync::RwLock<Value>>,
+    pub lidar_cloud: Arc<tokio::sync::RwLock<Value>>,
     /// Derived O2 filter for the ENV node. Brief std::sync lock, no await.
     pub o2: Arc<std::sync::Mutex<crate::o2_estimate::O2Estimator>>,
     /// Rolling ENV + IMU logs behind the Detailed charts and the Excel
@@ -123,7 +126,10 @@ pub async fn spawn_mqtt(ctx: Ctx, broker: &str, port: u16) -> MqttSlot {
     // 15s, not Python's 60s: narrows the window where /api/health can report
     // a stale `mqtt_connected: true` after a silent TCP drop.
     opts.set_keep_alive(Duration::from_secs(15));
-    let (client, mut eventloop) = AsyncClient::new(opts, 16);
+    // Lidar scan (~20 KB) and ROS cloud (~50 KB) frames dwarf ordinary
+    // telemetry. rumqttc's small default triggers a reconnect loop otherwise.
+    opts.set_max_packet_size(1024 * 1024, 1024 * 1024);
+    let (client, mut eventloop) = AsyncClient::new(opts, 256);
     let handle = MqttHandle {
         client: client.clone(),
         connected: Arc::new(AtomicBool::new(false)),
@@ -147,7 +153,8 @@ pub async fn spawn_mqtt(ctx: Ctx, broker: &str, port: u16) -> MqttSlot {
                     }
                 }
                 Ok(_) => {}
-                Err(_) => {
+                Err(e) => {
+                    eprintln!("[MQTT] event error: {e}");
                     task_handle.connected.store(false, Ordering::SeqCst);
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 }
@@ -249,6 +256,13 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
     if topic.starts_with("rover/lidar/scan") {
         *ctx.lidar.write().await = data.clone();
         broadcast(ctx, tagged("lidar_update", data));
+        return;
+    }
+
+    // ── ROS point cloud (Pi container): already transformed into 3D ──
+    if topic.starts_with("rover/lidar/cloud") {
+        *ctx.lidar_cloud.write().await = data.clone();
+        broadcast(ctx, tagged("lidar_cloud_update", data));
         return;
     }
 

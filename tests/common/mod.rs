@@ -38,6 +38,7 @@ pub struct Fixture {
     pub imu: Arc<RwLock<Value>>,
     pub servo: Arc<RwLock<Value>>,
     pub lidar: Arc<RwLock<Value>>,
+    pub lidar_cloud: Arc<RwLock<Value>>,
     pub o2: Arc<std::sync::Mutex<digital_twin_dashboard::o2_estimate::O2Estimator>>,
     pub sensors: Arc<std::sync::Mutex<SensorLog>>,
     pub device: Arc<RwLock<mqtt::DeviceState>>,
@@ -68,6 +69,7 @@ pub fn fixture(tag: &str) -> Fixture {
     let imu = Arc::new(RwLock::new(Value::Null));
     let servo = Arc::new(RwLock::new(Value::Null));
     let lidar = Arc::new(RwLock::new(Value::Null));
+    let lidar_cloud = Arc::new(RwLock::new(Value::Null));
     let o2 = Arc::new(std::sync::Mutex::new(
         digital_twin_dashboard::o2_estimate::O2Estimator::new(),
     ));
@@ -82,6 +84,7 @@ pub fn fixture(tag: &str) -> Fixture {
         imu: imu.clone(),
         servo: servo.clone(),
         lidar: lidar.clone(),
+        lidar_cloud: lidar_cloud.clone(),
         o2: o2.clone(),
         sensors: sensors.clone(),
         device: device.clone(),
@@ -98,6 +101,7 @@ pub fn fixture(tag: &str) -> Fixture {
         imu,
         servo,
         lidar,
+        lidar_cloud,
         o2,
         sensors,
         device,
@@ -127,6 +131,7 @@ pub async fn test_state(tag: &str) -> (AppState, PathBuf) {
         imu: f.imu,
         servo: f.servo,
         lidar: f.lidar,
+        lidar_cloud: f.lidar_cloud,
         o2: f.o2,
         bench: digital_twin_dashboard::bench::new_bench(),
         sensors: f.sensors,

@@ -55,6 +55,9 @@ pub struct AppState {
     /// Latest RPLIDAR A1 scan (Pi-side serial bridge). Same null rule: a
     /// full revolution is published as one frame, never a fabricated point.
     pub lidar: Arc<tokio::sync::RwLock<Value>>,
+    /// Latest ROS-built 3D cloud from `rover/lidar/cloud`, in metres, as
+    /// `[[x, y, z], ...]`. Null until the ROS container publishes one.
+    pub lidar_cloud: Arc<tokio::sync::RwLock<Value>>,
     /// Derived O2 for the ENV node (no galvanic cell fitted). Stateful
     /// because of the attack/release filter; brief std::sync locks only.
     pub o2: Arc<std::sync::Mutex<o2_estimate::O2Estimator>>,
@@ -83,6 +86,7 @@ impl AppState {
             imu: self.imu.clone(),
             servo: self.servo.clone(),
             lidar: self.lidar.clone(),
+            lidar_cloud: self.lidar_cloud.clone(),
             o2: self.o2.clone(),
             sensors: self.sensors.clone(),
             device: self.device.clone(),
@@ -155,6 +159,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/imu", get(routes::imu))
         .route("/api/servo", get(routes::servo))
         .route("/api/lidar", get(routes::lidar))
+        .route("/api/lidar/cloud", get(routes::lidar_cloud))
         .route("/api/calibration", get(routes::calibration))
         .route("/api/calibration/status", get(routes::calibration_status))
         .route("/api/calibration/export", get(routes::calibration_export))
@@ -262,6 +267,7 @@ pub async fn build_state() -> AppState {
     let imu = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let servo = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let lidar = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let lidar_cloud = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let o2 = Arc::new(std::sync::Mutex::new(o2_estimate::O2Estimator::new()));
     let bench = bench::new_bench();
     let sensors = Arc::new(std::sync::Mutex::new(SensorLog::default()));
@@ -275,6 +281,7 @@ pub async fn build_state() -> AppState {
         imu: imu.clone(),
         servo: servo.clone(),
         lidar: lidar.clone(),
+        lidar_cloud: lidar_cloud.clone(),
         o2: o2.clone(),
         sensors: sensors.clone(),
         device: device.clone(),
@@ -292,6 +299,7 @@ pub async fn build_state() -> AppState {
         imu,
         servo,
         lidar,
+        lidar_cloud,
         o2,
         bench,
         sensors,

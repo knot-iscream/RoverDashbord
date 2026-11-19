@@ -89,6 +89,12 @@ pub async fn lidar(State(s): State<AppState>) -> Json<Value> {
     Json(json!({"lidar": s.lidar.read().await.clone()}))
 }
 
+/// Latest ROS-built 3D cloud. `null` until the ROS container publishes one;
+/// points are `[x, y, z]` in metres.
+pub async fn lidar_cloud(State(s): State<AppState>) -> Json<Value> {
+    Json(json!({"cloud": s.lidar_cloud.read().await.clone()}))
+}
+
 fn coerce_motor(v: Option<&Value>) -> i64 {
     v.and_then(|x| x.as_i64()).unwrap_or(0)
 }

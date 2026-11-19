@@ -471,6 +471,25 @@ async fn lidar_is_public_and_keeps_the_full_scan() {
 }
 
 #[tokio::test]
+async fn lidar_cloud_route_is_public_and_null_until_published() {
+    let (state, dir) = common::test_state("api-lidar-cloud").await;
+    let _g = PathBufGuard(dir);
+    let r = digital_twin_dashboard::build_router(state.clone());
+    let (s, v, _) = req(r.clone(), "GET", "/api/lidar/cloud", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v, json!({"cloud": null}));
+    digital_twin_dashboard::mqtt::on_mqtt_message(
+        &state.ctx(),
+        "rover/lidar/cloud",
+        json!({"count": 1, "points": [[0.1, 0.2, 0.3]]}),
+    )
+    .await;
+    let (s, v, _) = req(r, "GET", "/api/lidar/cloud", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["cloud"]["points"][0][1], 0.2);
+}
+
+#[tokio::test]
 async fn history_empty_and_export_400() {
     let (r, _g) = app().await;
     let (s, v, _) = req(r, "GET", "/api/history/days", None, None).await;

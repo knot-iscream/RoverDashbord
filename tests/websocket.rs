@@ -183,3 +183,22 @@ async fn lidar_replay_delivers_the_last_full_turn() {
     assert_eq!(next_json(&mut ws).await["type"], "calibration_status");
     assert_eq!(next_json(&mut ws).await["type"], "device_status");
 }
+
+#[tokio::test]
+async fn lidar_cloud_replay_delivers_the_3d_points() {
+    let (url, state, _g) = serve("ws-lidar-cloud").await;
+    digital_twin_dashboard::mqtt::on_mqtt_message(
+        &state.ctx(),
+        "rover/lidar/cloud",
+        json!({"count": 1, "points": [[0.1, 0.2, 0.3]]}),
+    )
+    .await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("{url}?token={TEST_TOKEN}"))
+        .await
+        .unwrap();
+    let frame = next_json(&mut ws).await;
+    assert_eq!(frame["type"], "lidar_cloud_update");
+    assert_eq!(frame["points"][0][2], 0.3);
+    assert_eq!(next_json(&mut ws).await["type"], "calibration_status");
+    assert_eq!(next_json(&mut ws).await["type"], "device_status");
+}
