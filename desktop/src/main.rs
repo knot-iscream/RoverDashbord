@@ -176,7 +176,14 @@ async fn bring_up(handle: tauri::AppHandle, cfg: AppConfig, broker: ChildSlot) {
         *broker.lock().unwrap() = Some(child);
     }
     let port = cfg.http_port;
-    let url: url::Url = format!("http://127.0.0.1:{port}")
+    // Cache-bust the entry document on every launch. WebView2 has served a
+    // stale index.html (and therefore an old hashed WASM bundle) across
+    // restarts, which made freshly rebuilt UI buttons appear dead.
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let url: url::Url = format!("http://127.0.0.1:{port}/?v={stamp}")
         .parse()
         .expect("app url parses");
     let probe = format!("127.0.0.1:{port}");
