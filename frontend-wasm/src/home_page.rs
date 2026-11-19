@@ -211,10 +211,18 @@ struct HomeCtx {
     lidar_msg: RwSignal<serde_json::Value>,
     lidar_seen: RwSignal<f64>,
     lidar_stale: RwSignal<bool>,
-    /// Manually stacked rings for the rough 3D view: (pitch_deg, points).
+    /// Manually stacked rings for the 3D view: (pitch_deg, points).
     lidar_rings: RwSignal<Vec<(f64, Vec<[f64; 3]>)>>,
+    /// Merged recent turns by 1 degree angle bin, so a still sensor fills in
+    /// its gaps instead of showing one sparse revolution.
+    lidar_acc: RwSignal<Vec<[f64; 3]>>,
     lidar_view: RwSignal<u8>,
     lidar_pitch: RwSignal<f64>,
+    lidar_wire: RwSignal<bool>,
+    lidar_yaw: RwSignal<f64>,
+    lidar_el: RwSignal<f64>,
+    lidar_zoom: RwSignal<f64>,
+    lidar_drag: RwSignal<Option<(f64, f64)>>,
     hud: NodeRef<leptos::html::Div>,
     lidar_canvas: NodeRef<leptos::html::Canvas>,
 }
@@ -273,20 +281,51 @@ fn paint_lidar(ctx: &HomeCtx) {
         g.line_to(cx + t.cos() * rmax, cy + t.sin() * rmax);
         g.stroke();
     }
-    let frame = ctx.lidar_msg.get();
-    let pts = frame.get("points").and_then(|p| p.as_array());
-    let mut dmax = 2000.0f64;
-    if let Some(ps) = pts {
-        for p in ps {
-            if let Some(d) = p.get(1).and_then(|x| x.as_f64()) {
-                if d > dmax {
-                    dmax = d;
-                }
-            }
+    let acc = ctx.lidar_acc.get();
+    let dmax = acc
+        .iter()
+        .fold(2000.0f64, |m, p| m.max(p[1]))
+        .clamp(500.0, 6000.0);
+    for p in &acc {
+        if p[1] <= 0.0 {
+            continue;
         }
+        let rr = (p[1] / dmax).min(1.0) * rmax;
+        let t = p[0].to_radians() - std::f64::consts::PI / 2.0;
+        let alpha = (0.30 + (p[2] / 15.0).clamp(0.0, 1.0) * 0.70).min(1.0);
+        g.set_fill_style_str(&format!("rgba(249,115,22,{alpha:.2})"));
+        g.begin_path();
+        g.arc(
+            cx + t.cos() * rr,
+            cy + t.sin() * rr,
+            2.2,
+            0.0,
+            std::f64::consts::PI * 2.0,
+        )
+        .ok();
+        g.fill();
     }
-    dmax = dmax.clamp(500.0, 6000.0);
-    if let Some(ps) = pts {
+    g.set_fill_style_str("rgba(255,255,255,0.65)");
+    g.set_font("11px sans-serif");
+    let label = if ctx.lidar_stale.get() || acc.is_empty() {
+        "NO SCAN - waiting for A1".to_string()
+    } else {
+        format!(
+            "A1  {} pts accumulated   scale {:.1} m",
+            acc.len(),
+            dmax / 1000.0
+        )
+    };
+    g.fill_text(&label, 10.0, h - 10.0).ok();
+}
+
+/// Merge a fresh turn into the 2D accumulation, binned by whole degree so
+/// successive scans fill gaps instead of stacking duplicates on one angle.
+fn accumulate_lidar(ctx: &HomeCtx, frame: &serde_json::Value) {
+    let Some(ps) = frame.get("points").and_then(|p| p.as_array()) else {
+        return;
+    };
+    ctx.lidar_acc.update(|acc| {
         for p in ps {
             let (Some(a), Some(d)) = (
                 p.get(0).and_then(|x| x.as_f64()),
@@ -298,38 +337,27 @@ fn paint_lidar(ctx: &HomeCtx) {
                 continue;
             }
             let q = p.get(2).and_then(|x| x.as_f64()).unwrap_or(15.0);
-            let rr = (d / dmax).min(1.0) * rmax;
-            let t = a.to_radians() - std::f64::consts::PI / 2.0;
-            let alpha = (0.30 + (q / 15.0).clamp(0.0, 1.0) * 0.70).min(1.0);
-            g.set_fill_style_str(&format!("rgba(249,115,22,{alpha:.2})"));
-            g.begin_path();
-            g.arc(
-                cx + t.cos() * rr,
-                cy + t.sin() * rr,
-                2.0,
-                0.0,
-                std::f64::consts::PI * 2.0,
-            )
-            .ok();
-            g.fill();
+            let bin = (a * 4.0).round() as i64 % 1440;
+            if let Some(old) = acc
+                .iter_mut()
+                .find(|e| ((e[0] * 4.0).round() as i64 % 1440) == bin)
+            {
+                if q >= old[2] {
+                    *old = [a, d, q];
+                }
+            } else {
+                acc.push([a, d, q]);
+            }
         }
-    }
-    g.set_fill_style_str("rgba(255,255,255,0.65)");
-    g.set_font("11px sans-serif");
-    let label = if ctx.lidar_stale.get() || pts.is_none() {
-        "NO SCAN - waiting for A1".to_string()
-    } else {
-        format!(
-            "A1  {} pts   scale {:.1} m",
-            pts.map_or(0, |p| p.len()),
-            dmax / 1000.0
-        )
-    };
-    g.fill_text(&label, 10.0, h - 10.0).ok();
+        if acc.len() > 3000 {
+            acc.drain(0..acc.len() - 3000);
+        }
+    });
 }
 
-/// Rough 3D from stacked 2D rings. Each ring was captured by hand at a known
-/// pitch; the A1's own angle is the horizontal axis. No angle is invented.
+/// Orbit 3D view of stacked rings. Drag to rotate, wheel to zoom, depth-sorted
+/// points and optional wireframe. No angle is invented: the A1 gives yaw, the
+/// hand tilt gives pitch, and the floor grid gives orientation.
 fn paint_lidar_3d(
     ctx: &HomeCtx,
     g: &web_sys::CanvasRenderingContext2d,
@@ -337,61 +365,125 @@ fn paint_lidar_3d(
     cy: f64,
     rmax: f64,
 ) {
-    g.set_line_width(1.0);
-    g.set_stroke_style_str("rgba(255,255,255,0.15)");
-    g.begin_path();
-    g.move_to(cx - rmax * 0.75, cy);
-    g.line_to(cx + rmax * 0.75, cy);
-    g.stroke();
-    g.begin_path();
-    g.move_to(cx, cy + rmax * 0.55);
-    g.line_to(cx, cy - rmax * 0.55);
-    g.stroke();
     let rings = ctx.lidar_rings.get();
+    let yaw = ctx.lidar_yaw.get();
+    let el = ctx.lidar_el.get();
+    let zoom = ctx.lidar_zoom.get();
+    let wire = ctx.lidar_wire.get();
     if rings.is_empty() {
         g.set_fill_style_str("rgba(255,255,255,0.65)");
         g.fill_text(
-            "3D - capture a ring at each tilt",
+            "3D - capture a ring at each tilt, then drag to orbit",
             10.0,
             cy + rmax * 0.55 + 16.0,
         )
         .ok();
         return;
     }
-    let mut dmax = 1000.0f64;
-    for (_, pts) in &rings {
-        for p in pts {
-            if p[1] > dmax {
-                dmax = p[1];
-            }
-        }
-    }
-    dmax = dmax.clamp(500.0, 6000.0);
+    let dmax = rings
+        .iter()
+        .flat_map(|(_, pts)| pts.iter().map(|p| p[1]))
+        .fold(1000.0f64, f64::max)
+        .clamp(500.0, 6000.0);
     let scale = rmax / dmax;
-    for (i, (pitch, pts)) in rings.iter().enumerate() {
+    let proj = |x: f64, y: f64, z: f64| -> (f64, f64, f64) {
+        let (cyaw, syaw) = (yaw.cos(), yaw.sin());
+        let x1 = x * cyaw - y * syaw;
+        let y1 = x * syaw + y * cyaw;
+        let (cel, sel) = (el.cos(), el.sin());
+        let y2 = y1 * cel - z * sel;
+        let z2 = y1 * sel + z * cel;
+        (cx + x1 * scale * zoom, cy - z2 * scale * zoom, y2)
+    };
+    // Floor grid on the z = 0 plane.
+    g.set_line_width(1.0);
+    g.set_stroke_style_str("rgba(255,255,255,0.09)");
+    for i in -4..=4 {
+        let v = i as f64 * dmax / 4.0;
+        let (x1, y1, _) = proj(-dmax, v, 0.0);
+        let (x2, y2, _) = proj(dmax, v, 0.0);
+        g.begin_path();
+        g.move_to(x1, y1);
+        g.line_to(x2, y2);
+        g.stroke();
+        let (x1, y1, _) = proj(v, -dmax, 0.0);
+        let (x2, y2, _) = proj(v, dmax, 0.0);
+        g.begin_path();
+        g.move_to(x1, y1);
+        g.line_to(x2, y2);
+        g.stroke();
+    }
+    // Project every point, world coordinates: x from the A1 angle, y from the
+    // tilt plane, z as height.
+    let mut points: Vec<(f64, f64, f64, f64)> = Vec::new();
+    for (pitch, pts) in &rings {
         let pr = pitch.to_radians();
         let (cp, sp) = (pr.cos(), pr.sin());
-        let light = 42 + (i as i64 * 11 % 30);
-        g.set_fill_style_str(&format!("hsl(24, 95%, {light}%)"));
         for p in pts {
             if p[1] <= 0.0 {
                 continue;
             }
             let a = p[0].to_radians();
-            let x = p[1] * a.cos();
-            let y = p[1] * a.sin();
-            let (xx, yy, zz) = (x, y * cp, y * sp);
-            let sx = cx + (xx - yy * 0.35) * scale;
-            let sy = cy - (zz + yy * 0.22) * scale;
-            g.begin_path();
-            g.arc(sx, sy, 2.0, 0.0, std::f64::consts::PI * 2.0).ok();
-            g.fill();
+            let (x, y_plane) = (p[1] * a.cos(), p[1] * a.sin());
+            let (sx, sy, depth) = proj(x, y_plane * cp, y_plane * sp);
+            points.push((depth, sx, sy, p[2]));
         }
     }
+    // Wireframe first, behind the points. Adjacent samples in a ring are
+    // joined only within a small angular and range gap, so doorways and
+    // occlusions do not get false walls drawn across them.
+    if wire {
+        g.set_line_width(1.0);
+        for (pitch, pts) in &rings {
+            let pr = pitch.to_radians();
+            let (cp, sp) = (pr.cos(), pr.sin());
+            let mut sorted = pts.clone();
+            sorted.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());
+            let mut prev: Option<[f64; 3]> = None;
+            for p in sorted {
+                if p[1] <= 0.0 {
+                    continue;
+                }
+                let a = p[0].to_radians();
+                if let Some(o) = prev {
+                    let da = (p[0] - o[0]).abs();
+                    let dr = (p[1] - o[1]).abs();
+                    if da < 4.0 && dr < 1500.0 {
+                        let oa = o[0].to_radians();
+                        let op = proj(o[1] * oa.cos(), o[1] * oa.sin() * cp, o[1] * oa.sin() * sp);
+                        let np = proj(p[1] * a.cos(), p[1] * a.sin() * cp, p[1] * a.sin() * sp);
+                        g.set_stroke_style_str("rgba(249,115,22,0.28)");
+                        g.begin_path();
+                        g.move_to(op.0, op.1);
+                        g.line_to(np.0, np.1);
+                        g.stroke();
+                    }
+                }
+                prev = Some(p);
+            }
+        }
+    }
+    // Painter's algorithm: far points first.
+    points.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+    for (depth, sx, sy, q) in points {
+        let near = (-depth / dmax).clamp(0.0, 1.0);
+        let light = 42.0 + near * 22.0;
+        let alpha = (0.45 + (q / 15.0).clamp(0.0, 1.0) * 0.55).min(1.0);
+        g.set_fill_style_str(&format!("hsla(24,95%,{light:.0}%,{alpha:.2})"));
+        g.begin_path();
+        g.arc(sx, sy, 2.6, 0.0, std::f64::consts::PI * 2.0).ok();
+        g.fill();
+    }
     g.set_fill_style_str("rgba(255,255,255,0.65)");
-    let last = rings.last().map_or(0.0, |r| r.0);
+    let total: usize = rings.iter().map(|(_, p)| p.len()).sum();
     g.fill_text(
-        &format!("3D stepped - {} rings - tilt {:+.0} deg", rings.len(), last),
+        &format!(
+            "3D room - {} rings / {} pts - tilt {:+.0}..{:+.0} - drag orbit",
+            rings.len(),
+            total,
+            rings.first().map_or(0.0, |r| r.0),
+            rings.last().map_or(0.0, |r| r.0)
+        ),
         10.0,
         cy + rmax * 0.55 + 16.0,
     )
@@ -486,6 +578,7 @@ fn connect_home_ws(ctx: HomeCtx) {
                     ctx.lidar_msg.set(v.clone());
                     ctx.lidar_seen.set(now_ms());
                     ctx.lidar_stale.set(false);
+                    accumulate_lidar(&ctx, &v);
                     paint_lidar(&ctx);
                 }
                 _ => {}
@@ -584,8 +677,14 @@ pub fn HomePage() -> impl IntoView {
     let lidar_seen = RwSignal::new(0.0f64);
     let lidar_stale = RwSignal::new(true);
     let lidar_rings = RwSignal::new(Vec::new());
+    let lidar_acc = RwSignal::new(Vec::new());
     let lidar_view = RwSignal::new(0u8);
     let lidar_pitch = RwSignal::new(0.0f64);
+    let lidar_wire = RwSignal::new(true);
+    let lidar_yaw = RwSignal::new(0.0f64);
+    let lidar_el = RwSignal::new(0.35f64);
+    let lidar_zoom = RwSignal::new(1.0f64);
+    let lidar_drag = RwSignal::new(None);
 
     let hud = NodeRef::<leptos::html::Div>::new();
     let lidar_canvas = NodeRef::<leptos::html::Canvas>::new();
@@ -608,8 +707,14 @@ pub fn HomePage() -> impl IntoView {
         lidar_seen,
         lidar_stale,
         lidar_rings,
+        lidar_acc,
         lidar_view,
         lidar_pitch,
+        lidar_wire,
+        lidar_yaw,
+        lidar_el,
+        lidar_zoom,
+        lidar_drag,
         hud,
         lidar_canvas,
     };
@@ -641,6 +746,7 @@ pub fn HomePage() -> impl IntoView {
                     if !frame.is_null() {
                         c.lidar_msg.set(frame.clone());
                         c.lidar_seen.set(now_ms());
+                        accumulate_lidar(&c, frame);
                         paint_lidar(&c);
                     }
                 }
@@ -728,30 +834,72 @@ pub fn HomePage() -> impl IntoView {
     };
     let on_lidar_capture = move |_| {
         let pts: Vec<[f64; 3]> = ctx
-            .lidar_msg
+            .lidar_acc
             .get()
-            .get("points")
-            .and_then(|p| p.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|p| {
-                        Some([
-                            p.get(0)?.as_f64()?,
-                            p.get(1)?.as_f64()?,
-                            p.get(2)?.as_f64().unwrap_or(15.0),
-                        ])
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        if !pts.is_empty() {
-            ctx.lidar_rings
-                .update(|r| r.push((ctx.lidar_pitch.get(), pts)));
+            .iter()
+            .copied()
+            .filter(|p| p[1] > 0.0)
+            .collect();
+        if pts.is_empty() {
+            return;
         }
+        let pitch = ctx.lidar_pitch.get();
+        ctx.lidar_rings.update(|rings| {
+            if let Some(ring) = rings.iter_mut().find(|(p, _)| (*p - pitch).abs() <= 2.0) {
+                // Same tilt pressed again: densify that ring instead of
+                // stacking a duplicate at a slightly different angle.
+                for np in pts {
+                    if !ring
+                        .1
+                        .iter()
+                        .any(|e| (e[0] - np[0]).abs() < 1.0 && (e[1] - np[1]).abs() < 80.0)
+                    {
+                        ring.1.push(np);
+                    }
+                }
+            } else {
+                rings.push((pitch, pts));
+            }
+        });
         paint_lidar(&ctx);
     };
     let on_lidar_clear = move |_| {
         ctx.lidar_rings.set(Vec::new());
+        ctx.lidar_acc.set(Vec::new());
+        paint_lidar(&ctx);
+    };
+    let on_lidar_wire = move |_| {
+        ctx.lidar_wire.update(|w| *w = !*w);
+        paint_lidar(&ctx);
+    };
+    let on_lidar_reset_view = move |_| {
+        ctx.lidar_yaw.set(0.0);
+        ctx.lidar_el.set(0.35);
+        ctx.lidar_zoom.set(1.0);
+        paint_lidar(&ctx);
+    };
+    let on_pd = move |ev: web_sys::PointerEvent| {
+        ctx.lidar_drag
+            .set(Some((ev.client_x() as f64, ev.client_y() as f64)));
+    };
+    let on_pm = move |ev: web_sys::PointerEvent| {
+        if let Some((px, py)) = ctx.lidar_drag.get() {
+            let dx = ev.client_x() as f64 - px;
+            let dy = ev.client_y() as f64 - py;
+            ctx.lidar_yaw.update(|y| *y += dx * 0.01);
+            ctx.lidar_el
+                .update(|e| *e = (*e - dy * 0.01).clamp(-1.2, 1.2));
+            ctx.lidar_drag
+                .set(Some((ev.client_x() as f64, ev.client_y() as f64)));
+            paint_lidar(&ctx);
+        }
+    };
+    let on_pu = move |_: web_sys::PointerEvent| ctx.lidar_drag.set(None);
+    let on_wheel = move |ev: web_sys::WheelEvent| {
+        ev.prevent_default();
+        let factor = if ev.delta_y() > 0.0 { 0.9 } else { 1.1 };
+        ctx.lidar_zoom
+            .update(|z| *z = (*z * factor).clamp(0.25, 4.0));
         paint_lidar(&ctx);
     };
     let c = ctx;
@@ -922,15 +1070,22 @@ pub fn HomePage() -> impl IntoView {
                                             height="450"
                                             style="display:none"
                                             node_ref=lidar_canvas
+                                            on:pointerdown=on_pd
+                                            on:pointermove=on_pm
+                                            on:pointerup=on_pu
+                                            on:pointerleave=on_pu
+                                            on:wheel=on_wheel
                                         ></canvas>
                                         <div class="lidar-controls" style=move || if cam.get() == 1 { "display:flex" } else { "display:none" }>
                                             <button class="lidar-btn" on:click=move |_| on_lidar_view(0)>"2D"</button>
                                             <button class="lidar-btn" on:click=move |_| on_lidar_view(1)>"3D"</button>
+                                            <button class="lidar-btn" on:click=on_lidar_wire>"Wire"</button>
                                             <button class="lidar-btn" on:click=move |_| on_lidar_tilt(-5.0)>"-"</button>
                                             <span class="lidar-pitch">{move || format!("{:+.0}", ctx.lidar_pitch.get())}</span>
                                             <button class="lidar-btn" on:click=move |_| on_lidar_tilt(5.0)>"+"</button>
                                             <button class="lidar-btn" on:click=on_lidar_capture>"Capture"</button>
                                             <button class="lidar-btn" on:click=on_lidar_clear>"Clear"</button>
+                                            <button class="lidar-btn" on:click=on_lidar_reset_view>"Reset"</button>
                                         </div>
                                         <div class="camera-placeholder" id="cam-placeholder" node_ref=placeholder>
                                             <div class="cam-dot-wrap">
