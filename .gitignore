@@ -65,3 +65,6 @@ web/splash.html
 # Generated backup and lock files
 *-backups/
 *.lck
+
+# Wiring PDF generator: kept on this PC only, the PDF itself is tracked
+/tools/wiring_pdf.py
