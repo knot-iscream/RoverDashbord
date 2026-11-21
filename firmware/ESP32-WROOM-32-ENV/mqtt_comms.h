@@ -7,8 +7,8 @@
 #include "config.h"
 #include "sensors_env.h"
 
-// Trimmed comms for the ENV board: telemetry out, heartbeat out, one command
-// in (baseline capture). No motors, no calibration FSM.
+// Trimmed comms for the ENV board: telemetry out, heartbeat out, commands
+// in (baseline capture, water pump). No motors, no calibration FSM.
 //
 // Static-callback pattern is the same as the corners/MID sketches: one
 // manager instance per sketch, pointer file-scope so PubSubClient can reach
@@ -136,6 +136,7 @@ class MQTTManager {
       doc["mlx_ok"] = s.mlx_ok ? 1 : 0;
       doc["flame_ok"] = s.flame_ok ? 1 : 0;
       doc["baseline_ok"] = s.baseline_ok ? 1 : 0;
+      doc["pump"] = s.pump_on ? 1 : 0;
       // No galvanic cell on this board. The backend estimates O2 from the
       // gas/flame/heat feeds and only does so while this flag is 0, so a
       // future real cell can take over by publishing o2_ok:1 + o2_mv.
@@ -155,14 +156,16 @@ class MQTTManager {
     }
 
     // Heartbeat: also the rover presence signal, same as the other boards.
-    void publishEnvStatus(unsigned long burn_in_s, bool baseline_ok) {
+    void publishEnvStatus(unsigned long burn_in_s, bool baseline_ok,
+                          bool pump_on) {
       if (!mqtt_client.connected()) return;
-      StaticJsonDocument<160> doc;
+      StaticJsonDocument<192> doc;
       doc["state"] = "running";
       doc["source"] = "env";
       doc["burn_in_s"] = burn_in_s;
       doc["baseline_ok"] = baseline_ok ? 1 : 0;
-      char buffer[160];
+      doc["pump"] = pump_on ? 1 : 0;
+      char buffer[192];
       size_t n = serializeJson(doc, buffer);
       mqtt_client.publish(MQTT_ENV_STATUS_TOPIC, buffer, n);
     }

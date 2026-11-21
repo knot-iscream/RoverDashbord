@@ -5,9 +5,10 @@
 #include "sensors_mid.h"
 
 // ESP-2 MID: 2 blind middle motors, plus the localization subsystem:
-//   MPU6050 IMU   -> rover/imu          (4 Hz, yaw drifts on purpose)
-//   MG996R swing  -> rover/lidar/servo  (step-and-settle, hard limits)
-//   AS5600        -> angle_real in the servo payload (optional, 0x36)
+//   MPU6050 swing arm  -> rover/imu          (4 Hz, yaw drifts on purpose)
+//   MG996R swing       -> rover/lidar/servo  (step-and-settle, hard limits)
+// No angle encoder is fitted: the servo publishes the commanded angle and
+// settles on time. The second MPU6050 at 0x69 is wired but not read yet.
 // Motor telemetry shape is unchanged: ina_ok/temp_valid/vib_valid are 0 with
 // null readings ("--" upstream), speed is real, backend remaps 1-2 -> 5-6.
 
@@ -33,7 +34,6 @@ void onMotorCommand(const char* json) {
 // {"action":"sweep","min":-30,"max":30,"step":5,"settle_ms":500,"dwell_ms":600}
 // {"action":"stop"}                             park at 0
 // {"action":"goto","angle":15}                  manual move (clamped)
-// {"action":"servo_cal"}                        two-point AS5600 calibration
 void onLidarCommand(const char* json) {
   StaticJsonDocument<192> doc;
   if (deserializeJson(doc, json)) {
@@ -51,8 +51,6 @@ void onLidarCommand(const char* json) {
     servo.stopSweep();
   } else if (strcmp(action, "goto") == 0) {
     servo.gotoDeg(doc["angle"] | 0.0f);
-  } else if (strcmp(action, "servo_cal") == 0) {
-    servo.calibrate();
   } else {
     Serial.print("[Lidar] Unknown action: ");
     Serial.println(action);
@@ -130,8 +128,7 @@ void loop() {
     last_servo_sweeping = servo.isSweeping();
     last_servo_step = servo.getStep();
     last_servo_target = servo.getTarget();
-    mqtt.publishLidarServo(true, servo.getTarget(), servo.isAsOk(),
-                           servo.isCalOk(), servo.getRealDeg(),
+    mqtt.publishLidarServo(true, servo.getTarget(),
                            servo.isSettled(), servo.isSweeping(),
                            servo.getStep(), servo.getSteps());
   }

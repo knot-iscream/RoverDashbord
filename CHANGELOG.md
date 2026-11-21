@@ -1,7 +1,37 @@
 # Changelog
 
-## Unreleased — 4-channel 6A corners, 3S LiPo rail, derived O2
+## v4.0 - 2026-11-21 - 4-channel 6A corners, 3S LiPo rail, derived O2
 
+- INA226 modules keep the stock 0.1 Ω R100 shunt. All four sit at 0x40
+  behind TCA9548A channels 4-7 while the ADXL345 keep 0-3; the firmware
+  selects the mux before begin, before the 5 s recheck and before every read,
+  and re-applies the shunt calibration on reconnect. The bench calibration is
+  0.1 Ω / 0.8 A, so current clips at 0.8 A and the 2 A over-current rule
+  cannot fire. VBS goes to the 12 V rail, not the PWM motor terminal.
+- Water pump on ESP-3: GPIO 25 drives an IRLZ44N low-side switch with a
+  100 Ω gate resistor, 10 kΩ pull-down, 2 A branch fuse, 1N5408 flyback and
+  100 µF at the pump. `rover/env/command` accepts
+  `{"action":"pump","on":1,"seconds":10}`, defaults to a 10 s burst, caps at
+  60 s and stops itself if the broker dies. `pump:0/1` rides telemetry and
+  the heartbeat. New `POST /api/pump` and a THROW WATER button on `/control`.
+- `docs/WIRING.md` rewritten around the bench handover: part ref key, split
+  power trees, one current path per corner motor with both legs, exact mux
+  SD/SC pairs, the pump switch table and the handover order. 470 µF quantity
+  corrected to 2, C9 moved to the 6 V servo rail, flame D4 and A3 marked
+  planned.
+
+- The 5-way flame module (RBD-0423) is active LOW on D1..D5, so the ENV
+  firmware now reads LOW as a trigger. The module runs from 3.3 V and its A3
+  analog output feeds the ADS1115 directly, so the flame channel loses its
+  divider and the resistor count drops from twelve to ten. `flame_ok` now
+  means the analog channel is readable, since idle HIGH proves nothing.
+- No AS5600 angle encoder is fitted, so the measured-angle feature is gone.
+  The MID firmware drops the encoder driver, its two-point calibration and
+  the `servo_cal` command; a sweep settles on time and publishes the
+  commanded angle only. `angle_real` is never sent, and `as5600_ok` and
+  `cal_ok` stay 0 for payload compatibility. The Calibration page loses its
+  Servo row and `sensor_cal` loses the `servo` key. A second MPU6050 at 0x69
+  is wired for a future bracket-tilt measurement but is not read yet.
 - Corner motors move off the L298N onto one RBD-3658 4-channel 6 A board
   (`DC_MOTOR_4`, MJKDZ). Two logic inputs per channel, no enable pin: PWM
   rides one input, the other stays low, direction is which input pulses.
@@ -38,7 +68,7 @@
 
 ## Unreleased — 6-motor sensors + ENV node (INA226 + ADXL345 + ESP-2 MID + ESP-3 ENV)
 
-- ESP-1 corners: INA219 → INA226 (10mΩ 1W shunts, 4A calibration cap),
+- ESP-1 corners: INA219 → INA226 (stock 0.1 Ω R100 shunt, 0.8 A cap as revised on 20 Nov, see the top entry),
   SW-420 → 4x ADXL345 (GY-291) via TCA9548A mux, all at 0x53 on channels
   0-3. Telemetry gains additive `vib_mag/ax/ay/az` (health math
   unchanged, still gated on the `vibration` bool).

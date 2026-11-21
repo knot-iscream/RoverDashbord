@@ -9,7 +9,8 @@ MQTTManager mqtt;
 MotorDriver driver;
 
 // Pin assignments
-uint8_t ina_addrs[4] = {INA226_ADDR_1, INA226_ADDR_2, INA226_ADDR_3, INA226_ADDR_4};
+// All four modules keep 0x40; the mux channel picks the chip.
+uint8_t ina_addrs[4] = {INA226_ADDR, INA226_ADDR, INA226_ADDR, INA226_ADDR};
 
 unsigned long last_sample = 0;
 int current_motor = 0;

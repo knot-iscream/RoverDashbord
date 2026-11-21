@@ -26,24 +26,24 @@ CSS = """@page { size: A4; margin: 15mm 14mm 16mm 14mm; }
 html, body { background: #ffffff; color: #111827; }
 body {
   font-family: Consolas, 'DejaVu Sans Mono', monospace;
-  font-size: 10pt; line-height: 1.35;
+  font-size: 11pt; line-height: 1.4;
 }
-h1 { font-size: 20pt; margin: 0 0 12pt; color: #0f172a; }
+h1 { font-size: 21pt; margin: 0 0 12pt; color: #0f172a; }
 h2 {
-  font-size: 14pt; margin: 16pt 0 6pt; color: #9a3412;
+  font-size: 15pt; margin: 18pt 0 7pt; color: #9a3412;
   border-bottom: 1px solid #d6d3d1; padding-bottom: 3pt;
   page-break-after: avoid;
 }
-h3 { font-size: 11.5pt; margin: 11pt 0 4pt; color: #9a3412;
-     page-break-after: avoid; }
-p { margin: 5pt 0; }
+p { margin: 6pt 0; }
 table {
-  border-collapse: collapse; width: 100%; margin: 6pt 0 11pt;
-  font-size: 8.7pt; page-break-inside: avoid;
+  border-collapse: collapse; width: 100%; margin: 8pt 0 14pt;
+  font-size: 9.6pt; page-break-inside: auto;
 }
+thead { display: table-header-group; }
 th, td {
-  border: 1px solid #a8a29e; padding: 3pt 5pt;
+  border: 1px solid #a8a29e; padding: 5pt 7pt;
   text-align: left; vertical-align: top;
+  page-break-inside: avoid;
 }
 th { background: #f1f5f9; }
 tr { page-break-inside: avoid; }
@@ -61,8 +61,9 @@ hr { border: 0; border-top: 1px solid #d6d3d1; margin: 11pt 0; }
 """
 
 NEEDLES = [
-    "IN1", "10.42.0.1", "voltage divider", "0x70",
-    "GAS_DIVIDER", "DS18B20", "not wired on purpose",
+    "IN1", "0x40", "0x70", "DS18B20",
+    "Not connected on purpose", "10 k", "0.1",
+    "IRLZ44N", "GPIO 25", "R100",
 ]
 
 

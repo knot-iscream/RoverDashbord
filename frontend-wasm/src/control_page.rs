@@ -18,7 +18,9 @@ use wasm_bindgen::JsCast;
 use web_sys::{Event, HtmlInputElement, WebSocket};
 
 use crate::shell::app_shell;
-use crate::ws::{camera_url, fetch_device_online, non_reactive, now_ms, post_motor, ws_url};
+use crate::ws::{
+    camera_url, fetch_device_online, non_reactive, now_ms, post_motor, post_pump, ws_url,
+};
 
 const SHORT: [&str; 6] = ["FL", "FR", "RL", "RR", "ML", "MR"];
 const FULL: [&str; 6] = [
@@ -62,6 +64,7 @@ struct Ctx {
     drive_slider: NodeRef<leptos::html::Input>,
     jog_speeds: RwSignal<[i32; 6]>,
     cam_live: RwSignal<bool>,
+    pump: RwSignal<bool>,
     tick: RwSignal<u64>,
 }
 
@@ -302,7 +305,17 @@ fn connect_ws(c: Ctx) {
             let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
                 return;
             };
-            if v.get("type").and_then(|x| x.as_str()) != Some("motor_update") {
+            // Pump state rides the ENV frames (telemetry every 1 s, status
+            // every 2 s). Trust the board, not the last click: a burst that
+            // timed out on the firmware turns the button off by itself.
+            let kind = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
+            if kind == "env_update" || kind == "env_status" {
+                if let Some(p) = v.get("pump").and_then(|x| x.as_u64()) {
+                    c.pump.set(p != 0);
+                }
+                return;
+            }
+            if kind != "motor_update" {
                 return;
             }
             let Some(m) = v.get("motor").and_then(|x| x.as_u64()) else {
@@ -349,6 +362,7 @@ pub fn ControlPage() -> impl IntoView {
         drive_slider: NodeRef::<leptos::html::Input>::new(),
         jog_speeds: RwSignal::new([20i32; 6]),
         cam_live: RwSignal::new(false),
+        pump: RwSignal::new(false),
         tick: RwSignal::new(0u64),
     };
     let cam_img = NodeRef::<leptos::html::Img>::new();
@@ -465,6 +479,19 @@ pub fn ControlPage() -> impl IntoView {
     let on_thr_less = move |_: web_sys::MouseEvent| step_throttle(&c, -16);
     let on_thr_more = move |_: web_sys::MouseEvent| step_throttle(&c, 16);
     let on_stop = move |_: web_sys::MouseEvent| stop(&c);
+    // Water: the click only sends the command. The button follows the ENV
+    // frames, so it never claims "running" when the broker is down and it
+    // turns itself off when the firmware burst ends.
+    let on_pump_fire = move |_: web_sys::MouseEvent| {
+        wasm_bindgen_futures::spawn_local(async move {
+            post_pump(true, 10).await;
+        });
+    };
+    let on_pump_stop = move |_: web_sys::MouseEvent| {
+        wasm_bindgen_futures::spawn_local(async move {
+            post_pump(false, 0).await;
+        });
+    };
     let btn_down = |bit: u8| move |_: web_sys::PointerEvent| pad_down(&c, bit);
     let btn_up = |bit: u8| move |_: web_sys::PointerEvent| pad_up(&c, bit);
     let on_cam_load = move |_: Event| c.cam_live.set(true);
@@ -647,6 +674,21 @@ pub fn ControlPage() -> impl IntoView {
                                 <span class="ctl-thr-pct">{move || format!("{}%", pct(c.speed.get()))}</span>
                                 <span class="ctl-thr-keys">"E / Q"</span>
                             </div>
+                        </div>
+
+                        <div class="ctl-pump">
+                            <div class="ctl-pump-copy">
+                                <span class="ctl-pump-title">"WATER PUMP"</span>
+                                <span class="ctl-pump-hint">{move || if c.pump.get() {
+                                    "running - the ESP-3 stops it at the end of the burst".to_string()
+                                } else {
+                                    "10 s burst, about 0.7 L. ESP-3 GPIO 25.".to_string()
+                                }}</span>
+                            </div>
+                            <button
+                                class=move || if c.pump.get() { "ctl-water on" } else { "ctl-water" }
+                                on:click=move |ev| if c.pump.get() { on_pump_stop(ev) } else { on_pump_fire(ev) }
+                            >{move || if c.pump.get() { "■ STOP WATER" } else { "THROW WATER" }}</button>
                         </div>
 
                         <div class="ctl-wheel-grid">

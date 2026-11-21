@@ -120,8 +120,8 @@ class Mlx90614 {
 };
 
 // ------------------------------------------------------------
-// 5-channel IR flame module: 5 digital direction lines (the analog
-// magnitude comes from an ADS channel instead).
+// 5-channel IR flame module (RBD-0423): D1..D5 are the digital direction
+// lines, active LOW. The analog magnitude comes from ADS1115 B A3 instead.
 // ------------------------------------------------------------
 class FlameArray {
   private:
@@ -133,10 +133,13 @@ class FlameArray {
       Serial.println("[Flame] 5 direction lines ready");
     }
 
-    // 1..5 = active direction, 0 = no flame seen.
+    // 1..5 = active direction, 0 = no flame seen. The RBD-0423 comparator
+    // pulls the line LOW when that channel fires; FLAME_ACTIVE_LOW keeps the
+    // opposite module usable without another edit here.
     int direction() {
+      int fired = FLAME_ACTIVE_LOW ? LOW : HIGH;
       for (int i = 0; i < FLAME_PIN_COUNT; i++) {
-        if (digitalRead(pins[i]) == HIGH) return i + 1;
+        if (digitalRead(pins[i]) == fired) return i + 1;
       }
       return 0;
     }
@@ -149,9 +152,9 @@ class FlameArray {
 struct EnvSample {
   bool ads_ok = false;
   bool mlx_ok = false;
-  bool flame_ok = false;   // module alive (analog channel readable, or a
-                           // digital line has been seen HIGH since boot)
+  bool flame_ok = false;   // module alive (the analog channel is readable)
   bool baseline_ok = false;
+  bool pump_on = false;
   float gas[GAS_CHANNEL_COUNT] = {NAN, NAN, NAN, NAN, NAN};
   float flame_lvl = NAN;
   int flame_dir = 0;

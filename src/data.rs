@@ -30,19 +30,19 @@ pub fn sensor_baseline_path() -> std::path::PathBuf {
 /// The sensor keys the Calibration page lists, in board order. A fixed list
 /// beats "whatever arrived": a missing board then shows as "not captured"
 /// instead of quietly dropping off the page.
-pub const SENSOR_KEYS: [&str; 5] = ["gas", "flame", "heat", "imu", "servo"];
+pub const SENSOR_KEYS: [&str; 4] = ["gas", "flame", "heat", "imu"];
 
-/// Full-duty gate for the low-voltage rule. The INA226 sits after the
-/// driver, so it reads the PWM-averaged motor terminal voltage: at half
-/// throttle that is about half the pack, and a pack-level threshold would
-/// fire on every frame. Only near full duty does it approximate the pack.
+/// Full-duty gate for the low-voltage rule. VBS sits on the 12 V rail, so
+/// the bus reading is pack voltage; the gate keeps the check to the moment
+/// the pack is actually working instead of scoring a resting pack.
 pub const UNDER_LOAD_DUTY: i64 = 200;
 /// Pack floor for a 3S LiPo: 10.2 V is 3.4 V per cell. The old 11.5 V line
 /// was tuned for a sagging 12 V SLA and now sits above a 3S pack's nominal
 /// 11.1 V, which would flag a healthy pack for most of a run.
 pub const LOW_VOLTAGE_V: f64 = 10.2;
-/// One 37GB gearmotor stalls around 2.5 A. Alert above 2 A so a dragging
-/// wheel or a bind shows up while the motor still has margin.
+/// One 37GB gearmotor stalls around 2.5 A, but the stock 0.1 Ω INA226
+/// shunt clips at 0.8 A, so this rule cannot fire on the current build.
+/// Kept for a future 0.01 Ω retrofit.
 pub const OVER_CURRENT_A: f64 = 2.0;
 
 /// Baseline math inputs (resolved from the stored arbitrary dict with
@@ -100,8 +100,8 @@ pub struct DataHandler {
     pub latest: BTreeMap<u8, MotorSample>,
     /// Raw baseline dicts (full fidelity with `calibration_baseline.json`).
     pub baselines: HashMap<u8, Value>,
-    /// Captured sensor references (gas cells, O2 cell, flame, MLX pair, IMU,
-    /// AS5600). Kept in its own file so `calibration_baseline.json` stays
+    /// Captured sensor references (gas cells, flame, MLX pair, IMU). Kept in
+    /// its own file so `calibration_baseline.json` stays
     /// byte-identical with the Python one and the health drift math is
     /// untouched. Keyed by sensor key, not motor id.
     pub sensor_baselines: HashMap<String, Value>,
@@ -286,9 +286,8 @@ impl DataHandler {
     /// Pure health math (unit-testable). Penalty gates and message strings
     /// come from `data_handler.py`; the voltage rule is the one local change
     /// (see `LOW_VOLTAGE_V`), because the rover moved from a 12 V SLA to a
-    /// 3S LiPo and the per-motor INA226 reads post-PWM, not pack voltage.
-    /// `under_load` says the sample was taken near full duty, the only time
-    /// that reading approximates the pack.
+    /// 3S LiPo. VBS is on the 12 V rail, so the reading is pack voltage and
+    /// `under_load` keeps the check to the moment the pack is working.
     #[allow(clippy::too_many_arguments)]
     pub fn health_of(
         temp: Option<f64>,
@@ -536,8 +535,8 @@ mod tests {
 
     #[test]
     fn low_voltage_only_counts_near_full_duty() {
-        // The INA226 reads post-PWM motor volts. At half throttle 6 V is
-        // normal, not a pack fault.
+        // Pack voltage is only judged under load; a resting pack below the
+        // threshold is not evidence of a failure.
         let half = DataHandler::health_of(
             Some(35.0),
             Some(6.0),

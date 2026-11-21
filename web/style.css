@@ -42,6 +42,7 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   --dot-green: #22c55e;
   --dot-yellow: #eab308;
   --dot-red: #ef4444;
+  --water: #22d3ee;
   --ease-out-expo: cubic-bezier(0.23, 1, 0.32, 1);
   --header-h: 72px;
 }
@@ -2199,6 +2200,14 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 .ctl-throttle .motor-control-input { width: 22px; height: 108px; writing-mode: vertical-lr; direction: rtl; }
 .ctl-thr-pct { font-size: 12px; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; }
 .ctl-thr-keys { font-size: 8px; letter-spacing: 0.12em; color: var(--gray-600); }
+.ctl-pump { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 10px; padding: 12px 18px; background: var(--bg-0a0a0a); border: 1px solid var(--border-white-008); clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
+.ctl-pump-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ctl-pump-title { font-size: 10px; font-weight: 800; letter-spacing: 0.16em; color: var(--gray-300); }
+.ctl-pump-hint { font-size: 10px; color: var(--gray-500); }
+.ctl-water { min-width: 190px; height: 44px; padding: 0 20px; font-size: 11px; font-weight: 800; letter-spacing: 0.1em; color: #fff; background: rgba(34, 211, 238, 0.14); border: 1px solid rgba(34, 211, 238, 0.5); clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px); }
+.ctl-water:hover { background: rgba(34, 211, 238, 0.26); border-color: var(--water); }
+.ctl-water.on { color: #06181d; background: var(--water); border-color: var(--water); box-shadow: 0 0 18px rgba(34, 211, 238, 0.45); }
+@media (max-width: 560px) { .ctl-pump { flex-direction: column; align-items: stretch; } .ctl-water { width: 100%; } }
 .ctl-wheel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
 @media (max-width: 900px) { .ctl-wheel-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 560px) { .ctl-wheel-grid { grid-template-columns: 1fr; } }

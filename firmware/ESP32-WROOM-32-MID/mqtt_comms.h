@@ -220,20 +220,17 @@ class MQTTManager {
     }
 
     // ---- Lidar swing servo state (rover/lidar/servo) ----
-    // angle = commanded, angle_real = AS5600-measured (null until the
-    // two-point calibration exists). The Pi captures only while settled:1.
-    void publishLidarServo(bool servo_ok, float angle, bool as5600_ok,
-                           bool cal_ok, float angle_real, bool settled,
+    // angle = commanded. No encoder is fitted, so as5600_ok and cal_ok stay
+    // 0 and angle_real is never published. The two flags remain in the
+    // payload so the backend and dashboard contract do not change.
+    void publishLidarServo(bool servo_ok, float angle, bool settled,
                            bool sweeping, int step, int steps) {
       if (!mqtt_client.connected()) return;
       StaticJsonDocument<256> doc;
       doc["servo_ok"] = servo_ok ? 1 : 0;
       doc["angle"] = angle;
-      doc["as5600_ok"] = as5600_ok ? 1 : 0;
-      doc["cal_ok"] = cal_ok ? 1 : 0;
-      if (as5600_ok && cal_ok && angle_real == angle_real) {
-        doc["angle_real"] = angle_real;
-      }
+      doc["as5600_ok"] = 0;
+      doc["cal_ok"] = 0;
       doc["settled"] = settled ? 1 : 0;
       doc["sweeping"] = sweeping ? 1 : 0;
       doc["step"] = step;

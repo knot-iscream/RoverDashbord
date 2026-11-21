@@ -8,9 +8,9 @@
 #include "config.h"
 
 // Mid-board sensors: MPU6050 IMU (localization) and the lidar swing
-// actuator (MG996R + optional AS5600). No libraries needed beyond Wire:
-// both devices are plain register reads, which keeps the bench setup to
-// zero extra installs.
+// actuator (MG996R). No AS5600 encoder is fitted, so the servo reports the
+// commanded angle only and settles on time. No extra libraries needed:
+// both devices are plain register reads or LEDC writes.
 //
 // Validity rules match the rest of the rover: a sensor that cannot vouch
 // for itself reports ok=0 and the backend renders "--". Nothing is faked.
@@ -103,16 +103,13 @@ class Imu {
 };
 
 // ------------------------------------------------------------
-// Lidar swing: MG996R on LEDC (50 Hz) with hard limits, a step-and-settle
-// sweep FSM and an optional AS5600 giving the REAL angle instead of the
-// commanded one. Two-point calibration maps raw counts to -35..+35 deg.
+// Lidar swing: MG996R on LEDC (50 Hz), hard limits and a step-and-settle
+// sweep FSM. No angle encoder is fitted, so a step is called settled once
+// the servo has had time to move. The dashboard shows the commanded angle.
 // ------------------------------------------------------------
 class LidarServo {
   private:
     float target = 0;
-    float real_deg = NAN;
-    bool as_ok = false;      // encoder answers on the bus
-    bool cal_ok = false;     // two-point calibration stored
     bool sweeping = false;
     bool settled = true;
     int step = 0, steps = 0;
@@ -123,8 +120,6 @@ class LidarServo {
     unsigned long dwell_ms = SERVO_DWELL_MS;
     unsigned long move_started = 0;
     unsigned long settled_at = 0;
-    unsigned long last_angle_read = 0;
-    int raw_min = -1, raw_max = -1;
 
     float clampAngle(float a) {
       if (a < SERVO_MIN_DEG) return SERVO_MIN_DEG;   // HARD limits
@@ -139,84 +134,12 @@ class LidarServo {
       ledcWrite(SERVO_PIN, duty);
     }
 
-    int readRawAngle() {
-      Wire.beginTransmission(AS5600_ADDR);
-      Wire.write(0x0C);
-      if (Wire.endTransmission(false) != 0) return -1;
-      if (Wire.requestFrom((uint8_t)AS5600_ADDR, (uint8_t)2) != 2) return -1;
-      uint8_t hi = Wire.read();
-      uint8_t lo = Wire.read();
-      return ((hi & 0x0F) << 8) | lo;      // 12-bit raw, 0..4095
-    }
-
-    bool magnetOk() {
-      // Status reg 0x0B: MD=bit5 detected, ML=bit4 weak, MH=bit3 strong.
-      Wire.beginTransmission(AS5600_ADDR);
-      Wire.write(0x0B);
-      if (Wire.endTransmission(false) != 0) return false;
-      if (Wire.requestFrom((uint8_t)AS5600_ADDR, (uint8_t)1) != 1) return false;
-      uint8_t st = Wire.read();
-      return (st & 0x20) && !(st & 0x10) && !(st & 0x08);
-    }
-
-    void loadCal() {
-      Preferences p;
-      if (!p.begin("rover", true)) return;
-      raw_min = p.getInt("svo_min", -1);
-      raw_max = p.getInt("svo_max", -1);
-      p.end();
-      cal_ok = (raw_min >= 0 && raw_max >= 0 && raw_min != raw_max);
-    }
-
-    void saveCal() {
-      Preferences p;
-      if (!p.begin("rover", false)) return;
-      p.putInt("svo_min", raw_min);
-      p.putInt("svo_max", raw_max);
-      p.end();
-    }
-
-    // Map raw counts -> degrees, handling the 0/4095 wrap point.
-    float rawToDeg(int raw) {
-      int lo = raw_min, hi = raw_max, r = raw;
-      bool wrapped = (lo > hi);
-      if (wrapped) {
-        hi += 4096;
-        if (r < lo) r += 4096;
-      } else if (r < lo) {
-        r += 4096;
-      }
-      float span = (float)(hi - lo);
-      if (span < 50.0f) return NAN;       // nonsense calibration
-      return SERVO_MIN_DEG +
-             (float)(r - lo) * (SERVO_MAX_DEG - SERVO_MIN_DEG) / span;
-    }
-
-    void refreshAngle() {
-      int raw = readRawAngle();
-      if (raw < 0) {
-        as_ok = false;
-        real_deg = NAN;
-        return;
-      }
-      as_ok = magnetOk();
-      real_deg = (cal_ok && as_ok) ? rawToDeg(raw) : NAN;
-    }
-
   public:
     void begin() {
       pinMode(SERVO_PIN, OUTPUT);
       ledcAttach(SERVO_PIN, SERVO_PWM_FREQ, SERVO_PWM_RES);
-      loadCal();
-      refreshAngle();
-      if (as_ok) {
-        Serial.print("[Servo] AS5600 present, magnet ");
-        Serial.println(magnetOk() ? "OK" : "problem");
-      } else {
-        Serial.println("[Servo] AS5600 not detected (angle_real null)");
-      }
       gotoDeg(0);
-      Serial.println("[Servo] MG996R ready, hard limits +/-35 deg");
+      Serial.println("[Servo] MG996R ready, hard limits +/-35 deg (no angle feedback)");
     }
 
     // Clamped at the source: no MQTT message can drive past the mount.
@@ -254,40 +177,8 @@ class LidarServo {
       Serial.println("[Servo] Sweep stopped, parked at 0");
     }
 
-    // Blocking, ~3 s: drive to both HARD limits, store the raw counts.
-    bool calibrate() {
-      Serial.println("[Servo] Two-point calibration...");
-      gotoDeg(SERVO_MIN_DEG);
-      delay(settle_ms + 400);
-      int rmin = readRawAngle();
-      gotoDeg(SERVO_MAX_DEG);
-      delay(settle_ms + 400);
-      int rmax = readRawAngle();
-      gotoDeg(0);
-      if (rmin < 0 || rmax < 0) {
-        Serial.println("[Servo] Cal failed: AS5600 not answering");
-        return false;
-      }
-      int span = rmax - rmin;
-      if (span < 0) span += 4096;
-      if (span < 50) {
-        Serial.println("[Servo] Cal failed: magnet/span nonsense");
-        return false;
-      }
-      raw_min = rmin;
-      raw_max = rmax;
-      cal_ok = true;
-      saveCal();
-      Serial.printf("[Servo] Cal saved raw_min=%d raw_max=%d\n", rmin, rmax);
-      return true;
-    }
-
     void update() {
       unsigned long now = millis();
-      if (now - last_angle_read >= 100) {
-        last_angle_read = now;
-        refreshAngle();
-      }
 
       if (!sweeping) {
         if (!settled && (now - move_started) >= settle_ms) settled = true;
@@ -295,12 +186,8 @@ class LidarServo {
       }
 
       if (!settled && (now - move_started) >= settle_ms) {
-        // Encoder, when fitted, must agree before we call it settled.
-        if (!(as_ok && cal_ok && !isnan(real_deg) &&
-              fabsf(real_deg - target) > SERVO_SETTLE_TOL_DEG)) {
-          settled = true;
-          settled_at = now;
-        }
+        settled = true;
+        settled_at = now;
       }
 
       if (settled && (now - settled_at) >= dwell_ms) {
@@ -315,14 +202,11 @@ class LidarServo {
       }
     }
 
-    bool isAsOk()      { return as_ok; }
-    bool isCalOk()     { return cal_ok; }
-    bool isSweeping()  { return sweeping; }
-    bool isSettled()   { return settled; }
-    int getStep()      { return step; }
-    int getSteps()     { return steps; }
-    float getTarget()  { return target; }
-    float getRealDeg() { return real_deg; }
+    bool isSweeping() { return sweeping; }
+    bool isSettled()  { return settled; }
+    int getStep()     { return step; }
+    int getSteps()    { return steps; }
+    float getTarget() { return target; }
 };
 
 #endif

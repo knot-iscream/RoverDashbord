@@ -368,29 +368,25 @@ async fn fake_imu(client: AsyncClient) {
     }
 }
 
-/// MID swing arm (ESP-2): 1 Hz. Sits at 0 deg with the AS5600 calibrated, the
-/// same shape `publishLidarServo` sends: cal_ok 1 and a measured angle that
-/// trails the commanded one a little.
+/// MID swing arm (ESP-2): 1 Hz. No encoder is fitted, so the frame carries
+/// only the commanded angle and the two compatibility flags at 0, exactly
+/// as `publishLidarServo` sends.
 async fn fake_servo(client: AsyncClient) {
     let t0 = std::time::Instant::now();
     loop {
         let el = t0.elapsed().as_secs_f64();
         // Slow drift either side of centre, like an arm settling on its stop.
         let angle = r2((el * std::f64::consts::TAU / 47.0).sin() * 18.0);
-        let frame = {
-            let mut rng = rand::thread_rng();
-            json!({
-                "servo_ok": 1,
-                "angle": angle,
-                "as5600_ok": 1,
-                "cal_ok": 1,
-                "angle_real": r2(angle + rng.gen_range(-0.4..0.4)),
-                "settled": 1,
-                "sweeping": 0,
-                "step": 0,
-                "steps": 0,
-            })
-        };
+        let frame = json!({
+            "servo_ok": 1,
+            "angle": angle,
+            "as5600_ok": 0,
+            "cal_ok": 0,
+            "settled": 1,
+            "sweeping": 0,
+            "step": 0,
+            "steps": 0,
+        });
         publish(&client, "rover/lidar/servo", frame).await;
         tokio::time::sleep(Duration::from_millis(1000)).await;
     }

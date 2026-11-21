@@ -157,6 +157,45 @@ async fn motor_control_auth_matrix() {
 }
 
 #[tokio::test]
+async fn pump_control_auth_matrix() {
+    let (r, _g) = app().await;
+    // No token → same 401 shape as every other mutation.
+    let (s, v, _) = req(
+        r,
+        "POST",
+        "/api/pump",
+        None,
+        Some(json!({"on": true, "seconds": 10})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    assert_eq!(v["status"], "error");
+    assert_eq!(v["detail"], "missing or invalid token");
+
+    // Dead broker: HTTP 200 with sent:false, like motor_control.
+    let (r, _g) = app().await;
+    let (s, v, _) = req(
+        r,
+        "POST",
+        "/api/pump",
+        Some(TEST_TOKEN),
+        Some(json!({"on": true, "seconds": 10})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["status"], "error");
+    assert_eq!(v["sent"], false);
+    assert_eq!(v["detail"], "MQTT not connected");
+    assert_eq!(v["mqtt_connected"], false);
+
+    // A malformed body must not start water either.
+    let (r, _g) = app().await;
+    let (s, v, _) = req(r, "POST", "/api/pump", Some(TEST_TOKEN), Some(json!({}))).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["sent"], false);
+}
+
+#[tokio::test]
 async fn motor_control_cookie_and_query_tokens() {
     // Cookie.
     let (state, dir) = common::test_state("api-cookie").await;
@@ -280,12 +319,6 @@ async fn feed(state: &digital_twin_dashboard::AppState) {
         )
         .await;
     }
-    on_mqtt_message(
-        &state.ctx(),
-        "rover/lidar/servo",
-        json!({"servo_ok": 1, "angle": 0.0, "cal_ok": 1, "angle_real": -1.5}),
-    )
-    .await;
 }
 
 #[tokio::test]
@@ -326,7 +359,7 @@ async fn sensor_capture_covers_every_key_and_the_imu_too() {
     feed(&state).await;
     let router = digital_twin_dashboard::build_router(state);
 
-    for key in ["gas", "flame", "heat", "imu", "servo"] {
+    for key in ["gas", "flame", "heat", "imu"] {
         let (s, v, _) = req(
             router.clone(),
             "POST",
@@ -344,9 +377,12 @@ async fn sensor_capture_covers_every_key_and_the_imu_too() {
     }
     let (_, v, _) = req(router, "GET", "/api/calibration", None, None).await;
     let stored = v["sensor_baselines"].as_object().unwrap();
-    assert_eq!(stored.len(), 5, "every spec key is stored: {stored:?}");
+    assert_eq!(stored.len(), 4, "every spec key is stored: {stored:?}");
     assert_eq!(v["sensor_baselines"]["imu"]["reference"]["ay"], 0.29);
-    assert_eq!(v["sensor_baselines"]["servo"]["reference"]["cal_ok"], true);
+    assert!(
+        v["sensor_baselines"].get("servo").is_none(),
+        "no angle encoder fitted, there is nothing to capture"
+    );
     assert!(
         v["sensor_baselines"].get("o2").is_none(),
         "the derived O2 is a model output, there is nothing to capture"
@@ -381,7 +417,7 @@ async fn sensor_capture_needs_a_reading_and_a_known_key() {
     )
     .await;
     assert_eq!(s, StatusCode::NOT_FOUND);
-    assert_eq!(v["keys"], json!(["gas", "flame", "heat", "imu", "servo"]));
+    assert_eq!(v["keys"], json!(["gas", "flame", "heat", "imu"]));
 }
 
 #[tokio::test]

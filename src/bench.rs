@@ -7,10 +7,10 @@
 //!    wheels spin during that window the "rest" offsets capture motor noise,
 //!    so the motors are not started until it is done. The command is a no-op
 //!    on boards that predate it, which costs 3 seconds and nothing else.
-//! 2. `capture` - the ENV board takes its clean-air baseline and the arm
-//!    sweeps both hard limits for the AS5600. Neither cares about wheel
-//!    motion, and the app writes down what every sensor is reading over the
-//!    last [`CAPTURE_WINDOW_S`].
+//! 2. `capture` - the ENV board takes its clean-air baseline. No arm sweep:
+//!    no angle encoder is fitted, so there is no servo calibration to run.
+//!    The app writes down what every sensor is reading over the last
+//!    [`CAPTURE_WINDOW_S`].
 //! 3. `motors` - the existing motor calibration runs on its own, as before.
 //!
 //! Every step is fire-and-forget over MQTT with the same honesty rule as
@@ -151,19 +151,11 @@ pub async fn start(ctx: Ctx, mqtt: Publisher, bench: BenchSlot) -> BenchState {
             &ctx,
             &bench,
             "capture",
-            "Capturing the ENV baseline and sweeping the arm for the AS5600.",
+            "Capturing the ENV baseline.",
             generation,
         )
         .await;
         let _ = publish(&mqtt, &bench, "rover/env/command", "baseline", generation).await;
-        let _ = publish(
-            &mqtt,
-            &bench,
-            "rover/lidar/command",
-            "servo_cal",
-            generation,
-        )
-        .await;
         tokio::time::sleep(std::time::Duration::from_millis(CAPTURE_SETTLE_MS)).await;
         if !current(&bench, generation).await {
             return;
@@ -236,7 +228,6 @@ async fn set_stage(ctx: &Ctx, bench: &BenchSlot, stage: &str, detail: &str, gene
 /// capture button uses, so both paths store the same shape.
 pub async fn snapshot(ctx: &Ctx) -> (Vec<String>, Vec<String>) {
     // The log is a std Mutex, so nothing may be awaited while it is held.
-    let servo = ctx.servo.read().await.clone();
     let (env, imu) = {
         let log = ctx.sensors.lock().unwrap();
         (
@@ -244,7 +235,7 @@ pub async fn snapshot(ctx: &Ctx) -> (Vec<String>, Vec<String>) {
             log.imu_recent(crate::sensor_cal::CAPTURE_WINDOW_S),
         )
     };
-    let pairs = crate::sensor_cal::all_references(&env, &imu, &servo);
+    let pairs = crate::sensor_cal::all_references(&env, &imu);
     let mut captured = Vec::new();
     let mut missing = Vec::new();
     {

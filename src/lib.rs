@@ -50,7 +50,7 @@ pub struct AppState {
     /// parity goldens stay untouched.
     pub env: Arc<tokio::sync::RwLock<Value>>,
     pub imu: Arc<tokio::sync::RwLock<Value>>,
-    /// Swing arm servo + AS5600 (ESP-2). Same raw-frame rule as env/imu.
+    /// Swing arm servo state (ESP-2). Same raw-frame rule as env/imu.
     pub servo: Arc<tokio::sync::RwLock<Value>>,
     /// Latest RPLIDAR A1 scan (Pi-side serial bridge). Same null rule: a
     /// full revolution is published as one frame, never a fabricated point.
@@ -105,6 +105,7 @@ pub fn build_router(state: AppState) -> Router {
     // require_token — as does /ws, since a forged socket could drive motors.
     let protected = Router::new()
         .route("/api/motor/control", post(routes::motor_control))
+        .route("/api/pump", post(routes::pump_control))
         .route("/api/calibration/start", post(routes::calibration_start))
         .route("/api/calibration/stop", post(routes::calibration_stop))
         .route(

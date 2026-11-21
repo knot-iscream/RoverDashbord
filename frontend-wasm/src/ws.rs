@@ -210,3 +210,17 @@ pub async fn post_motor(motor: u8, speed: i32) {
         let _ = req.send().await;
     }
 }
+
+/// POST `/api/pump {on,seconds}`. The button only sends the request; the
+/// real on/off state comes back over the ENV frames, so the firmware
+/// deadline stays the source of truth.
+pub async fn post_pump(on: bool, seconds: u32) {
+    let url = format!("{}/api/pump", api_base());
+    let body = serde_json::json!({"on": on, "seconds": seconds});
+    if let Ok(req) = gloo_net::http::Request::post(&url)
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+    {
+        let _ = req.send().await;
+    }
+}

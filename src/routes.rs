@@ -77,8 +77,8 @@ pub async fn imu(State(s): State<AppState>) -> Json<Value> {
     Json(json!({"imu": s.imu.read().await.clone()}))
 }
 
-/// Latest swing-arm frame (ESP-2): commanded angle, the AS5600's measured one
-/// when a calibration exists, and the sweep flags.
+/// Latest swing-arm frame (ESP-2): commanded angle and sweep flags. No
+/// encoder is fitted, so `angle_real`, `as5600_ok` and `cal_ok` carry no data.
 pub async fn servo(State(s): State<AppState>) -> Json<Value> {
     Json(json!({"servo": s.servo.read().await.clone()}))
 }
@@ -192,6 +192,37 @@ pub async fn motor_status(State(s): State<AppState>) -> Json<Value> {
     Json(s.motor_status.read().await.clone())
 }
 
+/// Water pump on ESP-3. `{"on":true,"seconds":10}` runs a burst,
+/// `{"on":false}` stops it now. Anything missing or non-boolean counts as
+/// off: a malformed request must never start water. Seconds clamp to 1-60,
+/// and the firmware caps at PUMP_MAX_MS on its own as well.
+pub async fn pump_control(State(s): State<AppState>, Json(body): Json<Value>) -> Json<Value> {
+    let on = body.get("on").and_then(|v| v.as_bool()).unwrap_or(false);
+    let seconds = coerce_i64(body.get("seconds")).clamp(1, 60);
+    let payload = if on {
+        json!({"action": "pump", "on": 1, "seconds": seconds})
+    } else {
+        json!({"action": "pump", "on": 0})
+    };
+    let sent = s
+        .mqtt
+        .read()
+        .await
+        .handle
+        .publish("rover/env/command", &payload)
+        .await;
+    if sent {
+        Json(json!({"status": "ok", "on": on, "seconds": seconds, "sent": true}))
+    } else {
+        Json(json!({
+            "status": "error",
+            "detail": "MQTT not connected",
+            "sent": false,
+            "mqtt_connected": s.mqtt.read().await.handle.is_connected(),
+        }))
+    }
+}
+
 /// Everything the Calibration page needs in one read: the motor baselines
 /// (which feed health drift), the sensor baselines, and the bench run's stage.
 /// The bench state rides here rather than as an idle socket frame on every
@@ -239,8 +270,8 @@ async fn publish_command(s: &AppState, topic: &str, action: &str) -> Value {
 /// told to re-capture its own copy where it has one.
 ///
 /// The two halves are deliberately independent. The host record works with no
-/// board involved; the command is what makes the board's own maths (gas R0/Rs,
-/// the arm's AS5600) use the new reference, and it can fail on its own.
+/// board involved; the command is what makes the board's own maths (gas R0/Rs)
+/// use the new reference, and it can fail on its own.
 pub async fn capture_sensor(State(s): State<AppState>, Path(key): Path<String>) -> Response {
     if !crate::sensor_cal::is_known(&key) {
         return (
@@ -253,9 +284,6 @@ pub async fn capture_sensor(State(s): State<AppState>, Path(key): Path<String>) 
         )
             .into_response();
     }
-    // The sensor log is a std Mutex: read the servo frame first so no await
-    // ever happens while the guard is alive (handlers must be Send).
-    let servo = s.servo.read().await.clone();
     let (env, imu) = {
         let log = s.sensors.lock().unwrap();
         (
@@ -263,7 +291,7 @@ pub async fn capture_sensor(State(s): State<AppState>, Path(key): Path<String>) 
             log.imu_recent(crate::sensor_cal::CAPTURE_WINDOW_S),
         )
     };
-    let Some(reference) = crate::sensor_cal::reference_for(&key, &env, &imu, &servo) else {
+    let Some(reference) = crate::sensor_cal::reference_for(&key, &env, &imu) else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({

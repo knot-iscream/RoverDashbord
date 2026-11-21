@@ -1,381 +1,444 @@
-# Rover wiring, human version
+# Wiring and connections, table version
 
-This is the file to read while your hands are on the rover. It is written as
-tables and short notes. If you are in a hurry, jump to section 9, the Saturday
-checklist.
+| How to read this file | What to do |
+|---|---|
+| Every useful fact is a table row | Nothing is hidden in a paragraph |
+| Tick the first column when a row is done | Change ☐ to ☑ in your own copy |
+| "Net" means the label in EasyEDA | Same label joins two pins without a wire |
+| Value and type are always written together | `10 kΩ resistor`, `0.1 µF ceramic` |
+| "Ref" is the designator on the EasyEDA sheet | U2 is the INA226 for motor 1, for example |
+| Both legs of every part are listed | A cell that says "open" means no connection |
+| This build is a trainer board and a DIY harness | Nothing is soldered to a custom PCB |
+| 12 V adapter first, LiPo for the floor test | The adapter cannot feed all six motors |
 
-Every pin number here comes from the three `config.h` files. If a pin changes
-in firmware, this file has to change too. The pictures that used to live in
-`docs/wiring/` were removed because they were harder to use than a table.
+## Parts to have on the bench
 
-## Read this before you touch a wire
-
-- Turn the power off before moving any wire. The pack can deliver far more
-  current than a motor needs.
-- Add one wire, check it, then add the next. A mistake found after ten wires
-  takes ten times longer to find.
-- Grounds first. Every board GND must meet the pack negative at one point.
-  Without that, signals float and motors behave randomly.
-- Red to plus, black to minus. A reversed supply destroys a driver instantly.
-- Keep the wheels off the ground for the first spin of any motor.
-- An ESP32 pin never sees more than 3.3 V. Anything 5 V must be divided or
-  shifted first. This is the single most common way to kill a board here.
-
-When a table says "check with a meter", a cheap multimeter on DC volts is
-enough. You do not need an oscilloscope for anything in this document.
-
----
-
-## 1. The whole rover in one minute
-
-| Part | What it does | What feeds it |
-|---|---|---|
-| 3S LiPo 4500 mAh | main battery, 11.1 V nominal | balance charger, off the rover |
-| 6 A driver, 4 channels | drives corner motors 1 to 4 | pack through fuse and switch |
-| L298N | drives middle motors 5 and 6 | same pack rail |
-| XL4016 buck | makes 5.1 V for Pi, LiDAR and the three ESP32s | same pack rail |
-| 12 V to 6 V buck | makes 6 V for the arm servo | same pack rail |
-| ESP-1 corner | reads corner sensors, sends motor telemetry | USB 5 V from the PC or Pi |
-| ESP-2 MID | middle motors, IMU, lidar servo | USB 5 V |
-| ESP-3 ENV | gas, flame and heat sensors | USB 5 V |
-| Laptop | runs the app and the relay, or reads the Pi's relay | its own power |
-
-The three ESP32 boards are separate computers. A wire on one does not reach
-another board just because both use GPIO 21 and 22.
-
----
-
-## 2. Power connections
-
-Do this section first. Nothing else works until it is right.
-
-| From | To | Check with a meter |
-|---|---|---|
-| pack + (XT-60) | 20 A fuse | same voltage as the pack |
-| fuse out | master switch | switch clicks, no voltage while open |
-| switch out | 6 A driver `3-12V` + | about 12 V when closed |
-| switch out | L298N `VS` + | about 12 V |
-| switch out | XL4016 `IN+` | about 12 V |
-| switch out | 12 V to 6 V buck `IN+` | about 12 V |
-| every board GND | pack - | all joined at one point, near 0 ohm |
-
-**Why the fuse is 20 A.** Four motors stalling can pull about 10 A. The Pi
-rail adds about 2.3 A and the arm about 5.4 A. Together that is roughly 18 A.
-A 15 A fuse would blow during normal hard use. Use 12 AWG wire from the pack
-to the switch, and 18 AWG for each motor lead.
-
-**A switch is not a fuse.** The 40 A switch can be closed all day with a
-shorted wire behind it. The fuse is the only thing that opens on a short.
-
-**The 12.6 V problem.** A full 3S pack is 12.6 V, while the driver label says
-3-12 V. That label is a nominal rating, not a hard limit; the chips inside
-are rated far higher. Soak one channel at full charge for five minutes and
-feel the MOSFETs and the big capacitors before trusting a full pack. Do not
-run while charging.
-
-**Charging.** A LiPo needs a balance charger, never the old SLA charger. Take
-the pack out of the rover to charge it. A B6-AC class charger takes about an
-hour at 1C. The small B3 takes most of a night. Use a LiPo bag.
-
-**Low-voltage protection.** The dashboard warns at 10.2 V, but only near
-full throttle, and it reads motor voltage after the driver, not the pack. It
-is not a battery protector. A 3S buzzer on the balance lead, set to 3.5 V per
-cell, is the real protection. Never discharge below 3.0 V per cell.
-
-**Saturday is different.** You will use a 12 V 5 A wall adapter, not the
-LiPo. The 5 A limit protects a miswire, but it also means all six motors
-stalling together will make the adapter fold back. That is fine on a smooth
-floor.
-
----
-
-## 3. ESP-1 corner board to the 6 A driver
-
-| Motor | ESP pin A | ESP pin B | Driver header | Goes to |
+| ☐ | Part | Value and type | Quantity | Goes where |
 |---|---|---|---|---|
-| 1, front left | 15 | 14 | IN1, IN2 | motor 1 |
-| 2, front right | 19 | 23 | IN3, IN4 | motor 2 |
-| 3, rear left | 33 | 27 | IN5, IN6 | motor 3 |
-| 4, rear right | 17 | 16 | IN7, IN8 | motor 4 |
-| all | GND | | header GND | ESP ground |
+| ☐ | Ceramic capacitor | 0.1 µF, 50 V | 6 | across the two terminals of each motor (C1 to C6) |
+| ☐ | Electrolytic capacitor | 470 µF, 25 V | 2 | C7 at the corner driver input, C8 at the L298N VS input |
+| ☐ | Electrolytic capacitor | 1000 µF, 16 V | 1 | C9 across the servo 6 V rail |
+| ☐ | Resistor | 10 kΩ | 10 | two for each of the five gas dividers |
+| ☐ | Resistor | 10 kΩ | 1 | pump gate pull-down |
+| ☐ | Resistor | 100 Ω | 1 | pump gate series resistor |
+| ☐ | Resistor | 4.7 kΩ | 4 | one pull-up for each DS18B20 data line |
+| ☐ | MOSFET | IRLZ44N, logic level, TO-220 | 1 | low-side switch for the water pump |
+| ☐ | Diode | 1N5408, 3 A, 1000 V | 1 | flyback across the water pump |
+| ☐ | Electrolytic capacitor | 100 µF, 25 V | 1 | across the pump terminals |
+| ☐ | Blade fuse and holder | 2 A | 1 | pump branch only |
+| ☐ | DC power socket or pigtail | 5.5 mm outside, 2.1 mm inside, centre positive | 1 | pump jack to the harness |
+| ☐ | Level shifter | 74HCT245, optional | 1 | only if the corner driver needs 5 V logic |
+| ☐ | Wire | 12 AWG, red and black | 2 m | pack, fuse, switch, driver input |
+| ☐ | Wire | 18 AWG, red and black | 6 m | motors, pump, module power |
+| ☐ | Jumper wire | 22 AWG, assorted colours | 1 set | I2C, sensors, gate signals |
 
-The eight inputs and one ground are on one 9-pin header. The little 5-pin
-JST labelled `IN1 IN2 IN5 IN6 GND` is a duplicate tap for two channels. Use
-the 9-pin header.
+## Reference key for the EasyEDA sheet
 
-**There is no enable pin.** This is the big change from the L298N. One input
-gets the PWM duty, the other stays low, and direction is decided by which
-input pulses.
-
-| Input A | Input B | What the motor does |
+| Ref | Part | Where it sits |
 |---|---|---|
-| HIGH | LOW | forward, full speed |
-| LOW | HIGH | reverse, full speed |
-| PWM | LOW | forward at that duty |
-| LOW | PWM | reverse at that duty |
-| LOW | LOW | coast |
-| HIGH | HIGH | brake |
+| U1 | RBD-3658 4-channel 6 A driver | ESP-1, corner motors |
+| U2 | INA226 current sensor | motor 1, front left |
+| U7 | INA226 current sensor | motor 2, front right |
+| U6 | INA226 current sensor | motor 3, rear left |
+| U9 | INA226 current sensor | motor 4, rear right |
+| U3 | ESP32-WROOM-32 | ESP-1, corner board |
+| U10 | ESP32-WROOM-32 | ESP-2, middle board |
+| U16 | ESP32-WROOM-32 | ESP-3, environment board |
+| U4 | L298N dual H-bridge | ESP-2, middle motors |
+| M8 | TCA9548A 8-channel I2C mux | ESP-1, I2C hub |
+| P1 to P4 | ADXL345 vibration sensor | motors 1 to 4, mux channels 0 to 3 |
+| U17 | ADS1115, address 0x48 | ESP-3, four gas channels |
+| U18 | ADS1115, address 0x49 | ESP-3, air quality and flame level |
+| U19 | MLX90614, address 0x5A | ESP-3, left IR |
+| U20 | MLX90614, address 0x5B | ESP-3, right IR |
+| U14 | MPU6050, address 0x68 | ESP-2, rover orientation |
+| U15 | MPU6050, address 0x69 | ESP-2, tilt bracket, not read yet |
+| U26 | 5-channel flame module | ESP-3 |
+| M1 to M6 | drive motors | four corners, two middle |
+| C1 to C6 | 0.1 µF motor capacitors | one per motor |
+| C7, C8 | 470 µF electrolytic | driver input and L298N input |
+| C9 | 1000 µF electrolytic | servo rail |
 
-The firmware holds both inputs low on a stop and waits half a millisecond
-before reversing. That is deliberate. Do not "fix" it.
+## The three boards at a glance
 
-**3.3 V logic check.** The driver makes its own logic supply from the motor
-rail, so it has no 5 V pin. Its inputs may expect 5 V. Before trusting it,
-drive one input high from the ESP and measure the pin: if the motor responds
-and the pin reads about 3.3 V, fine. If the channel ignores it, add a
-74HCT245 level shifter between the ESP and the header. This is the most
-likely bench surprise.
+| Board | Name in code | Ref | Talks to | Power in |
+|---|---|---|---|---|
+| ESP-1 | corner | U3 | U1 driver, four INA226, M8 mux, four ADXL345, four DS18B20 | USB 5 V from the Pi or PC |
+| ESP-2 | MID | U10 | U4 L298N, two MPU6050, MG996R servo | USB 5 V from the Pi or PC |
+| ESP-3 | ENV | U16 | two ADS1115, two MLX90614, five MQ cells, flame module, pump MOSFET | USB 5 V from the Pi or PC |
 
-**The `A B C D` pads are unconfirmed.** They are small solder pads on the
-board. They almost certainly select a mode or are test points, but nobody has
-buzzed them out yet. Leave them as shipped. If a channel runs full speed at
-every duty, stop and check them before doing anything else.
+## Power tree, 12 V side
 
-**Never** connect the ESP 5 V or VIN pin to the driver, and never power the
-ESP from the driver. Only the GND and the eight inputs go between them.
+| ☐ | From | Part | Value and type | To | Voltage there |
+|---|---|---|---|---|---|
+| ☐ | pack positive, XT-60 | fuse | 20 A blade | master switch | 9.0 to 12.6 V |
+| ☐ | master switch | wire | 12 AWG red | U1 terminal 3-12V | pack voltage |
+| ☐ | master switch | wire | 12 AWG red | U4 terminal VS | pack voltage |
+| ☐ | master switch | wire | 18 AWG red | XL4016 input positive | pack voltage |
+| ☐ | master switch | wire | 18 AWG red | 12 V to 6 V buck input positive | pack voltage |
+| ☐ | master switch | wire | 18 AWG red | 2 A pump fuse | pack voltage |
+| ☐ | 2 A pump fuse | wire | 18 AWG red | pump positive, red wire | pack voltage |
+| ☐ | pack negative, XT-60 | wire | 12 AWG black | common ground point | 0 V |
+| ☐ | U1 GND | wire | 18 AWG black | common ground point | 0 V |
+| ☐ | U4 GND | wire | 18 AWG black | common ground point | 0 V |
+| ☐ | XL4016 input negative | wire | 18 AWG black | common ground point | 0 V |
+| ☐ | 6 V buck input negative | wire | 18 AWG black | common ground point | 0 V |
+| ☐ | pump MOSFET source, pin 3 | wire | 18 AWG black | common ground point | 0 V |
 
----
+## Power tree, 5 V side
 
-## 4. Voltage dividers, the part that kills boards
+| ☐ | From | Part | Value and type | To | Voltage there |
+|---|---|---|---|---|---|
+| ☐ | XL4016 output positive | regulator | set to 5.1 V, 8 A | Pi 5 5 V input, LiDAR, USB hub | 5.1 V |
+| ☐ | USB hub | USB cable | data and 5 V | U3, U10, U16 USB ports | 5 V |
+| ☐ | XL4016 output negative | wire | 18 AWG black | common ground point | 0 V |
+| ☐ | XL4016 5.1 V output | wire | 18 AWG red | U1 5 V pin, only if the check below reads 0 V | 5.1 V |
 
-### 4.1 The gas sensor divider, which exists today
+## Power tree, 6 V servo side
 
-The MQ gas modules are powered from 5 V. Their analog output can therefore
-rise above 3.3 V. The ADS1115 chip reads that output and must never see more
-than about 3.4 V. The fix is a 2 to 1 divider on every MQ signal: two equal
-resistors, for example 10 kΩ from module output to the ADS pin and 10 kΩ
-from that pin to ground.
+| ☐ | From | Part | Value and type | To | Voltage there |
+|---|---|---|---|---|---|
+| ☐ | 6 V buck output positive | regulator | set to 6.0 V, 10 A | MG996R servo V+ | 6.0 V |
+| ☐ | C9 positive leg | capacitor | 1000 µF, 16 V | servo V+ | 6.0 V |
+| ☐ | C9 negative leg | capacitor | 1000 µF, 16 V | servo GND | 0 V |
+| ☐ | 6 V buck output negative | wire | 18 AWG black | common ground point | 0 V |
+| ☐ | servo GND, brown or black wire | wire | 18 AWG black | common ground point | 0 V |
 
-| Check | Expected |
-|---|---|
-| module output with meter | up to about 5 V |
-| voltage at the ADS pin | half of that, so at most about 2.5 V |
-| `GAS_DIVIDER` in ENV `config.h` | `2.0`, meaning real voltage = measured x 2 |
+## Power tree, 3.3 V sensor rails
 
-If you connect a 5 V MQ output straight to the ADS input, the chip dies and
-the dashboard shows `--` for every gas. There is no software fix.
+| ☐ | Rail | Source | Load | Voltage |
+|---|---|---|---|---|
+| ☐ | ESP-1 sensors | U3 3V3 pin | M8 mux, four INA226, four ADXL345, four 4.7 kΩ pull-ups | 3.3 V |
+| ☐ | ESP-2 sensors | U10 3V3 pin | U14, U15 | 3.3 V |
+| ☐ | ESP-3 sensors | U16 3V3 pin | U17, U18, U19, U20, U26 flame module | 3.3 V |
+| ☐ | every 3V3 load ground | wire 22 AWG black | the same board's GND pin | 0 V |
 
-The exact resistor values do not need to be perfect. The software reports
-`R0/Rs`, a ratio against the clean-air baseline; the load resistor cancels
-out. Keep the two resistors in each divider the same value so the ratio
-stays honest.
+## Current budget, so nothing is overloaded
 
-### 4.2 The pack voltage divider, which is NOT fitted
+| ☐ | Load | Normal current | Stall or peak | Fed from |
+|---|---|---|---|---|
+| ☐ | one corner motor, 37GB | 0.6 to 1.0 A | about 2.5 A | 12 V rail through U1 |
+| ☐ | four corner motors | about 3 A | about 10 A | 12 V rail through U1 |
+| ☐ | one middle motor | 0.4 to 0.8 A | about 2 A | 12 V rail through U4 |
+| ☐ | two middle motors | about 1.2 A | about 4 A | 12 V rail through U4 |
+| ☐ | water pump | 0.35 A | 0.5 A at start | 12 V rail, 2 A fuse |
+| ☐ | Pi 5, LiDAR, three ESP32 | about 1.5 A at 5 V | 2.5 A at 5 V | XL4016 |
+| ☐ | MG996R servo | 0.3 A idle | 2.5 A stall | 6 V buck |
+| ☐ | bench 12 V 5 A adapter | one corner motor plus pump, or the two middle motors alone | never four corner motors | 12 V rail |
+| ☐ | 3S LiPo 4500 mAh | floor test and full rover | 20 A fuse covers all six stalled | 12 V rail |
 
-We discussed adding a divider from the battery to a free ESP pin so the
-dashboard could show pack voltage directly. We did not fit it. The buzzer
-protects the pack, and the dashboard already shows a voltage through the
-INA226.
+## ESP-1, driver and motor connections
 
-| If you add it later | Value |
-|---|---|
-| free pin | GPIO 32 (ADC1, safe while WiFi is on) |
-| divider | 100 kΩ from pack + to pin, 22 kΩ from pin to ground |
-| voltage at the pin at full charge | about 2.27 V, safely under 3.3 V |
-| extra part | 100 nF from pin to ground, to quiet noise |
-| must do | tie divider ground to the same ground as the pack |
+| ☐ | Motor | ESP board label | GPIO in code | U1 header pin | U1 output |
+|---|---|---|---|---|---|
+| ☐ | 1 front left | D15 | 15 | IN1 | OUT1 and OUT2 |
+| ☐ | 1 front left | D14 | 14 | IN2 | OUT1 and OUT2 |
+| ☐ | 2 front right | D19 | 19 | IN3 | OUT3 and OUT4 |
+| ☐ | 2 front right | D23 | 23 | IN4 | OUT3 and OUT4 |
+| ☐ | 3 rear left | D33 | 33 | IN5 | OUT5 and OUT6 |
+| ☐ | 3 rear left | D27 | 27 | IN6 | OUT5 and OUT6 |
+| ☐ | 4 rear right | TX2 | 17 | IN7 | OUT7 and OUT8 |
+| ☐ | 4 rear right | RX2 | 16 | IN8 | OUT7 and OUT8 |
+| ☐ | all four channels | GND | GND | header GND | reference for the logic inputs |
 
-Do not connect 12 V directly to any ESP pin. Even a brief touch destroys it.
+| ☐ | Motor | From | Through | To | Then |
+|---|---|---|---|---|---|
+| ☐ | 1 front left | U1 OUT1 | U2 VIN+ to VIN− | M1 terminal B | M1 terminal A to U1 OUT2 |
+| ☐ | 2 front right | U1 OUT3 | U7 VIN+ to VIN− | M2 terminal B | M2 terminal A to U1 OUT4 |
+| ☐ | 3 rear left | U1 OUT5 | U6 VIN+ to VIN− | M3 terminal B | M3 terminal A to U1 OUT6 |
+| ☐ | 4 rear right | U1 OUT7 | U9 VIN+ to VIN− | M4 terminal B | M4 terminal A to U1 OUT8 |
 
----
-
-## 5. INA226 current monitors
-
-Each corner motor has one INA226. It is in series with one motor lead,
-between the driver output and the motor terminal.
-
-| Motor | INA226 address |
-|---|---|
-| 1 | 0x41 |
-| 2 | 0x44 |
-| 3 | 0x45 |
-| 4 | 0x40 |
-
-**It must be in series.** Do not put VIN+ and VIN- across the motor in
-parallel. That puts pack voltage across the 10 mΩ shunt and burns it open.
-We have seen this on the bench: the chip still answered, about 7 V was
-coupled through, and current stayed at 0 A forever.
-
-**The shunt** is 10 mΩ, 1 W, replacing the stock 0.1 Ω part. Thermally it
-could take 10 A, but the firmware caps at 4 A for resolution. One motor
-stalls around 2.5 A, so that is enough headroom. Reverse drive reads negative
-current, which is normal.
-
-**Voltage is after the PWM.** The INA226 reads the averaged motor terminal
-voltage, not the pack. At half throttle it reads about half the pack. That is
-why the dashboard only flags low voltage near full duty (`|speed| >= 200`)
-and compares against 10.2 V. A low number at low speed is not a fault.
-
----
-
-## 6. The shared data bus and the multiplexer
-
-SDA is GPIO 21 and SCL is GPIO 22 on each board. Devices on one board share
-these two wires, plus power and ground.
-
-| Device | Address | Which board | Note |
+| ☐ | INA226 pin | Connects to | Note |
 |---|---|---|---|
-| INA226 x4 | 0x40, 0x41, 0x44, 0x45 | ESP-1 | unique addresses, no mux |
-| TCA9548A mux | 0x70 | ESP-1 | A0, A1, A2 left open |
-| ADXL345 x4 | 0x53 each | ESP-1, behind the mux | SDO to GND on all four |
-| ADS1115 A | 0x48 | ESP-3 | four MQ cells |
-| ADS1115 B | 0x49 | ESP-3 | air quality and flame level |
-| MLX90614 pair | 0x5A, 0x5B | ESP-3 | one re-addressed in EEPROM |
-| MPU6050 | 0x68 | ESP-2 | separate board |
-| AS5600 | 0x36 | ESP-2 | fixed address |
+| ☐ | VIN+ | U1 output for that motor | current enters here |
+| ☐ | VIN− | motor terminal B | current leaves here |
+| ☐ | VBS | 12 V rail after the master switch | bus voltage stays readable while PWM switches |
+| ☐ | Alert | open | firmware does not use it |
+| ☐ | VCC | 3V3 rail | see the module table below |
+| ☐ | GND | GND rail | one ground for every module |
+| ☐ | SDA, SCL | mux channel pair for that motor | never the main bus |
 
-**Why only one mux.** All four ADXL345 sensors answer at the same address,
-0x53. The mux is a switchboard that lets the ESP talk to one at a time.
-Everything else already has its own address. The mux has eight channels and
-only four are used, so channels 4 to 7 are free for more sensors later.
+| ☐ | Part | Ref | Value and type | First leg | Second leg |
+|---|---|---|---|---|---|
+| ☐ | Motor capacitor | C1 | 0.1 µF ceramic | M1 terminal A | M1 terminal B |
+| ☐ | Motor capacitor | C2 | 0.1 µF ceramic | M2 terminal A | M2 terminal B |
+| ☐ | Motor capacitor | C3 | 0.1 µF ceramic | M3 terminal A | M3 terminal B |
+| ☐ | Motor capacitor | C4 | 0.1 µF ceramic | M4 terminal A | M4 terminal B |
+| ☐ | Motor capacitor | C5 | 0.1 µF ceramic | M5 terminal A | M5 terminal B |
+| ☐ | Motor capacitor | C6 | 0.1 µF ceramic | M6 terminal A | M6 terminal B |
+| ☐ | Driver capacitor | C7 | 470 µF, 25 V | U1 3-12V positive | U1 3-12V negative |
+| ☐ | L298N capacitor | C8 | 470 µF, 25 V | U4 VS positive | U4 GND |
+| ☐ | Servo capacitor | C9 | 1000 µF, 16 V | servo V+ | servo GND |
 
-**The two spare muxes stay in the box.** If you ever fit one, change its
-address pads first. Two muxes both at 0x70 answer at once and the symptom
-looks like random sensor dropouts, which is miserable to debug.
-
-**Keep the bus short.** All modules here run at 100 kHz on 3.3 V. Long
-untwisted wires pick up noise and the motors make it worse. If a sensor
-reports `--` while others work, shorten its wires before replacing the part.
-
----
-
-## 7. Temperature probes
-
-| Motor | DS18B20 data pin |
-|---|---|
-| 1 | GPIO 5 |
-| 2 | GPIO 26 |
-| 3 | GPIO 2 |
-| 4 | GPIO 4 |
-
-Each probe has its own pin and its own 4.7 kΩ resistor from DATA to 3.3 V.
-Do not share one resistor between probes, and do not pull up to 5 V.
-
-VCC goes to 3.3 V, not 5 V. Tape the probe to the motor casing with thermal
-paste, otherwise it reads air temperature and the health score lies. A probe
-that cannot be read reports `temp_valid:0` and the page shows `--`.
-
----
-
-## 8. The other two boards
-
-### ESP-2 MID, still on the L298N
-
-| Motor | Backend number | L298N pins |
+| ☐ | Note | Detail |
 |---|---|---|
-| middle 1 | 5 | ENA 13, IN1 15, IN2 14 |
-| middle 2 | 6 | ENB 18, IN3 19, IN4 23 |
+| ☐ | C7 and C8 stripe | the striped leg is negative, to ground |
+| ☐ | 16 V parts | safe on the 12 V rail, use 25 V if you have them |
+| ☐ | INA226 reads negative in reverse | the firmware publishes signed current, that is expected |
+| ☐ | stock shunt is 0.1 Ω, marked R100 | current clips at 0.8 A, voltage stays valid |
+| ☐ | 2 A over-current alarm is inactive | 0.8 A is below the 2 A rule, do not expect it to fire |
 
-| Device | Pin or address | Note |
+## ESP-1, shared I2C bus and mux
+
+| ☐ | Net | U3 pin | Goes to | Note |
+|---|---|---|---|---|
+| ☐ | SDA | GPIO 21 | M8 SDA only | muxed modules do not sit on this wire |
+| ☐ | SCL | GPIO 22 | M8 SCL only | muxed modules do not sit on this wire |
+| ☐ | 3V3 | 3V3 pin | M8 VCC | mux logic supply |
+| ☐ | GND | GND pin | M8 GND | common ground |
+
+| ☐ | M8 pin | Set to | Result |
+|---|---|---|---|
+| ☐ | A0 | GND | address bit 0 = 0 |
+| ☐ | A1 | GND | address bit 1 = 0 |
+| ☐ | A2 | GND | address bit 2 = 0 |
+| ☐ | RESET | 3V3 | mux enabled, address 0x70 |
+
+| ☐ | Mux channel | SDn goes to | SCn goes to | Module | Motor |
+|---|---|---|---|---|---|
+| ☐ | 0 | P1 SDA | P1 SCL | ADXL345 number 1 | 1 front left |
+| ☐ | 1 | P2 SDA | P2 SCL | ADXL345 number 2 | 2 front right |
+| ☐ | 2 | P3 SDA | P3 SCL | ADXL345 number 3 | 3 rear left |
+| ☐ | 3 | P4 SDA | P4 SCL | ADXL345 number 4 | 4 rear right |
+| ☐ | 4 | U2 SDA | U2 SCL | INA226 number 1 | 1 front left |
+| ☐ | 5 | U7 SDA | U7 SCL | INA226 number 2 | 2 front right |
+| ☐ | 6 | U6 SDA | U6 SCL | INA226 number 3 | 3 rear left |
+| ☐ | 7 | U9 SDA | U9 SCL | INA226 number 4 | 4 rear right |
+
+| ☐ | Module | Pin | Set to | Result |
+|---|---|---|---|---|
+| ☐ | INA226 U2, U6, U7, U9 | ALE | GND | address 0x40 on every module |
+| ☐ | INA226 U2, U6, U7, U9 | VCC | 3V3 rail | powered, shared |
+| ☐ | INA226 U2, U6, U7, U9 | GND | GND rail | shared |
+| ☐ | ADXL345 P1 to P4 | CS | 3V3 | I2C mode |
+| ☐ | ADXL345 P1 to P4 | SDO | GND | address 0x53 |
+| ☐ | ADXL345 P1 to P4 | VCC | 3V3 rail | powered, shared |
+| ☐ | ADXL345 P1 to P4 | GND | GND rail | shared |
+
+| ☐ | Warning | Why |
 |---|---|---|
-| MPU6050 | 0x68, SDA 21, SCL 22 | publishes at 4 Hz |
-| AS5600 | 0x36, SDA 21, SCL 22 | angle only when `cal_ok` |
-| lidar servo | GPIO 27 | 50 Hz, hard limits -35 to +35 degrees |
+| ☐ | one mux channel active at a time | the firmware selects before every read |
+| ☐ | all four INA226 keep 0x40 | the mux is what separates them, not the address |
+| ☐ | do not tie VBS to the motor side of the shunt | the PWM off time reads 0 V and the frame goes invalid |
+| ☐ | keep the I2C wires short | long stubs at 400 kHz pick up motor noise |
 
-The servo takes power from the 6 V rail, never from the ESP pin. Put a
-1000 µF capacitor at the servo end. These two motors have no sensors, so
-their temperature and current show `--` by design. Do not chase that as a
-fault.
+## ESP-1, temperature probes
 
-### ESP-3 ENV, no O2 cell
+| ☐ | Probe | Data net | U3 pin | Pull-up resistor | Pull-up legs |
+|---|---|---|---|---|---|
+| ☐ | Temperature 1 | DS_M1 | GPIO 5 | 4.7 kΩ | DS_M1 to 3V3 |
+| ☐ | Temperature 2 | DS_M2 | GPIO 26 | 4.7 kΩ | DS_M2 to 3V3 |
+| ☐ | Temperature 3 | DS_M3 | GPIO 2 | 4.7 kΩ | DS_M3 to 3V3 |
+| ☐ | Temperature 4 | DS_M4 | GPIO 4 | 4.7 kΩ | DS_M4 to 3V3 |
+| ☐ | every probe VDD | 3V3 | 3.3 V only | not 5 V | the GPIOs are not 5 V tolerant |
+| ☐ | every probe GND | GND | common ground | | |
 
-| Device | Wiring |
-|---|---|
-| MQ-7, MQ-6, MQ-4, MQ-8 | ADS1115 0x48, A0 to A3, 2 to 1 divider each |
-| MQ-135 air quality | ADS1115 0x49, A2, same divider |
-| flame level | ADS1115 0x49, A3 |
-| flame direction | GPIO 34, 35, 36, 39, 32 |
-| MLX90614 pair | 0x5A and 0x5B, 20 mm shroud tube each |
+## ESP-2, middle board
 
-ADS1115 B A0 and A1 are now free. The galvanic O2 cell is not fitted because
-it cannot be bought here. The board publishes `o2_ok:0` and the backend
-derives an estimate from gas, flame and heat. The dashboard says "O2
-estimate" and puts a `~` in front of the number. That is an indicator, not a
-measurement.
+| ☐ | Motor | U10 pin | GPIO | U4 pin | U4 output |
+|---|---|---|---|---|---|
+| ☐ | middle 1, app motor 5 | D13 | 13 | ENA | OUT1 and OUT2 |
+| ☐ | middle 1, app motor 5 | D15 | 15 | IN1 | OUT1 and OUT2 |
+| ☐ | middle 1, app motor 5 | D14 | 14 | IN2 | OUT1 and OUT2 |
+| ☐ | middle 2, app motor 6 | D18 | 18 | ENB | OUT3 and OUT4 |
+| ☐ | middle 2, app motor 6 | D19 | 19 | IN3 | OUT3 and OUT4 |
+| ☐ | middle 2, app motor 6 | D23 | 23 | IN4 | OUT3 and OUT4 |
+| ☐ | U4 OUT1 | wire 18 AWG | M5 terminal A | | |
+| ☐ | U4 OUT2 | wire 18 AWG | M5 terminal B | | |
+| ☐ | U4 OUT3 | wire 18 AWG | M6 terminal A | | |
+| ☐ | U4 OUT4 | wire 18 AWG | M6 terminal B | | |
 
-The MQ cells need 24 to 48 hours powered before the clean-air baseline means
-anything. Gas readings are relative ratios, not ppm. Fit the shroud tubes on
-both MLX sensors or the heat readings will not agree.
+| ☐ | U4 pin | Connects to | Note |
+|---|---|---|---|
+| ☐ | VS | 12 V rail after the master switch | motor power |
+| ☐ | GND | common ground point | same point as U10 GND |
+| ☐ | 5V jumper | stays fitted | the onboard regulator makes the L298N logic supply |
+| ☐ | 5V terminal | open | never feed this into the ESP32 |
+| ☐ | ENA, IN1, IN2, ENB, IN3, IN4 | U10 GPIOs above | 3.3 V logic works on the TTL inputs |
 
----
+| ☐ | Module | SDA | SCL | Extra pin | Set extra pin to | Result |
+|---|---|---|---|---|---|---|
+| ☐ | MPU6050 U14 | GPIO 21 | GPIO 22 | AD0 | GND | 0x68, rover orientation |
+| ☐ | MPU6050 U15 | GPIO 21 | GPIO 22 | AD0 | 3V3 | 0x69, tilt bracket, not read yet |
+| ☐ | MPU6050 U14, U15 | not used | not used | VCC | 3V3 rail | powered from U10 |
+| ☐ | MPU6050 U14, U15 | not used | not used | GND | common ground | shared |
 
-## 9. Saturday checklist, in the order to do it
+| ☐ | Servo wire | Connects to | Note |
+|---|---|---|---|
+| ☐ | signal, orange or yellow | U10 GPIO 27 | 50 Hz PWM, no angle feedback |
+| ☐ | V+, red | 6 V buck output positive | never the ESP32 5 V pin |
+| ☐ | GND, brown or black | common ground point | same point as the 6 V buck negative |
+| ☐ | C9 | across V+ and GND at the servo | 1000 µF, striped leg to GND |
+| ☐ | drawing note | the EasyEDA sheet shows the servo on 5 V | use the 6 V buck, the MG996R stalls near 2.5 A |
 
-| Done | Step | How you know it worked |
+## ESP-3, environment board
+
+| ☐ | Net | U16 pin | Goes to | Note |
+|---|---|---|---|---|
+| ☐ | SDA | GPIO 21 | U17 SDA, U18 SDA, U19 SDA, U20 SDA | one bus, four devices, four addresses |
+| ☐ | SCL | GPIO 22 | U17 SCL, U18 SCL, U19 SCL, U20 SCL | |
+| ☐ | 3V3 | 3V3 pin | U17 VCC, U18 VCC, U19 VCC, U20 VCC, U26 VCC | sensors and flame module |
+| ☐ | GND | GND pin | every module GND | common ground |
+
+| ☐ | Module | Extra pin | Set to | Result |
+|---|---|---|---|---|
+| ☐ | ADS1115 U17 | ADDR | GND | address 0x48 |
+| ☐ | ADS1115 U18 | ADDR | 3V3 | address 0x49 |
+| ☐ | MLX90614 U19 | no address pin | fixed | address 0x5A, left |
+| ☐ | MLX90614 U20 | no address pin | EEPROM rewritten once | address 0x5B, right |
+
+| ☐ | Gas sensor | Output pin | Divider top | Divider bottom | ADS input |
+|---|---|---|---|---|---|
+| ☐ | MQ-7 carbon monoxide | AO | 10 kΩ from AO to node | 10 kΩ from node to GND | U17 A0 |
+| ☐ | MQ-6 LPG | AO | 10 kΩ from AO to node | 10 kΩ from node to GND | U17 A1 |
+| ☐ | MQ-4 methane | AO | 10 kΩ from AO to node | 10 kΩ from node to GND | U17 A2 |
+| ☐ | MQ-8 hydrogen | AO | 10 kΩ from AO to node | 10 kΩ from node to GND | U17 A3 |
+| ☐ | MQ-135 air quality | AO | 10 kΩ from AO to node | 10 kΩ from node to GND | U18 A2 |
+
+| ☐ | Sensor | Supply | Why |
+|---|---|---|---|
+| ☐ | MQ-7 | 5 V | heater needs 5 V for the datasheet curve |
+| ☐ | MQ-6 | 5 V | heater needs 5 V for the datasheet curve |
+| ☐ | MQ-4 | 5 V | heater needs 5 V for the datasheet curve |
+| ☐ | MQ-8 | 5 V | heater needs 5 V for the datasheet curve |
+| ☐ | MQ-135 | 5 V | heater needs 5 V for the datasheet curve |
+| ☐ | flame module U26 | 3.3 V | at 3.3 V the analog output needs no divider |
+| ☐ | every MQ ground | common ground | the divider only works with one ground |
+
+| ☐ | Flame pin | U16 pin | State | Trigger |
+|---|---|---|---|---|
+| ☐ | D1 | GPIO 34 | wired | LOW means fire |
+| ☐ | D2 | GPIO 35 | wired | LOW means fire |
+| ☐ | D3 | GPIO 36, marked VP | wired | LOW means fire |
+| ☐ | D4 | GPIO 39 | planned, not wired | LOW means fire |
+| ☐ | D5 | GPIO 32 | wired | LOW means fire |
+| ☐ | A1, A2, A4, A5 | open | not used | the firmware reads one level, not five |
+| ☐ | A3 | U18 A3 | planned, not wired | no divider, module runs at 3.3 V |
+| ☐ | open D4 line | 10 kΩ to 3V3 | fit if the pin floats | stops a fake fire reading |
+
+| ☐ | Flame module pin | Goes to | Note |
+|---|---|---|---|
+| ☐ | VCC | 3V3 | never 5 V, the analog output must stay ADS safe |
+| ☐ | GND | GND | common ground |
+| ☐ | D1, D2, D3, D5 | GPIO 34, 35, 36, 32 | active LOW |
+| ☐ | D4 | open, or GPIO 39 later | pull up if left open |
+| ☐ | A3 | open for now, U18 A3 later | flame_ok stays 0 until this is wired |
+
+## ESP-3, water pump (2 A branch)
+
+| ☐ | From | Part | Value and type | To | Note |
+|---|---|---|---|---|---|
+| ☐ | 12 V rail after the master switch | fuse | 2 A blade | pump positive, red | pump branch only |
+| ☐ | pump negative, black | wire | 18 AWG black | IRLZ44N pin 2, drain | the switch is on the low side |
+| ☐ | IRLZ44N pin 3, source | wire | 18 AWG black | common ground point | same ground as U16 |
+| ☐ | U16 GPIO 25 | resistor | 100 Ω | IRLZ44N pin 1, gate | limits the gate pulse |
+| ☐ | IRLZ44N pin 1, gate | resistor | 10 kΩ | common ground point | pump stays off at boot |
+| ☐ | 1N5408 anode, no stripe | wire | 18 AWG | pump negative, black | catches the inductive kick |
+| ☐ | 1N5408 cathode, stripe | wire | 18 AWG | pump positive, red | to the fused 12 V side |
+| ☐ | 100 µF positive leg | capacitor | 100 µF, 25 V | pump positive, red | at the pump |
+| ☐ | 100 µF negative leg | capacitor | 100 µF, 25 V | common ground point | at the pump |
+| ☐ | pump jack centre pin | wire | 18 AWG red | fused 12 V | centre positive |
+| ☐ | pump jack sleeve | wire | 18 AWG black | MOSFET drain | switched negative |
+
+| ☐ | Pump fact | Value | Check before use |
+|---|---|---|---|
+| ☐ | model | RBD-1872, AD20P-1230C | read the label |
+| ☐ | rated current | 0.35 A, 3.6 W | if the label says 4 A, stop and resize the fuse |
+| ☐ | flow | 240 L/h | about 0.7 L in a 10 s burst |
+| ☐ | head | 3 m | keep the outlet above the water level |
+| ☐ | jack | 5.5 mm outside, 2.1 mm inside | centre positive |
+| ☐ | dry run | a few seconds only | prime it in a bucket first |
+| ☐ | GPIO 25 state at boot | LOW | pump off until a command arrives |
+| ☐ | firmware deadline | 10 s default, 60 s maximum | the pump stops even if the broker dies |
+
+## Handover and bench order
+
+| ☐ | Step | Action | Expected result |
+|---|---|---|---|
+| ☐ | 1 | Wire motor 1 and the pump branch only | nothing else powered yet |
+| ☐ | 2 | Flash U3 and U16, open both serial logs | U3 lists INA on mux 4, U16 prints pump pin low |
+| ☐ | 3 | Power U3 on USB, 12 V off | four INA226 and four ADXL345 answer on the mux |
+| ☐ | 4 | Apply 12 V, motors idle | U1 5 V pin reads about 5 V, or 0 V means feed it 5 V, C7 stays cool |
+| ☐ | 5 | Command motor 1 at 25, 50, 75 percent | wheel follows, current sign follows direction |
+| ☐ | 6 | Pump in a bucket, press THROW WATER | 10 s run, about 0.7 L, MOSFET cool |
+| ☐ | 7 | Press STOP WATER during a burst | pump stops at once |
+| ☐ | 8 | Kill the broker during a burst | pump still stops at the 10 s deadline |
+| ☐ | 9 | Wire motors 2 to 4, repeat one at a time | no shared-ground noise, no reboots |
+| ☐ | 10 | Wire the middle pair and test both together | only on the 12 V 5 A adapter with no corner motor |
+| ☐ | 11 | Move to the LiPo, all six motors | 20 A fuse fitted, 3S buzzer on the balance lead |
+| ☐ | 12 | Floor test | watch pack voltage, stop at 10.2 V |
+
+## Before power is applied
+
+| ☐ | Check | Expected answer |
 |---|---|---|
-| [ ] | Pi on, wait for `iscream-hotspot` | the hotspot appears on the laptop |
-| [ ] | laptop joins the hotspot, password `789632145` | connected, ignore "no internet" |
-| [ ] | open the app folder, set broker to `10.42.0.1`, run `roverdash.exe` | app window opens |
-| [ ] | power the driver from the 12 V 5 A adapter | about 12 V at the driver input |
-| [ ] | ESP-1 on USB, flash the corner sketch | serial shows the driver line and broker `10.42.0.1` |
-| [ ] | join `Rover-Setup` from your phone, choose the hotspot, relay `10.42.0.1` | dashboard shows the board online |
-| [ ] | wire motor 1 only: IN1, IN2, GND, motor through INA226 | nothing else connected yet |
-| [ ] | command speed 60, then -60 | wheel turns forward, then back |
-| [ ] | repeat for motors 2, 3, 4 | all four go forward on +80 |
-| [ ] | middle pair on the L298N | +80 matches the corners, swap leads if not |
-| [ ] | all six on the floor | straight line, no fighting between wheels |
+| ☐ | pack positive to fuse | same voltage as the pack |
+| ☐ | fuse to switch | open switch reads no voltage |
+| ☐ | switch to U1 and U4 | about 12 V |
+| ☐ | U1 5 V pin with 12 V applied | about 5 V means the board makes logic power, 0 V means feed 5 V here |
+| ☐ | every ground joined | near 0 Ω to pack negative |
+| ☐ | motor lead through INA226 in series | never VIN+ to VIN− across the motor |
+| ☐ | INA226 VBS on the 12 V rail | not on the PWM motor side |
+| ☐ | INA226 shunt marking | R100 on all four modules |
+| ☐ | INA226 ALE to GND | all four modules answer 0x40 behind the mux |
+| ☐ | mux channel map | 0 to 3 ADXL, 4 to 7 INA |
+| ☐ | C7 and C8 polarity | striped leg to ground |
+| ☐ | C9 polarity | striped leg to ground, on the 6 V rail |
+| ☐ | motor capacitors | six total, no polarity, across the terminals |
+| ☐ | gas dividers | two 10 kΩ per channel, five channels |
+| ☐ | highest ADS input | 2.5 V, never 5 V |
+| ☐ | highest ESP pin | 3.3 V, except the 5 V input pin |
+| ☐ | pump gate pull-down | 10 kΩ from gate to ground |
+| ☐ | pump diode direction | stripe to +12 V, no stripe to the drain |
+| ☐ | pump fuse | 2 A, in the red wire only |
+| ☐ | pump jack polarity | centre positive |
+| ☐ | pump in water | never run dry for more than a few seconds |
 
-Use the Control page (`/control`) in the app for the motion checks, or send a
-command with `mosquitto_pub`:
+## When something does not work
 
-```
-mosquitto_pub -h 10.42.0.1 -t rover/motor/command -m '{"motor":1,"speed":60}'
-mosquitto_pub -h 10.42.0.1 -t rover/motor/command -m '{"motor":1,"speed":0}'
-```
+| ☐ | What you see | Likely cause | First check |
+|---|---|---|---|
+| ☐ | board never appears online | wrong broker address | serial log prints the address |
+| ☐ | all INA226 report not found | mux not selected, or A0 to A2 not grounded | serial log shows the mux channel |
+| ☐ | one INA226 missing | wrong channel pair, or power on that module | swap the module to a known channel |
+| ☐ | current always 0 A | calibration rejected, or VBS open | serial log, then VBS to 12 V |
+| ☐ | current stuck at 0.8 A | stock 0.1 Ω shunt at full scale | expected on the bench, voltage still valid |
+| ☐ | voltage reads 0 V | VBS not connected to 12 V | meter VBS to ground |
+| ☐ | motor silent, current 0 A | no driver power or no common ground | meter at the power input, then ground |
+| ☐ | motor buzzes, no rotation | duty too low or loose input | try speed 200, meter the input |
+| ☐ | full speed at every duty | board is not two-input PWM mode | stop, check the A B C D pads |
+| ☐ | one wheel fights the others | leads reversed on that wheel | swap the two motor leads |
+| ☐ | gas reads all show `--` | ADS damaged by 5 V, or no baseline | meter the divider output |
+| ☐ | sensors drop out when motors run | brush noise | add the 0.1 µF motor capacitors |
+| ☐ | ESP reboots when a motor starts | supply sag | 470 µF at the driver input |
+| ☐ | pump silent | fuse open, gate low, or no ground | meter 12 V at the pump, then gate volts |
+| ☐ | pump runs but no water | air lock or wrong hose direction | prime it, check the arrow on the head |
+| ☐ | pump will not stop | MOSFET shorted | pull the 2 A fuse, replace the MOSFET |
+| ☐ | MOSFET hot | gate not fully on, or pump current too high | meter gate at 3.3 V, read the pump label |
+| ☐ | pump restarts the ESP32 | shared ground noise | 100 µF at the pump, star ground |
+| ☐ | flame_ok stays 0 | A3 not wired | expected until A3 goes to U18 A3 |
 
-`motor:0` means all motors. Negative speed is reverse.
+## Not connected on purpose
 
-Do not run the calibration sweep on Saturday. It is a long heat test, not a
-wiring test.
+| ☐ | Item | Why it is missing | If needed later |
+|---|---|---|---|
+| ☐ | battery voltage wire to GPIO 32 | buzzer protects the pack already | 100 kΩ and 22 kΩ divider, 2.27 V at full charge |
+| ☐ | 3S LiPo and 20 A fuse in the rover | bench uses a 12 V 5 A adapter | fit before the first full pack run |
+| ☐ | LiPo low voltage buzzer | not bought yet | balance lead, 3.5 V per cell |
+| ☐ | galvanic O2 cell | not purchasable here | publish o2_ok 1 and o2_mv |
+| ☐ | AS5600 angle encoder | not fitted, the MG996R reports commanded angle only | mount a magnet on the shaft, firmware support was removed |
+| ☐ | tilt measurement from the second MPU | U15 is wired at 0x69 but the firmware does not read it yet | add the tilt code and publish `rover/lidar/tilt_deg` |
+| ☐ | extra ADXL345 on the middle motors | the MID board has no vibration sensors today | use address 0x1D for the second one |
+| ☐ | flame D4 and A3 | planned, left open for the first bench | wire D4 to GPIO 39 and A3 to U18 A3 |
+| ☐ | second TCA9548A mux | one mux carries all eight devices | add a second mux only if a ninth device appears |
 
----
+## The numbers came from these files
 
-## 10. What you see, what it means
-
-| Symptom | Likely cause | First check |
+| ☐ | File | What it decides |
 |---|---|---|
-| dashboard never shows the board online | wrong relay address, or portal not saved | serial log prints the broker IP |
-| nothing moves, current reads 0 A | no driver power, or no common ground | meter at `3-12V`, then continuity on GND |
-| motor buzzes but does not turn at 60 | duty too low, or a loose input | try speed 200, then meter the two input pins |
-| full speed at every duty | the board is not in two-input PWM mode | stop, check the `A B C D` pads |
-| only one direction works | one input wire is loose | meter both pins while commanding forward |
-| motor turns, current stays 0 | INA226 across the motor instead of in series | follow both motor leads, check the shunt |
-| a wheel fights the others | motor leads reversed on that wheel | swap the two output leads, not the logic pins |
-| ESP reboots when a motor starts | brownout on the USB supply | separate supply, 470 µF at the driver input |
-| driver hot within a minute | shorted output or wrong channel map | power off, find the short before trying again |
-| all gas readings show `--` | ADS input damaged by 5 V, or no baseline | meter the divider output, then check burn-in |
-
----
-
-## 11. Not wired on purpose
-
-| Item | Why it is missing | If you need it later |
-|---|---|---|
-| pack voltage divider | buzzer covers protection, no free time to fit it | GPIO 32, 100 kΩ / 22 kΩ, see section 4.2 |
-| LiPo and 20 A fuse | Saturday uses the 12 V 5 A adapter | fit both before the first full-pack run |
-| three S low-voltage buzzer | not bought yet | balance lead, 3.5 V per cell |
-| galvanic O2 cell | not purchasable here | publish `o2_ok:1` and `o2_mv`, the backend stands down |
-| extra ADXL345 on the middles | no sensors on the MID board today | use address 0x1D for the second one, no mux needed |
-| spare muxes | only four devices share an address | set their address pads before fitting a second |
-| pack charging in the rover | unsafe | charge off the rover with a balance charger |
-| PCB schematic with the new driver | not redrawn, still shows two L298N | `PCB/Motors/Motors.kicad_sch` is stale |
-| `BOM/Electrical Components.xlsx` | left as the formatted report document | changes are recorded in `BOM/CHANGES.md` |
-
-A missing item from this table is a decision, not a mistake. Anything not in
-this table and not working is a fault worth investigating.
-
----
-
-## 12. Where the numbers came from
-
-- `firmware/ESP32-WROOM-32/config.h`: corner pins, INA226 addresses, mux
-  channels, DS18B20 pins, PWM settings.
-- `firmware/ESP32-WROOM-32-MID/config.h`: middle motor pins, IMU, servo,
-  AS5600.
-- `firmware/ESP32-WROOM-32-ENV/config.h`: ADS addresses, gas divider, flame
-  pins, MLX addresses.
-- `README.md`: power tree, parts list, topic payloads.
-- `BOM/CHANGES.md`: what changed in the parts list.
-
-If you change a pin in a config file, change the matching row here. The app
-does not discover wiring by itself.
+| ☐ | firmware/ESP32-WROOM-32/config.h | motor pins, INA226 mux channels and shunt, ADXL channels, probe pins |
+| ☐ | firmware/ESP32-WROOM-32-MID/config.h | middle motor pins, both IMU addresses, servo pin |
+| ☐ | firmware/ESP32-WROOM-32-ENV/config.h | ADS addresses, divider ratio, flame pins, pump pin and burst |
+| ☐ | src/routes.rs | `/api/pump` request shape |
+| ☐ | README.md | parts list and topic payloads |
+| ☐ | BOM/CHANGES.md | what changed in the parts list |

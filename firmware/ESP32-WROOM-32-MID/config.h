@@ -56,12 +56,16 @@
 // stand it off the board and away from the servo leads, or yaw gets noisy.
 // ============================================================
 #define MPU6050_ADDR 0x68
+// Second MPU6050 for the future tilt bracket. AD0 to 3.3 V gives 0x69.
+#define MPU_BRACKET_ADDR 0x69
 #define IMU_SAMPLE_MS 20        // internal filter step (50 Hz)
 #define IMU_PUBLISH_MS 250      // rover/imu publish rate (4 Hz)
 #define IMU_COMP_ALPHA 0.98f    // complementary filter: gyro weight vs accel
 
 // ============================================================
-// Lidar swing servo (MG996R) + AS5600 angle feedback
+// Lidar swing servo (MG996R). No angle encoder is fitted: the servo settles
+// on time and publishes the commanded angle only. The second MPU6050 at 0x69
+// is wired for a future bracket-tilt measurement but is not read yet.
 // Servo V+ comes from the 12V->6V arm rail (1000 uF cap at the servo end),
 // never from the ESP. Common GND. Step-and-settle sweep only: the Pi grabs
 // frames while "settled" is 1, so MQTT latency cannot smear the cloud.
@@ -74,12 +78,14 @@
 #define SERVO_STEP_DEG 5.0f
 #define SERVO_SETTLE_MS 500           // pause after a move before settled
 #define SERVO_DWELL_MS 600            // hold per step (Pi captures here)
-#define SERVO_SETTLE_TOL_DEG 1.5f     // AS5600 must be this close to target
 #define SERVO_CENTER_US 1500          // pulse at mount zero (calibrate on bench)
 #define SERVO_US_PER_DEG 11.11f       // (2500-500)/180 for an MG996R
 #define SERVO_PWM_FREQ 50
 #define SERVO_PWM_RES 16
-#define AS5600_ADDR 0x36              // fixed address, no ADDR pins
+
+// No angle encoder fitted. These two flags stay in the payload so the
+// backend and the dashboard contract do not change; they are always 0.
+#define SERVO_ENCODER_FITTED 0
 
 // ============================================================
 // MQTT topics (own namespace — never rover/motor/*)

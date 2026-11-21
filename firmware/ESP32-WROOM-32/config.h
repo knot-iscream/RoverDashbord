@@ -93,20 +93,25 @@
 // |mag - 1g| above this counts as vibration (at rest mag ~= 1g gravity).
 #define VIB_THRESHOLD_G 0.25f
 
-// INA226 I2C addresses (each needs unique ADDR pin config).
+// INA226 current sensors — four breakout modules behind the SAME
+// TCA9548A mux as the ADXL345. The modules keep their stock address
+// (ALE to GND -> 0x40) and never share a bus segment, so no address
+// surgery is needed. Channels 0-3 carry the ADXL345, 4-7 the INA226.
 // I2C bus: SDA = GPIO 21, SCL = GPIO 22
-#define INA226_ADDR_1 0x41
-#define INA226_ADDR_2 0x44
-#define INA226_ADDR_3 0x45
-#define INA226_ADDR_4 0x40
+#define INA226_ADDR 0x40
+#define INA226_CH_1 4   // Motor 1 (FL) on mux channel 4
+#define INA226_CH_2 5   // Motor 2 (FR) on mux channel 5
+#define INA226_CH_3 6   // Motor 3 (RL) on mux channel 6
+#define INA226_CH_4 7   // Motor 4 (RR) on mux channel 7
 
-// INA226 calibration — 10 mOhm 1 W shunt (stock R100 replaced).
-// P = I^2*R -> 1 W / 0.01 ohm = 10 A max; firmware caps at 4 A.
-// One 37GB motor stalls around 2.5 A, so 4 A leaves headroom above
-// the load and stays well under the shunt limit. The old L298N 2 A
-// channel ceiling no longer applies; the new board is rated 6 A peak.
-#define INA226_SHUNT_OHM 0.01f
-#define INA226_MAX_A     4.0f
+// INA226 calibration — stock R100 0.1 ohm shunt on the breakout.
+// The chip accepts +/-81.92 mV across the shunt, so 0.1 ohm tops out
+// at 0.819 A. Bench build runs 0.8 A; a 37GB motor pulls more than
+// that under load, so the reading clips instead of lying. Swapping
+// to 0.01 ohm would raise the range to 8 A but the modules are not
+// ours to modify. setMaxCurrentShunt rejects max * shunt > 0.0819.
+#define INA226_SHUNT_OHM 0.1f
+#define INA226_MAX_A     0.8f
 
 // ============================================================
 // MQTT topics

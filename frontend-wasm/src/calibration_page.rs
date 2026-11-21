@@ -127,7 +127,6 @@ struct CalSt {
     /// to its captured reference. Null until a board has spoken.
     live_env: serde_json::Value,
     live_imu: serde_json::Value,
-    live_servo: serde_json::Value,
     /// Powered time on the ENV board, from its heartbeat. The gas cells need
     /// 24-48 h before any baseline means much, so the rows say so.
     burn_in_s: f64,
@@ -158,14 +157,13 @@ struct SensorRow {
     pending_firmware: bool,
 }
 
-/// Row order is the wiring order: the ENV board's three, then the MID board's
-/// two. `pending_firmware` is the honest bit - the IMU rest offsets and the
-/// AS5600's two counts live on the boards, so until they are flashed those
-/// two rows are a record, not a correction.
+/// Row order is the wiring order: the ENV board's three, then the IMU on the
+/// MID board. `pending_firmware` is the honest bit - the IMU rest offsets live
+/// on the board, so until it is flashed that row is a record, not a correction.
 ///
-/// No O2 row: the galvanic cell is gone and the derived O2 is a model output,
-/// so there is nothing to capture or drift against.
-const SENSOR_ROWS: [SensorRow; 5] = [
+/// No O2 row: the galvanic cell is gone. No servo row: no angle encoder is
+/// fitted, so only the commanded angle exists and there is nothing to capture.
+const SENSOR_ROWS: [SensorRow; 4] = [
     SensorRow {
         key: "gas",
         label: "Gas cells",
@@ -187,12 +185,6 @@ const SENSOR_ROWS: [SensorRow; 5] = [
     SensorRow {
         key: "imu",
         label: "IMU (MPU6050)",
-        board: "ESP-2 MID",
-        pending_firmware: true,
-    },
-    SensorRow {
-        key: "servo",
-        label: "Servo / AS5600",
         board: "ESP-2 MID",
         pending_firmware: true,
     },
@@ -411,12 +403,7 @@ fn num(v: &serde_json::Value, key: &str, dp: usize) -> String {
 }
 
 /// What a sensor is reading right now, in its own units.
-fn live_text(
-    key: &str,
-    env: &serde_json::Value,
-    imu: &serde_json::Value,
-    servo: &serde_json::Value,
-) -> String {
+fn live_text(key: &str, env: &serde_json::Value, imu: &serde_json::Value) -> String {
     match key {
         "gas" => {
             if env.is_null() {
@@ -442,19 +429,6 @@ fn live_text(
             num(imu, "ay", 2),
             num(imu, "az", 2)
         ),
-        "servo" if servo.is_null() => "--".into(),
-        "servo" => {
-            let real = servo.get("angle_real").and_then(|x| x.as_f64());
-            let cal = servo
-                .get("cal_ok")
-                .and_then(|x| x.as_f64())
-                .map(|v| v != 0.0)
-                .unwrap_or(false);
-            match real {
-                Some(r) if cal => format!("{:.1} C (AS5600)", r),
-                _ => format!("{} C (no AS5600)", num(servo, "angle", 1)),
-            }
-        }
         _ => "--".into(),
     }
 }
@@ -492,17 +466,6 @@ fn reference_text(key: &str, reference: &serde_json::Value) -> String {
             num(reference, "ay", 2),
             num(reference, "az", 2)
         ),
-        "servo" => {
-            let cal = reference
-                .get("cal_ok")
-                .and_then(|x| x.as_bool())
-                .unwrap_or(false);
-            if cal {
-                format!("{} C measured", num(reference, "angle_real", 1))
-            } else {
-                "no AS5600 calibration".into()
-            }
-        }
         _ => "--".into(),
     }
 }
@@ -594,7 +557,7 @@ fn update_sensor_rows(st: &Shared, list: &Element) {
 
         set_node_text(
             row_node(list, key, ".sensor-live-v"),
-            &live_text(key, &s.live_env, &s.live_imu, &s.live_servo),
+            &live_text(key, &s.live_env, &s.live_imu),
         );
 
         let (ref_text, captured) = match &reference {
@@ -1884,10 +1847,6 @@ fn connect_cal_ws(st: Shared) {
                 }
                 "imu_update" => {
                     st.borrow_mut().live_imu = v.clone();
-                    render_sensor_rows(&st);
-                }
-                "servo_update" => {
-                    st.borrow_mut().live_servo = v.clone();
                     render_sensor_rows(&st);
                 }
                 // A live stage of the one-press sequence. The baselines it

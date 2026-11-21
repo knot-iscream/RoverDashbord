@@ -14,9 +14,10 @@
 //   Board A (0x48): A0 CO, A1 LPG, A2 CH4, A3 H2      (MQ cells, single-ended)
 //   Board B (0x49): A2 = MQ-135 air quality, A3 = flame analog magnitude
 //                   A0/A1 are unused now that the O2 cell is gone.
-// Flame DIRECTIONS are 5 digital lines (module outputs), no ADC needed.
-// MQ cells need a 2:1 divider per channel if the ADS runs at 3.3 V, or a
-// level-shifted I2C bus if it runs at 5 V. Settle that at the bench.
+// Flame DIRECTIONS are 5 digital lines (D1..D5 on the module), active LOW:
+// the comparator pulls a line down when that sensor sees fire. Power the
+// flame module from 3.3 V so its analog output (A1..A5) stays ADS-safe; use
+// A3 for the level and no divider. The MQ cells still need a 2:1 divider.
 
 // WiFi + MQTT — FALLBACK DEFAULTS ONLY (portal pre-fill, no secrets in git).
 #define WIFI_SSID "Your_SSID"
@@ -48,6 +49,11 @@
 #define GAS_VC 5.0f
 #define GAS_DIVIDER 2.0f
 
+// 5-way flame module (RBD-0423): D1..D5 are active LOW, A3 feeds the level
+// straight into ADS1115 B with no divider because the module runs at 3.3 V.
+#define FLAME_ACTIVE_LOW 1
+#define FLAME_DIVIDER 1.0f
+
 // MQ-135 "air quality" is a relative indicator, never labelled CO2 ppm.
 #define GAS_CHANNEL_COUNT 5  // CO, LPG, CH4, H2, air quality
 
@@ -61,6 +67,15 @@
 // here (no pull-ups needed, the module drives them).
 #define FLAME_PIN_COUNT 5
 #define FLAME_DIR_PINS {34, 35, 36, 39, 32}
+
+// Water pump (RBD-1872, AD20P-1230C): 12 V, ~350 mA, 3.6 W. Driven
+// low-side by an IRLZ44N on GPIO 25 (logic-level gate, works at 3.3 V).
+// GPIO 25 is not a strapping pin and is unused on this board. An
+// external 10k pulls the gate down, so the pump stays off during boot
+// and while the ESP32 resets.
+#define PUMP_PIN 25
+#define PUMP_BURST_MS 10000UL   // default "throw water" burst (about 0.7 L)
+#define PUMP_MAX_MS   60000UL   // hard cap on any single command
 
 // Timing
 #define SAMPLE_INTERVAL_MS 1000   // telemetry publish (1 Hz)

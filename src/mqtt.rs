@@ -20,8 +20,8 @@ use crate::sensor_log::SensorLog;
 pub const DEVICE_OFFLINE_TIMEOUT_S: i64 = 8;
 /// `rover/env/#` covers the ENV board's telemetry + heartbeat; its command
 /// echoes are dropped by the `*/command` guard below, same as motor commands.
-/// `rover/lidar/servo` is the swing arm's AS5600: without it the Calibration
-/// page could trigger the two-point calibration but never show the result.
+/// `rover/lidar/servo` is the swing arm state: commanded angle and sweep
+/// flags, no measured angle because no encoder is fitted.
 const SUB_TOPICS: [&str; 8] = [
     "rover/motor/#",
     "rover/mid/#",
@@ -266,15 +266,10 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
         return;
     }
 
-    // ── Swing arm servo (ESP-2): state + the AS5600 calibration flag ──
+    // ── Swing arm servo (ESP-2): state only. No angle encoder is fitted,
+    // so cal_ok is always 0 and there is no stored reference to clear. ──
     if topic.starts_with("rover/lidar/servo") {
         *ctx.servo.write().await = data.clone();
-        // The calibration lives on the board. If it says there isn't one, our
-        // stored record is a leftover: drop it so the page reads "not
-        // captured" instead of a number from a sweep that was cleared.
-        if !flag_set(&data, "cal_ok") {
-            ctx.data.write().await.clear_sensor_reference("servo");
-        }
         broadcast(ctx, tagged("servo_update", data));
         return;
     }
@@ -398,17 +393,8 @@ fn py_bool(v: &Option<&Value>) -> bool {
 
 // ── Captured sensor references ──
 // The app captures these itself, by averaging the frames it already holds
-// (`sensor_cal`), so there is no passive watcher here. The one exception is
-// the AS5600: its calibration lives on the board, and if the board reports
-// `cal_ok:0` our record is stale, so it gets dropped rather than shown.
-
-fn num_key(data: &Value, key: &str) -> Option<f64> {
-    data.get(key).and_then(|v| v.as_f64())
-}
-
-fn flag_set(data: &Value, key: &str) -> bool {
-    num_key(data, key).unwrap_or(0.0) != 0.0
-}
+// (`sensor_cal`), so there is no passive watcher here. Board-side captures
+// are requested by publishing a command from the capture route.
 
 /// `{"type":"calibration_status", **status}` like `broadcast_calibration_status`.
 pub async fn calibration_payload(ctx: &Ctx) -> Value {

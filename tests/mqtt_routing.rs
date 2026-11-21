@@ -437,44 +437,36 @@ async fn lidar_cloud_caches_and_relays_as_its_own_type() {
 }
 
 #[tokio::test]
-async fn servo_frames_relay_and_a_lost_calibration_clears_our_record() {
+async fn servo_frames_relay_as_commanded_angle_only() {
     let mut f = common::fixture("mqtt-servo");
-    // The arm reports a calibration, and the app records what it measured.
+    // No encoder is fitted: the frame carries the commanded angle and the
+    // two compatibility flags stay 0. angle_real is never published.
     mqtt::on_mqtt_message(
         &f.ctx,
         "rover/lidar/servo",
-        json!({"servo_ok": 1, "angle": 0.0, "cal_ok": 1, "angle_real": -1.5}),
+        json!({"servo_ok": 1, "angle": 15.0, "as5600_ok": 0, "cal_ok": 0,
+               "settled": 1, "sweeping": 0, "step": 0, "steps": 1}),
     )
     .await;
-    assert_eq!(f.servo.read().await["angle_real"], -1.5);
-    f.data
-        .write()
-        .await
-        .capture_sensor_baseline("servo", json!({"cal_ok": true, "angle_real": -1.5}));
+    let cached = f.servo.read().await.clone();
+    assert_eq!(cached["angle"], 15.0);
+    assert_eq!(cached["as5600_ok"], 0);
+    assert!(cached.get("angle_real").is_none(), "no encoder fitted");
     let d = common::drain(&mut f.rx);
     let u = d
         .iter()
         .find(|m| m["type"] == "servo_update")
         .expect("relay");
-    assert_eq!(u["cal_ok"], 1);
+    assert_eq!(u["angle"], 15.0);
+    assert!(
+        !f.data.read().await.sensor_baselines.contains_key("servo"),
+        "no servo capture key without an encoder"
+    );
     assert!(
         f.data.read().await.latest.is_empty(),
         "servo frames are not motor samples"
     );
     assert!(history_rows(&f).await.is_empty());
-
-    // The sweep is cleared on the board: our stored reference is a leftover
-    // and must go with it, so the page reads "not captured".
-    mqtt::on_mqtt_message(
-        &f.ctx,
-        "rover/lidar/servo",
-        json!({"servo_ok": 1, "angle": 0.0, "cal_ok": 0}),
-    )
-    .await;
-    assert!(
-        !f.data.read().await.sensor_baselines.contains_key("servo"),
-        "a board with no calibration leaves us with none to report"
-    );
     std::fs::remove_dir_all(&f.dir).ok();
 }
 

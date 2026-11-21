@@ -100,7 +100,8 @@ tells you what to do in plain language.
 | ESP32-WROOM-32 dev board + USB cable | Firmware target (x2 for the 6-motor build: corners + middles) |
 | 4x DS18B20 waterproof probes + 4x 4.7kΩ resistors | One probe per motor, 3.3V, pull-up per pin |
 | 4x ADXL345 accelerometer modules (GY-291) + 1x TCA9548A I2C mux | Range vibration per corner motor; mux required (all 4 ADXL345 share address 0x53) |
-| 4x INA226 current/voltage modules, 10mΩ 1W shunts fitted | Unique I2C address per module via A0/A1 jumpers; stock 0.1Ω shunt replaced |
+| 4x INA226 current/voltage modules, stock 0.1 Ω shunt (marked R100) | All four stay at 0x40 behind TCA9548A channels 4-7; no address or shunt surgery |
+| 12 V water pump (AD20P-1230C) + IRLZ44N + 1N5408 + 2 A fuse + 100 µF | ESP-3 GPIO 25 low-side switch, 10 s burst; wiring in `docs/WIRING.md` |
 | 1x 4-channel 6A driver board (RBD-3658, "DC_MOTOR_4", MJKDZ) | Drives the 4 corners: two logic inputs per channel, no enable pin |
 | 1x L298N H-bridge board | Drives the 2 blind middles only |
 | 6x 37GB 12V 100RPM gear motors | 4 corners monitored, 2 middles blind |
@@ -119,12 +120,12 @@ input-only.
 
 ### Pinout table (ESP-1 corners)
 
-| Motor | ADXL345 (mux ch) | INA226 (addr) | DS18B20 (OneWire) | 6A driver inputs |
-|-------|------------------|---------------|-------------------|------------------|
-| 1 (FL) | ch 0 | 0x41 | GPIO 5 | IN1=15, IN2=14 |
-| 2 (FR) | ch 1 | 0x44 | GPIO 26 | IN3=19, IN4=23 |
-| 3 (RL) | ch 2 | 0x45 | GPIO 2 | IN5=33, IN6=27 |
-| 4 (RR) | ch 3 | 0x40 | GPIO 4 | IN7=17, IN8=16 |
+| Motor | ADXL345 (mux ch) | INA226 (mux ch, 0x40) | DS18B20 (OneWire) | 6A driver inputs |
+|-------|------------------|-----------------------|-------------------|------------------|
+| 1 (FL) | ch 0 | ch 4 | GPIO 5 | IN1=15, IN2=14 |
+| 2 (FR) | ch 1 | ch 5 | GPIO 26 | IN3=19, IN4=23 |
+| 3 (RL) | ch 2 | ch 6 | GPIO 2 | IN5=33, IN6=27 |
+| 4 (RR) | ch 3 | ch 7 | GPIO 4 | IN7=17, IN8=16 |
 
 - Motor PWM is 8-bit (0-255) at 1kHz. Speed command range is -255..255
   (negative = reverse, 0 = coast with both inputs LOW; `MOTOR_STOP_BRAKE`
@@ -153,34 +154,37 @@ motor.
   3-strike hysteresis). A missing or failed probe reports `temp_valid:0`
   and the dashboard shows `--`. Replug self-heals within ~10s, no reboot.
 
-### I2C bus (INA226 + TCA9548A + ADXL345, all share this)
+### I2C bus (TCA9548A, with both sensor families behind it)
 
 | I2C pin | ESP32 GPIO |
 |---------|-----------|
 | SDA | GPIO 21 |
 | SCL | GPIO 22 |
 
-All 4 INA226 modules, the TCA9548A mux, and (through the mux) the 4
-ADXL345 modules connect to the same SDA/SCL lines in parallel.
-Each INA226 must have a **unique I2C address** set via its A0/A1 solder
-jumpers:
+The main SDA/SCL pair goes **only to the TCA9548A** at `0x70` (A0-A2 to
+GND). The eight devices hang off the mux channels, four ADXL345 on SD0-SD3
+and four INA226 on SD4-SD7. Each downstream module wires its SDA/SCL to that
+channel's SDn/SCn pair; it never touches the main bus.
 
-| Address | A0 jumper | A1 jumper | Motor |
-|---------|-----------|-----------|-------|
-| 0x40 | GND | GND | 4 (RR) |
-| 0x41 | VCC | GND | 1 (FL) |
-| 0x44 | GND | VCC | 2 (FR) |
-| 0x45 | VCC | VCC | 3 (RL) |
+| Module | Mux channel | Address | Motor |
+|--------|-------------|---------|-------|
+| ADXL345 1 | 0 | 0x53 | 1 (FL) |
+| ADXL345 2 | 1 | 0x53 | 2 (FR) |
+| ADXL345 3 | 2 | 0x53 | 3 (RL) |
+| ADXL345 4 | 3 | 0x53 | 4 (RR) |
+| INA226 1 | 4 | 0x40 | 1 (FL) |
+| INA226 2 | 5 | 0x40 | 2 (FR) |
+| INA226 3 | 6 | 0x40 | 3 (RL) |
+| INA226 4 | 7 | 0x40 | 4 (RR) |
 
-The TCA9548A stays at its default `0x70` (A0-A2 open). All four ADXL345
-breakouts are strapped SDO→GND so each answers at `0x53`; the mux puts
-one on the bus at a time (motor 1→ch 0 … motor 4→ch 3). This is
-mandatory: the ADXL345 has only two addresses (0x53/0x1D), so four
-cannot share one bus without the mux.
+All four ADXL345 breakouts are strapped SDO→GND so each answers at `0x53`.
+All four INA226 modules keep ALE→GND and the stock address `0x40`. The mux
+is what separates them, so no address or shunt surgery is needed.
 
-Presence is re-checked every 5s. A chip that answers but returns NaN, or
-a bus voltage outside 3-36V, counts as `ina_ok:false` and voltage/current
-show as `--`.
+Presence is re-checked every 5s. A chip that answers but returns NaN, or a
+bus voltage outside 3-36V, counts as `ina_ok:false` and voltage/current
+show as `--`. The firmware re-applies the shunt calibration on every
+recheck, because a module that reappears otherwise reads 0 A.
 
 ### 4-channel 6A driver wiring (corner motors)
 
@@ -195,10 +199,11 @@ logic inputs per channel and no enable pin:
 - Logic is the 9-pin header `IN1..IN8 + GND`. The 5-pin JST labelled
   `IN1 IN2 IN5 IN6 GND` is a duplicate tap for two channels, not a second
   interface.
-- The board makes its own logic supply from the motor rail, so there is no
-  separate 5 V pin. Confirm that a 3.3 V ESP32 output actually switches a
-  channel before trusting it; if it needs 5 V logic, put a 74HCT245 in
-  between.
+- The board's `5V` pin is a logic-supply pin, not a motor input. Measure it
+  with 12 V applied: about 5 V means the board regulates its own logic
+  power, 0 V means feed 5 V there from the XL4016. Confirm that a 3.3 V
+  ESP32 output actually switches a channel before trusting it; if it needs
+  5 V logic, put a 74HCT245 in between.
 - PWM on one input with the other held low drives that direction at the
   duty. Both low coasts, both high brakes. The `A B C D` pads are not part
   of this interface and stay as shipped.
@@ -212,37 +217,45 @@ The pack goes to the driver input, not through the INA226.
 - Never wire VIN+/VIN- across the motor in parallel. That puts pack voltage
   across the shunt and burns it open (seen on the bench: chip alive, ~7V
   coupled through, ~0A forever).
-- The stock 0.1Ω shunt is replaced with a **10mΩ 1W shunt** (10A thermal
-  max). Firmware calibrates for 0.01Ω with a 4A cap, which sits above the
-  ~2.5A stall of one motor and well under the shunt limit. The old L298N 2A
-  channel ceiling no longer applies; the 6A board is rated 6A peak per
-  channel. Reverse drive reads negative current; that is normal.
-- Bus range is 36V max (was 16V on the old INA219).
-- The reading is the PWM-averaged motor terminal voltage, not the pack.
-  Near full duty it approximates the pack; at half throttle it reads about
-  half. That is why the low-voltage rule only runs at `|speed| >= 200`
-  (see `LOW_VOLTAGE_V` in `src/data.rs`).
+- The modules keep the **stock 0.1 Ω R100 shunt**. The chip accepts ±81.92 mV
+  across the shunt, so the range tops out at 0.819 A; firmware calibrates
+  0.1 Ω with a 0.8 A cap. A 37GB motor pulls more than that under load, so
+  the current reading clips at 0.8 A instead of lying. The 2 A over-current
+  rule cannot fire on this build. Reverse drive reads negative current; that
+  is normal.
+- **VBS goes to the 12 V rail**, not the PWM motor terminal. Keep it on the
+  fused side of the switch: the PWM off period would read 0 V and the frame
+  would go invalid at low duty.
+- Bus range is 36 V max (was 16 V on the old INA219).
+- The bus reading is pack voltage because VBS taps the 12 V rail. The
+  low-voltage rule still runs only at `|speed| >= 200` so it judges the pack
+  while it is actually working (see `LOW_VOLTAGE_V` in `src/data.rs`).
 
 ### Power connections
 
 - **DS18B20**: VCC to 3.3V, GND to GND, DATA to its motor pin with a
   4.7kΩ pull-up to 3.3V. Tape the probe to the motor casing with thermal
   paste.
-- **ADXL345 + TCA9548A**: all VCC to 3.3V (never 5V), all GND to GND,
-  all SDA/SCL to 21/22 in parallel. ADXL345 SDO→GND on every board
-  (all answer at 0x53); mux channels 0-3 go to motors 1-4.
-- **INA226**: VCC to 3.3V, GND to GND, SDA/SCL to 21/22.
+- **ADXL345 + TCA9548A**: all VCC to 3.3V (never 5V), all GND to GND.
+  Mux SDA/SCL to 21/22. ADXL345 SDO→GND on every board (all answer at
+  0x53); mux channels 0-3 go to motors 1-4.
+- **INA226**: VCC to 3.3V, GND to GND. SDA/SCL to the mux channel pair
+  for that motor (4-7), never the main bus. VBS to the 12 V rail after the
+  master switch. Alert stays open.
 
 ### Wiring order
 
-1. Wire all INA226 modules + the TCA9548A to the I2C bus first
-   (SDA/SCL + addresses, 10mΩ shunts fitted).
+1. Wire the TCA9548A to ESP-1 (SDA/SCL/3V3/GND, A0-A2 to GND), then the
+   four INA226 on mux channels 4-7 at 0x40 with the stock R100 shunt.
 2. Connect each DS18B20 DATA pin with its own 4.7kΩ pull-up.
-3. Connect the 4 ADXL345 boards through the mux (SDO→GND each).
+3. Connect the 4 ADXL345 boards through mux channels 0-3 (SDO→GND each).
 4. Wire the 6A board's `IN1..IN8` to ESP-1 and the pack rail to its
    `3-12V` input. Ground everything to one point.
 5. Run each corner motor lead through its INA226 in series, then to the
    driver output.
+6. Wire the pump branch on ESP-3: GPIO 25 through 100 Ω to the IRLZ44N
+   gate, 10 kΩ gate to GND, 12 V through a 2 A fuse to the pump, 1N5408
+   across the pump, 100 µF at the pump.
 
 ### 3S LiPo power tree
 
@@ -280,7 +293,8 @@ One pack feeds the whole rover. The old 12 V SLA is gone.
 
 One more L298N on a second board drives the 2 middle motors with no motor
 sensors. The same board also carries the localization subsystem: MPU6050 IMU,
-the lidar swing servo (MG996R) and the optional AS5600 angle encoder.
+the lidar swing servo (MG996R). No angle encoder is fitted, so the servo
+reports the commanded angle only and settles on time.
 Firmware: `firmware/ESP32-WROOM-32-MID/rover_mid.ino`.
 
 | MID motor | Backend id | L298N pins |
@@ -292,13 +306,12 @@ Firmware: `firmware/ESP32-WROOM-32-MID/rover_mid.ino`.
 |--------|---------------|-------|
 | MPU6050 SDA/SCL | 21 / 22 | address 0x68, 4 Hz on `rover/imu` |
 | Servo signal | GPIO 27 | LEDC 50 Hz, MG996R V+ from the 6 V rail, 1000 uF cap at the servo |
-| AS5600 | 21 / 22 | address 0x36 (fixed), VCC 3.3 V, DIR tied, diametric magnet on the shaft |
+| second MPU6050 (tilt bracket) | 21 / 22 | address 0x69 (AD0 to 3.3 V), wired for future tilt, not read yet |
 | Hard servo limits | -35 / +35 deg | clamped in code, no MQTT message can exceed them |
 
 Sweeps are step-and-settle: move, wait, publish `settled:1`, hold, next step.
 The Pi captures lidar frames only while settled, so MQTT latency cannot smear
-the cloud. `{"action":"servo_cal"}` on `rover/lidar/command` runs the AS5600
-two-point calibration. Same pack rail and common GND as the corners; own
+the cloud. Same pack rail and common GND as the corners; own
 MQTT namespace `rover/mid/*` (portal AP `Rover-Setup-MID`), so boards never
 fight over motor commands.
 
@@ -311,8 +324,9 @@ portal AP `Rover-Setup-ENV`, namespace `rover/env/*`.
 |-------|--------|
 | MQ-7 / MQ-6 / MQ-4 / MQ-8 | ADS1115 0x48 A0..A3, single ended, 2:1 divider each if the ADS runs at 3.3 V |
 | MQ-135 (air quality) | ADS1115 0x49 A2, same divider rule |
-| Flame magnitude | ADS1115 0x49 A3 |
-| Flame direction | GPIO 34, 35, 36, 39, 32 (module digital outs) |
+| Flame magnitude | module A3 to ADS1115 0x49 A3, direct, module powered at 3.3 V |
+| Flame direction | module D1..D5 to GPIO 34, 35, 36, 39, 32, active LOW |
+| Water pump | GPIO 25 through 100 Ω to an IRLZ44N gate, 10 kΩ gate to GND, 12 V through a 2 A fuse, 1N5408 flyback, 100 µF at the pump |
 | MLX90614 left / right | 0x5A / 0x5B (re-address one via EEPROM 0xC7), 20 mm shroud tube each |
 
 The galvanic O2 cell is **not fitted** (not purchasable here). `ADS1115 0x49`
@@ -325,6 +339,13 @@ Gas values are relative (`R0/Rs`, 1.0 = clean air) after
 need 24-48 h of powered burn-in first; powered time accumulates as
 `burn_in_s` on the heartbeat. Serial at 115200 prints raw volts every second
 for the bench.
+
+The pump takes `{"action":"pump","on":1,"seconds":10}` on the same command
+topic. Missing or zero seconds means the 10 s default, the firmware caps any
+request at 60 s and stops the pump from `loop()`, so a dead broker cannot
+leave water running. `pump:0/1` rides telemetry and the heartbeat. The
+control page exposes it as THROW WATER / STOP WATER and the backend route is
+`POST /api/pump`.
 
 **Derived O2** (`src/o2_estimate.rs`): the frame gains `o2_pct`, `o2_est:1`,
 `o2_load` and `o2_src`. The model builds a 0..1 combustion load from the peak
@@ -344,7 +365,7 @@ sections with 1 min / 10 min / 1 h charts plus the Excel export (Telemetry +
 Sensors + IMU sheets). Null values render `--`, never a fabricated zero, so a
 cell that has no baseline yet cannot be mistaken for clean air.
 
-No new Arduino libraries: the ADS1115, MLX90614, MPU6050 and AS5600 are all
+No new Arduino libraries: the ADS1115, MLX90614 and MPU6050 are all
 driven by hand-rolled register code.
 
 ## Rover WiFi setup (phone portal, no USB cable, no re-flash)
@@ -452,14 +473,18 @@ keeps whatever was flushed.
 | `rover/mid/status` | ESP-2 → broker | `{"state":"running","source":"mid","speed":[0,0]}` (~2s) |
 | `rover/mid/command` | Backend → ESP-2 | same motor command shape, motors 1-2 = backend 5-6 |
 | `rover/imu` | ESP-2 → broker | `{"imu_ok":1,"ax":..,"ay":..,"az":..,"gz":..,"yaw":..,"pitch":..,"roll":..}` @4Hz, yaw drifts by design |
-| `rover/lidar/servo` | ESP-2 → broker | `{"servo_ok":1,"angle":15.0,"angle_real":14.8,"as5600_ok":1,"cal_ok":1,"settled":1,"sweeping":1,"step":3,"steps":17}` on change + 1Hz |
-| `rover/lidar/command` | Backend/Pi → ESP-2 | `{"action":"sweep"}` / `{"action":"stop"}` / `{"action":"goto","angle":15}` / `{"action":"servo_cal"}` |
+| `rover/lidar/servo` | ESP-2 → broker | `{"servo_ok":1,"angle":15.0,"as5600_ok":0,"cal_ok":0,"settled":1,"sweeping":1,"step":3,"steps":17}` on change + 1Hz. No encoder fitted: `angle` is commanded, `angle_real` absent, the two flags stay 0 for contract compatibility |
+| `rover/lidar/command` | Backend/Pi → ESP-2 | `{"action":"sweep"}` / `{"action":"stop"}` / `{"action":"goto","angle":15}` |
 | `rover/env/telemetry` | ESP-3 → broker | `{"ads_ok":1,"mlx_ok":1,"flame_ok":1,"baseline_ok":1,"o2_ok":0,"co":1.4,"lpg":1.1,"ch4":1.0,"h2":1.2,"air":1.3,"flame_lvl":0.2,"flame_dir":0,"heat_l":34.2,"heat_r":31.7,"heat_l_amb":27.5,"heat_r_amb":27.6}` @1Hz. `o2_ok:0` = no cell; the backend adds `o2_pct`, `o2_est`, `o2_load`, `o2_src` before relaying |
 | `rover/env/status` | ESP-3 → broker | `{"state":"running","source":"env","burn_in_s":7200,"baseline_ok":1}` (~2s) |
 | `rover/env/command` | Backend → ESP-3 | `{"action":"baseline"}` (clean-air R0 capture into NVS) |
 
 Gas fields are relative (`R0/Rs`, 1.0 = clean air), never ppm. `flame_ok`
 means the module answers, not that fire is present: fire is `flame_dir > 0`.
+The RBD-0423 module pulls a direction line LOW when that sensor fires, so the
+firmware reads LOW as active. Power it from 3.3 V and its analog output goes
+straight into the ADS without a divider; only the MQ cells keep the 2 to 1
+dividers.
 Nulls mean `--` in the UI, same rule as the motor sensors.
 
 During calibration, motor data includes `"calib":1`. Invalid sensors send
