@@ -31,6 +31,9 @@ Rover-opener.log
 # Bundled arduino-cli binary (downloaded on the bench PC, 40 MB - never commit)
 /tools/arduino-cli/
 
+# Temp bench firmware (lidar tilt servo + bracket MPU, never published)
+/firmware/ESP32-WROOM-32-LIDAR-TEST/
+
 # Local assistant config - works locally, never published
 .opencode/
 opencode.json
