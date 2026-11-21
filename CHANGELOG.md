@@ -1,5 +1,30 @@
 # Changelog
 
+## v4.0-dev1 - 2026-11-21 - standalone dev build, no Raspberry Pi
+
+- New `dev/4.0-standalone` branch off v4.0. Stable v4.0 and `master` are
+  untouched. Version is `4.0.1-dev1` in all four Cargo manifests, the lock
+  file and the Tauri window title, so `/api/health` tells the two builds
+  apart. The stale `2.0.2` in `tauri.conf.json` was corrected in the process.
+- `cargo pack-dev` runs the normal pack, then adds `DEV/` to the portable
+  folder: the three Arduino sketch folders with the dev WiFi preload applied,
+  a launcher, a library list, the wiring PDF and a start guide, and zips it
+  as `RoverDash-4.0-dev1-portable.zip`. No git clone, no Pi, no broker setup.
+- Dev firmware bakes `Xenfier_5G` into all three sketches. A `DEV_WIFI_PRELOAD`
+  branch in each `wifi_portal.h` joins that network before WiFiManager runs,
+  so a fresh board is online without phone setup. If it fails, the unchanged
+  `Rover-Setup` portal still opens. Credentials live in an ignored
+  `dev-overlay/dev.env` and never enter git; tracked firmware stays byte-for-
+  byte v4.0 outside the packaging step.
+- `DEV-START.bat` / `dev-start.ps1` self-elevate, add an inbound firewall rule
+  for the bundled Mosquitto on 1883, detect the PC's active LAN IPv4, write it
+  into the three dev `config.h` broker lines, and launch the app. The friends
+  then flash the sketches from Arduino IDE. No compiled firmware is shipped.
+- App defaults are unchanged: no `rover_config.json` in the zip, first run
+  starts the bundled broker on `0.0.0.0:1883` and works entirely offline.
+  All pages are present; LiDAR and camera show their offline states without
+  the Pi. Setup page carries a small DEV badge.
+
 ## v4.0 - 2026-11-21 - 4-channel 6A corners, 3S LiPo rail, derived O2
 
 - INA226 modules keep the stock 0.1 Ω R100 shunt. All four sit at 0x40

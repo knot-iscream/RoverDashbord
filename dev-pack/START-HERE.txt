@@ -1,0 +1,43 @@
+RoverDash 4.0 DEV BUILD - standalone, no Raspberry Pi
+
+WHAT THIS IS
+A portable copy of the stable 4.0 app with everything it needs already inside:
+the dashboard, the MQTT broker, and the Arduino source for the three ESP32
+boards. The Pi is not part of this build.
+
+STEP 1 - start the app (on the Windows PC)
+Double-click DEV-START.bat. It asks for admin rights once to open port 1883 in
+Windows Firewall, reads this PC's WiFi address, writes it into the three
+firmware sketches, and starts RoverDash. Leave the app running.
+
+Do not skip this step: the boards use the address it writes to find the broker.
+
+STEP 2 - flash the boards (Arduino IDE)
+Install the ESP32 board package and the libraries in LIBRARIES.txt. Open each
+sketch from DEV\firmware:
+
+  ESP32-WROOM-32      corner board, motors 1-4
+  ESP32-WROOM-32-MID  middle board, motors 5-6, IMU, servo
+  ESP32-WROOM-32-ENV  environment board, gas, flame, heat, water pump
+
+Pick ESP32 Dev Module and the right COM port, then Upload. The WiFi name and
+password are already in each sketch, so the boards join Xenfier_5G on their
+own and connect to the PC address written in step 1.
+
+If a board cannot join that network it opens its own Rover-Setup hotspot. Join
+it from a phone and re-enter the network; the password is in the sketch's
+config.h. That portal is the only way to change WiFi later (not the dashboard).
+
+STEP 3 - check the connections
+In the app, Motor Test and Detailed are the pages to watch. Motor Test shows
+each wheel's live speed, volts, amps and vibration. Detailed shows the sensor
+cards and charts. Both should move off dashes a few seconds after a board
+boots. The other pages are all present and work the same way.
+
+WHAT WILL LOOK OFFLINE
+The LiDAR tab and the camera mirror need the Raspberry Pi. They show an
+offline or saved state in this build. That is expected, not a fault.
+
+IF THE PC ADDRESS CHANGES
+Run DEV-START.bat again to rewrite the broker line, then reflash the boards.
+A board's Rover-Setup portal can also change just the broker without a reflash.

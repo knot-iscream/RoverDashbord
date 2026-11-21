@@ -395,6 +395,263 @@ fn cmd_package() -> i32 {
     0
 }
 
+// ---------------------------------------------------------------------------
+// pack-dev — dev-only standalone build (no Pi), v4.0-dev1
+// ---------------------------------------------------------------------------
+
+const DEV_BOARDS: [&str; 3] = ["ESP32-WROOM-32", "ESP32-WROOM-32-MID", "ESP32-WROOM-32-ENV"];
+const BROKER_MARKER: &str = "ROVER_DEV_BROKER";
+
+/// WiFi credentials for the dev firmware. Kept in an ignored overlay file so
+/// no secret ever lands in git; the tracked sketches stay byte-identical to
+/// stable 4.0 outside this packaging step.
+fn dev_credentials(root: &Path) -> Result<(String, String), String> {
+    let path = root.join("dev-overlay").join("dev.env");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| format!("read {} failed: {e}", path.display()))?;
+    let mut ssid = None;
+    let mut pass = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((key, val)) = line.split_once('=') {
+            match key.trim() {
+                "WIFI_SSID" => ssid = Some(val.trim().to_string()),
+                "WIFI_PASSWORD" => pass = Some(val.trim().to_string()),
+                _ => {}
+            }
+        }
+    }
+    let ssid = ssid.ok_or("WIFI_SSID missing from dev-overlay/dev.env")?;
+    let pass = pass.ok_or("WIFI_PASSWORD missing from dev-overlay/dev.env")?;
+    for val in [&ssid, &pass] {
+        if val.is_empty() || val.contains('"') || val.contains('\\') {
+            return Err("dev WiFi credentials are empty or contain a quote/backslash".into());
+        }
+    }
+    Ok((ssid, pass))
+}
+
+/// Rewrite one `#define NAME ...` line. Returns the new text and whether the
+/// line was found, so a missing define is a hard error rather than a silent
+/// no-op.
+fn rewrite_define(src: &str, name: &str, new_line: &str) -> (String, bool) {
+    let prefix = format!("#define {name} ");
+    let mut out = String::with_capacity(src.len());
+    let mut found = false;
+    for line in src.split_inclusive('\n') {
+        let bare = line.trim_end_matches(['\r', '\n']);
+        if bare.starts_with(&prefix) {
+            let nl = if line.ends_with("\r\n") {
+                "\r\n"
+            } else if line.ends_with('\n') {
+                "\n"
+            } else {
+                ""
+            };
+            out.push_str(new_line);
+            out.push_str(nl);
+            found = true;
+        } else {
+            out.push_str(line);
+        }
+    }
+    (out, found)
+}
+
+/// Add the dev preload switch and overwrite the three WiFi/MQTT defines.
+fn dev_config(src: &str, ssid: &str, pass: &str) -> Result<String, String> {
+    let head = if src.contains("#define CONFIG_H\r\n") {
+        (
+            "#define CONFIG_H\r\n",
+            "#define CONFIG_H\r\n\r\n#define DEV_WIFI_PRELOAD 1\r\n",
+        )
+    } else if src.contains("#define CONFIG_H\n") {
+        (
+            "#define CONFIG_H\n",
+            "#define CONFIG_H\n\n#define DEV_WIFI_PRELOAD 1\n",
+        )
+    } else {
+        return Err("config.h include guard not found".into());
+    };
+    let mut out = src.replace(head.0, head.1);
+    let (o, a) = rewrite_define(&out, "WIFI_SSID", &format!("#define WIFI_SSID \"{ssid}\""));
+    let (o, b) = rewrite_define(
+        &o,
+        "WIFI_PASSWORD",
+        &format!("#define WIFI_PASSWORD \"{pass}\""),
+    );
+    let (o, c) = rewrite_define(
+        &o,
+        "MQTT_BROKER",
+        &format!("#define MQTT_BROKER \"DEV_PC_IP\"  // {BROKER_MARKER}"),
+    );
+    out = o;
+    if !(a && b && c) {
+        return Err("a WiFi/MQTT define was missing from a dev config.h".into());
+    }
+    Ok(out)
+}
+
+/// Insert the preload block right after portalLoadBrokerDefaults() so a fresh
+/// board joins the baked WiFi before WiFiManager ever opens the phone portal.
+fn dev_portal(src: &str, snippet: &str) -> Result<String, String> {
+    let lf = "static bool portalEnsureWiFi() {\n  portalLoadBrokerDefaults();\n";
+    let crlf = "static bool portalEnsureWiFi() {\r\n  portalLoadBrokerDefaults();\r\n";
+    if src.contains(lf) {
+        Ok(src.replace(lf, &format!("{lf}{snippet}\n")))
+    } else if src.contains(crlf) {
+        let snippet_crlf = snippet.replace('\n', "\r\n");
+        Ok(src.replace(crlf, &format!("{crlf}{snippet_crlf}\r\n")))
+    } else {
+        Err("wifi_portal.h preload anchor not found".into())
+    }
+}
+
+fn copy_file(from: &Path, to: &Path) -> bool {
+    if let Err(e) = std::fs::copy(from, to) {
+        eprintln!(
+            "[ERROR] Copy failed: {} -> {}: {e}",
+            from.display(),
+            to.display()
+        );
+        false
+    } else {
+        true
+    }
+}
+
+fn cmd_pack_dev() -> i32 {
+    // The normal portable app first, so the dev zip has the same exe,
+    // broker, conf, web assets and WASM bundle as stable.
+    let code = cmd_package();
+    if code != 0 {
+        return code;
+    }
+    let root = repo_root();
+    let (ssid, pass) = match dev_credentials(&root) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("[ERROR] {e}");
+            return 1;
+        }
+    };
+    let snippet_path = root.join("dev-pack").join("preload_snippet.txt");
+    let snippet = match std::fs::read_to_string(&snippet_path) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("[ERROR] {}: {e}", snippet_path.display());
+            return 1;
+        }
+    };
+
+    let dist = root.join("dist").join("RoverDash");
+    let dev = dist.join("DEV");
+    if dev.exists() {
+        std::fs::remove_dir_all(&dev).ok();
+    }
+    let fw = dev.join("firmware");
+    if std::fs::create_dir_all(&fw).is_err() {
+        eprintln!("[ERROR] Cannot create {}", fw.display());
+        return 1;
+    }
+
+    for board in DEV_BOARDS {
+        let src = root.join("firmware").join(board);
+        let dst = fw.join(board);
+        if copy_tree(&src, &dst).is_err() {
+            eprintln!("[ERROR] Firmware copy failed: {}", src.display());
+            return 1;
+        }
+        let cfg_path = dst.join("config.h");
+        let cfg = match std::fs::read_to_string(&cfg_path) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("[ERROR] {}: {e}", cfg_path.display());
+                return 1;
+            }
+        };
+        let cfg = match dev_config(&cfg, &ssid, &pass) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("[ERROR] {board} config.h: {e}");
+                return 1;
+            }
+        };
+        if std::fs::write(&cfg_path, cfg).is_err() {
+            eprintln!("[ERROR] Cannot write {}", cfg_path.display());
+            return 1;
+        }
+        let wp_path = dst.join("wifi_portal.h");
+        let wp = match std::fs::read_to_string(&wp_path) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("[ERROR] {}: {e}", wp_path.display());
+                return 1;
+            }
+        };
+        let wp = match dev_portal(&wp, &snippet) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("[ERROR] {board} wifi_portal.h: {e}");
+                return 1;
+            }
+        };
+        if std::fs::write(&wp_path, wp).is_err() {
+            eprintln!("[ERROR] Cannot write {}", wp_path.display());
+            return 1;
+        }
+    }
+
+    for name in [
+        "START-HERE.txt",
+        "LIBRARIES.txt",
+        "DEV-START.bat",
+        "dev-start.ps1",
+    ] {
+        if !copy_file(&root.join("dev-pack").join(name), &dev.join(name)) {
+            return 1;
+        }
+    }
+    let wiring = root.join("docs").join("WIRING.pdf");
+    if wiring.is_file() {
+        copy_file(&wiring, &dev.join("WIRING.pdf"));
+    } else {
+        println!("[WARN] docs/WIRING.pdf missing, not shipped in the dev pack");
+    }
+
+    let zip = root.join("RoverDash-4.0-dev1-portable.zip");
+    if zip.exists() {
+        std::fs::remove_file(&zip).ok();
+    }
+    // Zero-dependency zip: PowerShell ships with every Windows this project
+    // runs on. Wildcard keeps the app files at the archive root.
+    let pattern = format!("{}\\*", dist.display());
+    let ps = format!(
+        "Import-Module Microsoft.PowerShell.Archive; Compress-Archive -Path '{}' -DestinationPath '{}' -CompressionLevel Optimal -Force",
+        pattern,
+        zip.display()
+    );
+    match Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps])
+        .status()
+    {
+        Ok(s) if s.success() => println!("[OK] Dev release: {}", zip.display()),
+        Ok(s) => {
+            eprintln!("[ERROR] Compress-Archive exited {s}");
+            return 1;
+        }
+        Err(e) => {
+            eprintln!("[ERROR] Could not run PowerShell to zip: {e}");
+            return 1;
+        }
+    }
+    println!("[OK] DEV folder: {}", dev.display());
+    0
+}
+
 fn usage() -> i32 {
     println!("xtask — RoverDash repo tasks:");
     println!("  cargo launch   start the app (packaged exe, else backend from source + browser)");
@@ -402,6 +659,8 @@ fn usage() -> i32 {
     println!("  cargo doctor   plain-language health checks (was Doctor.bat)");
     println!("  cargo pack     assemble portable dist\\RoverDash\\ (was package.bat;");
     println!("                 `package` alone is cargo's built-in, so the alias is `pack`)");
+    println!("  cargo pack-dev stable pack plus DEV\\ (firmware source, launcher, docs),");
+    println!("                 zipped as RoverDash-4.0-dev1-portable.zip");
     0
 }
 
@@ -411,6 +670,7 @@ fn main() {
         Some("dev") => cmd_dev(),
         Some("doctor") => cmd_doctor(),
         Some("package") => cmd_package(),
+        Some("pack-dev") => cmd_pack_dev(),
         Some("-h" | "--help" | "help") | None => usage(),
         Some(other) => {
             eprintln!("[ERROR] Unknown task: {other}");
@@ -506,5 +766,45 @@ mod tests {
     fn json_field_tolerates_spaces() {
         let body = "{ \"online\" : true }";
         assert_eq!(json_field(body, "online").as_deref(), Some("true"));
+    }
+
+    #[test]
+    fn dev_config_rewrites_only_the_expected_defines() {
+        let src = concat!(
+            "#ifndef CONFIG_H\n",
+            "#define CONFIG_H\n",
+            "\n",
+            "#define WIFI_SSID \"Your_SSID\"\n",
+            "#define WIFI_PASSWORD \"Your_Password\"\n",
+            "#define MQTT_BROKER \"192.168.0.96\"\n",
+            "#define MQTT_PORT 1883\n",
+        );
+        let out = dev_config(src, "Net", "pw").unwrap();
+        assert!(out.contains("#define DEV_WIFI_PRELOAD 1"));
+        assert!(out.contains("#define WIFI_SSID \"Net\""));
+        assert!(out.contains("#define WIFI_PASSWORD \"pw\""));
+        assert!(out.contains("#define MQTT_BROKER \"DEV_PC_IP\"  // ROVER_DEV_BROKER"));
+        assert!(out.contains("#define MQTT_PORT 1883"));
+        assert!(!out.contains("Your_SSID"));
+    }
+
+    #[test]
+    fn dev_config_rejects_a_missing_define() {
+        let src = "#define CONFIG_H\n#define WIFI_SSID \"x\"\n";
+        assert!(dev_config(src, "a", "b").is_err());
+    }
+
+    #[test]
+    fn dev_portal_inserts_snippet_once_after_load_defaults() {
+        let src = concat!(
+            "static bool portalEnsureWiFi() {\n",
+            "  portalLoadBrokerDefaults();\n",
+            "\n",
+            "  WiFi.mode(WIFI_STA);\n",
+        );
+        let out = dev_portal(src, "#ifdef DEV_WIFI_PRELOAD\n#endif\n").unwrap();
+        assert!(out.contains("#ifdef DEV_WIFI_PRELOAD"));
+        assert_eq!(out.matches("portalLoadBrokerDefaults();").count(), 1);
+        assert!(out.find("#ifdef DEV_WIFI_PRELOAD").unwrap() < out.find("WiFi.mode").unwrap());
     }
 }

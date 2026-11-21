@@ -1,0 +1,19 @@
+Arduino IDE setup for the three DEV sketches
+
+Board package
+  esp32 by Espressif Systems, version 3.3.12
+  Select board: ESP32 Dev Module
+
+Libraries (Tools > Manage Libraries)
+  WiFiManager by tzapu                 v2.x
+  PubSubClient by Nick O'Leary         any recent
+  ArduinoJson by Benoit Blanchon       any recent 6.x/7.x
+  INA226 by Rob Tillaart               0.6.6
+  Adafruit ADXL345                     1.3.4
+
+Notes
+  The shipped sketches match stable 4.0 except for the dev WiFi preload and
+  the broker address written by DEV-START.bat. MQTT topics, payload shapes
+  and timings are unchanged, so the app reads them exactly as it reads a
+  wired or stable-build board. No compiled binaries are shipped: flash the
+  source from Arduino IDE.

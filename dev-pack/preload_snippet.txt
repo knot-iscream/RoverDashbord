@@ -1,0 +1,37 @@
+#ifdef DEV_WIFI_PRELOAD
+  // DEV BUILD ONLY: join the baked WiFi before the phone portal, so a fresh
+  // board is online with no setup step. Credentials live only in this
+  // dev-only firmware copy, never in tracked source. If this fails, the
+  // normal portal below still opens and the network can be changed by
+  // re-entering it, not from the dashboard.
+  {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    const unsigned long dev_deadline =
+        millis() + (unsigned long)WIFI_CONNECT_TIMEOUT_S * 1000UL;
+    while (WiFi.status() != WL_CONNECTED && millis() < dev_deadline) {
+      delay(500);
+      Serial.print(".");
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+      String dev_ssid = WiFi.SSID();
+      dev_ssid.toCharArray(_portal_ssid, sizeof(_portal_ssid));
+      strncpy(_portal_pass, WIFI_PASSWORD, sizeof(_portal_pass) - 1);
+      // Always use the compiled broker (DEV-START.bat writes that line), so
+      // a stale NVS value from an earlier flash cannot redirect the frames.
+      strncpy(_portal_broker, MQTT_BROKER, sizeof(_portal_broker) - 1);
+      _portal_port = MQTT_PORT;
+      Serial.println();
+      Serial.print("[Dev] WiFi up: ");
+      Serial.print(_portal_ssid);
+      Serial.print(" -> broker ");
+      Serial.print(_portal_broker);
+      Serial.print(":");
+      Serial.println(_portal_port);
+      return true;
+    }
+    Serial.println();
+    Serial.println("[Dev] Baked WiFi failed - opening Rover-Setup portal.");
+    WiFi.disconnect();
+  }
+#endif
