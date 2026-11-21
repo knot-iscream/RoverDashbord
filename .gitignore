@@ -38,6 +38,9 @@ opencode.json
 # Dev-build WiFi credentials (packaged into the dev zip, never in git)
 /dev-overlay/
 
+# Wiring PDF generator: kept on this PC only, the PDF itself is tracked
+/tools/wiring_pdf.py
+
 # Editor / OS
 .vscode/
 .idea/
