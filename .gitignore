@@ -35,6 +35,9 @@ Rover-opener.log
 .opencode/
 opencode.json
 
+# Dev-build WiFi credentials (packaged into the dev zip, never in git)
+/dev-overlay/
+
 # Editor / OS
 .vscode/
 .idea/
@@ -59,9 +62,6 @@ web/splash.html
 # Release zips + temp archives (built per release, never commit)
 *.zip
 
-# KiCad generated files (the .kicad_* sources stay tracked)
+# Generated backup and lock files
 *-backups/
 *.lck
-
-# Editor backup history inside hardware sources
-PCB/Motors/.history/
