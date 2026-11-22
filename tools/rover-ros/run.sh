@@ -21,12 +21,14 @@ rosrun rplidar_ros rplidarNode \
   _frame_id:=laser \
   _angle_compensate:=true &
 
-# Laser SLAM: hector_mapping estimates map -> odom from /scan alone, so the
-# rover can move without wheel odometry. odom -> laser is identity for now.
+# Laser SLAM: hector_mapping estimates map -> odom from /scan_flat alone.
+# flat_scan only forwards scans taken while the bracket is level, so tilting
+# the lidar for the 3D cloud cannot corrupt the 2D pose estimate.
+python3 /root/rover-ros/scripts/flat_scan.py &
 rosrun tf2_ros static_transform_publisher 0 0 0 0 0 0 odom laser &
 
 rosrun hector_mapping hector_mapping \
-  _scan_topic:=/scan \
+  _scan_topic:=/scan_flat \
   _base_frame:=laser \
   _map_frame:=map \
   _odom_frame:=odom \
