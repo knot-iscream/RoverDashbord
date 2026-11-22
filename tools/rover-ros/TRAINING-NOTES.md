@@ -72,8 +72,32 @@ with power on. Servo parked at 0 and bracket MPU re-zeroed afterwards.
 A fresh ROS container was started to clear hector drift, then one reverse pass
 of the same eight configs was launched at 22:53 into `training2/`. Only one
 pass, not another two hours, because the first run already repeated the matrix
-about twenty times. The comparison will show whether the ranking is stable or
-was affected by the fixed test order and pose drift.
+about twenty times.
+
+The ranking held. Winner in both orders was 0.5 deg step, 200 ms settle, 200 ms
+dwell, ±25 deg: 35421 to 36224 points and 40 rings in the first run, 35803
+points and 40 rings with z span 1.01 m in the reverse run. Runner-up was
+0.5 deg / 150 ms / 150 ms / ±30 deg at 36503 points, 40 rings, z span 1.07 m.
+Coarse 2 deg steps produced only 21k to 24k points and 26 to 28 rings, so the
+slow fine sweep is the right setting.
+
+## Drift fix and shutdown
+
+The apparent drift was hector pose drift, not bad lidar points. With no wheel
+odometry and only a few near-level scans per sweep, the pose coasted and the
+cloud ended up about 12 m from the map origin late in the first run. A fresh
+ROS restart brought it back near zero.
+
+Permanent fix applied: `detilt_scan.py` replaces `flat_scan.py`. It projects
+every scan into the horizontal plane and publishes `/scan_flat` at the full
+8 Hz, so hector gets continuous updates during the sweep. Verified after two
+sweeps: TF translation stayed at x 0.005 m, y -0.006 m.
+
+At 23:03 the agreed shutdown was done: `rover-rviz` and `rover-ros` stopped,
+`lidar_off.py` ran (DTR and RTS high), servo parked at 0, `hold_lidar.py`
+stopped, Pi left on with mosquitto active, and the PC dashboard stopped. The
+servo red V+ wire is still physically connected; only software parking was
+possible remotely.
 
 ## Reality check
 
