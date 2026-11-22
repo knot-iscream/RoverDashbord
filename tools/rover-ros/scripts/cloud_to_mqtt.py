@@ -14,9 +14,9 @@ from sensor_msgs import point_cloud2
 from std_msgs.msg import Float32
 import paho.mqtt.client as mqtt
 
-MAX_RINGS = 20
-MAX_TOTAL_POINTS = 24000
-PUBLISH_EVERY_S = 1.0
+MAX_RINGS = 40
+MAX_TOTAL_POINTS = 40000
+PUBLISH_EVERY_S = 0.5
 
 
 def main():
