@@ -25,6 +25,7 @@ python3 /root/rover-ros/scripts/tilt_mqtt.py &
 python3 /root/rover-ros/scripts/scan_to_cloud.py &
 python3 /root/rover-ros/scripts/scan_to_mqtt.py &
 python3 /root/rover-ros/scripts/cloud_to_mqtt.py &
+python3 /root/rover-ros/scripts/cloud_to_ros.py &
 
 sleep 3
 
