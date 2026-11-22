@@ -68,7 +68,7 @@ class ScanToCloud:
     def on_scan(self, scan):
         try:
             trans = self.tf_buffer.lookup_transform(
-                "map", "laser", scan.header.stamp, rospy.Duration(0.2)
+                "map", "laser", rospy.Time(0), rospy.Duration(0.5)
             )
         except (tf2_ros.LookupException,
                 tf2_ros.ConnectivityException,
@@ -83,7 +83,7 @@ class ScanToCloud:
         pts = []
         a = scan.angle_min
         for r in scan.ranges:
-            if math.isfinite(r) and r >= 0.2:
+            if math.isfinite(r) and 0.2 <= r <= 6.0:
                 x = r * math.cos(a)
                 y = r * math.sin(a)
                 rx, ry, rz = rotate(q, (x, y * cp, y * sp))

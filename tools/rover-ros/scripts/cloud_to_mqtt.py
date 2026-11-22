@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Accumulate /lidar_points into one 3D cloud per hand tilt, then publish it.
+"""Accumulate /lidar_points into rings keyed by tilt and SLAM pose.
 
-Each tilt value gets one ring. Changing the tilt keeps the old ring, so a sweep
-of -40..+40 builds a real 3D room cloud instead of dropping every ring after
-the latest scan. The point cloud is cleared over MQTT when the UI asks.
+A ring is one tilt slice from one rover position. Keying by pose as well as
+tilt means moving the rig adds new viewpoints instead of overwriting the old
+ones. The point cloud is cleared over MQTT when the UI asks.
 """
 import json
+import math
 import time
 
 import rospy
+import tf2_ros
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs import point_cloud2
 from std_msgs.msg import Float32
@@ -27,6 +29,8 @@ def main():
     rings = {}
     current_tilt = 0.0
     last_publish = 0.0
+    tf_buffer = tf2_ros.Buffer()
+    tf_listener = tf2_ros.TransformListener(tf_buffer)
 
     def on_tilt(msg):
         nonlocal current_tilt
@@ -48,7 +52,21 @@ def main():
         ]
         if not pts:
             return
-        key = round(current_tilt * 2.0) / 2.0
+        pose = (0.0, 0.0, 0.0)
+        try:
+            trans = tf_buffer.lookup_transform(
+                "map", "laser", rospy.Time(0), rospy.Duration(0.5)
+            )
+            pos = trans.transform.translation
+            rot = trans.transform.rotation
+            yaw = 2.0 * math.atan2(rot.z, rot.w)
+            pose = (round(pos.x * 2.0) / 2.0, round(pos.y * 2.0) / 2.0,
+                    round(math.degrees(yaw) / 10.0) * 10.0)
+        except (tf2_ros.LookupException,
+                tf2_ros.ConnectivityException,
+                tf2_ros.ExtrapolationException):
+            pass
+        key = (round(current_tilt * 2.0) / 2.0, pose[0], pose[1], pose[2])
         rings[key] = pts
         if len(rings) > MAX_RINGS:
             # Keep the centre and both extremes instead of throwing away the
