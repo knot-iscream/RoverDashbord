@@ -1,6 +1,7 @@
 #!/bin/bash
 # Start the ROS lidar -> point cloud -> OctoMap pipeline inside the container.
 set -e
+export DISABLE_ROS1_EOL_WARNINGS=1
 source /opt/ros/noetic/setup.bash
 export ROS_MASTER_URI=http://localhost:11311
 
