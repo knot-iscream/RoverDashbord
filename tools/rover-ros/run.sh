@@ -22,9 +22,10 @@ rosrun rplidar_ros rplidarNode \
   _angle_compensate:=true &
 
 # Laser SLAM: hector_mapping estimates map -> odom from /scan_flat alone.
-# flat_scan only forwards scans taken while the bracket is level, so tilting
-# the lidar for the 3D cloud cannot corrupt the 2D pose estimate.
-python3 /root/rover-ros/scripts/flat_scan.py &
+# detilt_scan projects every tilted scan into the horizontal plane at the full
+# scan rate, so hector gets continuous updates instead of coasting between the
+# brief level moments of a sweep.
+python3 /root/rover-ros/scripts/detilt_scan.py &
 rosrun tf2_ros static_transform_publisher 0 0 0 0 0 0 odom laser &
 
 rosrun hector_mapping hector_mapping \
