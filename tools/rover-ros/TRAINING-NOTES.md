@@ -57,6 +57,24 @@ metrics to `training/metrics.csv`. First valid result:
 `36224 points, 40 rings, xspan 3.18 m, yspan 3.68 m, zspan 0.93 m,
 mean range 1.07 m`.
 
+## Impact fix after the first two-hour run
+
+The user reported that every sweep start slammed the servo from centre to the
+minimum angle and hit the mechanical stop. Cause: `startSweep()` called
+`gotoDeg(sweep_min)` directly. Fixed by ramping to the first angle with
+`rampTo()` and by moving the ramp handling ahead of the sweep state machine in
+`update()`. Verified with servo power off: the published angle moved through
+-6, -22, then -25 instead of jumping. The user then confirmed a smooth start
+with power on. Servo parked at 0 and bracket MPU re-zeroed afterwards.
+
+## Reverse-order cross-check
+
+A fresh ROS container was started to clear hector drift, then one reverse pass
+of the same eight configs was launched at 22:53 into `training2/`. Only one
+pass, not another two hours, because the first run already repeated the matrix
+about twenty times. The comparison will show whether the ranking is stable or
+was affected by the fixed test order and pose drift.
+
 ## Reality check
 
 This setup can show walls, floor, ceiling and large objects. It will not
