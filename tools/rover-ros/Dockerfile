@@ -7,7 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-noetic-laser-geometry \
     ros-noetic-tf2-ros \
     ros-noetic-topic-tools \
+    ros-noetic-hector-slam \
     python3-pip \
+    python3-serial \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip3 install paho-mqtt
