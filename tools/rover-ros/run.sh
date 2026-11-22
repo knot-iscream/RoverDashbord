@@ -21,6 +21,20 @@ rosrun rplidar_ros rplidarNode \
   _frame_id:=laser \
   _angle_compensate:=true &
 
+# Laser SLAM: hector_mapping estimates map -> odom from /scan alone, so the
+# rover can move without wheel odometry. odom -> laser is identity for now.
+rosrun tf2_ros static_transform_publisher 0 0 0 0 0 0 odom laser &
+
+rosrun hector_mapping hector_mapping \
+  _scan_topic:=/scan \
+  _base_frame:=laser \
+  _map_frame:=map \
+  _odom_frame:=odom \
+  _pub_map_odom_transform:=true \
+  _pub_odometry:=true \
+  _map_resolution:=0.05 \
+  _map_size:=1000 &
+
 python3 /root/rover-ros/scripts/tilt_mqtt.py &
 python3 /root/rover-ros/scripts/scan_to_cloud.py &
 python3 /root/rover-ros/scripts/scan_to_mqtt.py &
