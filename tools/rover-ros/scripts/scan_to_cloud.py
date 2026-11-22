@@ -51,7 +51,7 @@ class ScanToCloud:
         pts = []
         a = scan.angle_min
         for r in scan.ranges:
-            if math.isfinite(r) and r > 0.0:
+            if math.isfinite(r) and r >= 0.2:
                 x = r * math.cos(a)
                 y = r * math.sin(a)
                 pts.append((x, y * cp, y * sp))

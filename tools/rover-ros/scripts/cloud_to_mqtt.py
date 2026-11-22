@@ -41,7 +41,7 @@ def main():
     client.subscribe("rover/lidar/cloud/clear")
 
     def on_cloud(msg):
-        nonlocal last_publish
+        nonlocal last_publish, rings
         pts = [
             [round(p[0], 3), round(p[1], 3), round(p[2], 3)]
             for p in point_cloud2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True)
@@ -50,9 +50,15 @@ def main():
             return
         key = round(current_tilt * 2.0) / 2.0
         rings[key] = pts
-        while len(rings) > MAX_RINGS:
-            drop = min(rings, key=lambda k: abs(k))
-            del rings[drop]
+        if len(rings) > MAX_RINGS:
+            # Keep the centre and both extremes instead of throwing away the
+            # rings near zero tilt, which left a hollow fan.
+            keys = sorted(rings)
+            keep = {
+                int(round(i * (len(keys) - 1) / (MAX_RINGS - 1)))
+                for i in range(MAX_RINGS)
+            }
+            rings = {k: rings[k] for i, k in enumerate(keys) if i in keep}
         now = time.monotonic()
         if now - last_publish < PUBLISH_EVERY_S:
             return
