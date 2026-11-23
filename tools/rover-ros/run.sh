@@ -41,6 +41,22 @@ rosrun hector_mapping hector_mapping \
 python3 /root/rover-ros/scripts/tilt_mqtt.py &
 python3 /root/rover-ros/scripts/scan_to_cloud.py &
 python3 /root/rover-ros/scripts/scan_to_mqtt.py &
+
+# PCL filters as nodelets: voxel grid, statistical and radius outlier removal.
+rosrun nodelet nodelet manager __name:=pcl_manager &
+sleep 3
+rosrun nodelet nodelet load pcl/VoxelGrid pcl_manager __name:=voxel_grid \
+  '~input:=/lidar_points' '~output:=/lidar_voxel' _leaf_size:=0.03 &
+sleep 2
+rosrun nodelet nodelet load pcl/StatisticalOutlierRemoval pcl_manager \
+  __name:=stat_outlier '~input:=/lidar_voxel' '~output:=/lidar_stat' \
+  _mean_k:=8 _stddev:=1.0 &
+sleep 2
+rosrun nodelet nodelet load pcl/RadiusOutlierRemoval pcl_manager \
+  __name:=radius_outlier '~input:=/lidar_stat' '~output:=/lidar_filtered' \
+  _radius:=0.06 _min_neighbors:=2 &
+sleep 3
+
 python3 /root/rover-ros/scripts/cloud_to_mqtt.py &
 python3 /root/rover-ros/scripts/cloud_to_ros.py &
 
@@ -51,6 +67,6 @@ rosrun octomap_server octomap_server_node \
   _resolution:=0.05 \
   _filter_ground:=false \
   _sensor_model/max_range:=10.0 \
-  cloud_in:=/lidar_points &
+  cloud_in:=/lidar_filtered &
 
 wait

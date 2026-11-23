@@ -16,9 +16,32 @@ from sensor_msgs import point_cloud2
 from std_msgs.msg import Float32
 import paho.mqtt.client as mqtt
 
-MAX_RINGS = 40
-MAX_TOTAL_POINTS = 40000
-PUBLISH_EVERY_S = 0.5
+MAX_RINGS = 120
+MAX_TOTAL_POINTS = 100000
+PUBLISH_EVERY_S = 1.0
+ANGLE_BINS = 1440  # 0.25 degree bins for within-ring merging only
+
+
+def merge_ring(old, new):
+    """Merge two samples of the same tilt by 0.25 deg angle bins.
+
+    This only fills tiny gaps inside a ring by averaging points that fall in
+    the same angular bin. It never bridges across large empty sectors.
+    """
+    bins = {}
+    for p in old + new:
+        a = math.atan2(p[1], p[0])
+        b = int((a + math.pi) / (2.0 * math.pi) * ANGLE_BINS) % ANGLE_BINS
+        bins.setdefault(b, []).append(p)
+    out = []
+    for ps in bins.values():
+        n = len(ps)
+        out.append([
+            sum(p[0] for p in ps) / n,
+            sum(p[1] for p in ps) / n,
+            sum(p[2] for p in ps) / n,
+        ])
+    return out
 
 
 def main():
@@ -67,7 +90,7 @@ def main():
                 tf2_ros.ExtrapolationException):
             pass
         key = (round(current_tilt * 2.0) / 2.0, pose[0], pose[1], pose[2])
-        rings[key] = pts
+        rings[key] = merge_ring(rings.get(key, []), pts)
         if len(rings) > MAX_RINGS:
             # Keep the centre and both extremes instead of throwing away the
             # rings near zero tilt, which left a hollow fan.
@@ -93,7 +116,7 @@ def main():
         )
 
     rospy.Subscriber("/tilt", Float32, on_tilt, queue_size=1)
-    rospy.Subscriber("/lidar_points", PointCloud2, on_cloud, queue_size=1)
+    rospy.Subscriber("/lidar_filtered", PointCloud2, on_cloud, queue_size=1)
     rospy.spin()
 
 

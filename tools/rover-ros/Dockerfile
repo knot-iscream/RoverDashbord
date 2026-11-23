@@ -8,6 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-noetic-tf2-ros \
     ros-noetic-topic-tools \
     ros-noetic-hector-slam \
+    ros-noetic-pcl-ros \
+    ros-noetic-pcl-conversions \
+    ros-noetic-nodelet \
     python3-pip \
     python3-serial \
     && rm -rf /var/lib/apt/lists/*
