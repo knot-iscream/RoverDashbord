@@ -131,6 +131,20 @@ The new surface gives larger z spans than the 22 Nov run, roughly 2.5 m versus
 1.0 m, and mean range around 1.3 m versus 0.9 m. That is a room/layout change,
 not a regression in the sweep logic.
 
+## Final setting put into use
+
+The winning profile was baked into the gitignored temp firmware at 23:49:
+`SERVO_SWEEP_MIN_DEG=-25`, `SERVO_SWEEP_MAX_DEG=25`, `SERVO_STEP_DEG=0.5`,
+`SERVO_SETTLE_MS=200`, `SERVO_DWELL_MS=200`. The 64-step cap was raised to 128,
+because 50 degrees at 0.5 degree steps needs 101 steps. Verified by publishing
+`{"action":"sweep"}` with no parameters: the servo reported 101 steps and moved
+in 0.5 degree increments.
+
+A continuous non-clearing loop is running from `/home/iscream-pi/mapping_loop.sh`.
+It publishes a bare sweep every 46 seconds, never clears the cloud, and saves
+`/home/iscream-pi/rover-ros/maps/room-<timestamp>.bt` every five sweeps using
+`octomap_saver`. OctoMap had 70156 nodes at 0.05 m resolution when checked.
+
 ## Reality check
 
 This setup can show walls, floor, ceiling and large objects. It will not
