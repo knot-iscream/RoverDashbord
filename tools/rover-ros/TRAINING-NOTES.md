@@ -226,6 +226,27 @@ was several MB per frame. `lidar_cloud_clear` clears both caches. Frontend
 prefers the display cloud when it has points and labels it `SURFACE - N pts`.
 Verified 4113 to 8157 surface points with the app healthy.
 
+## Furniture readability pass, 24 Nov
+
+Four steps completed from the live handoff:
+
+1. `octomap_display.py` cap raised from 12000 to 30000. Before tuning the app
+   received 7837 points against 7872 OctoMap voxels, so no voxel was dropped.
+2. `paint_lidar_3d` now builds a spatial-neighbour wireframe for the surface
+   feed on the 5 cm voxel grid, connecting +x/+y/+z neighbours with a 30000
+   edge cap. Manual ring wireframe is unchanged.
+3. OctoMap tuned to resolution 0.04, hit 0.85, miss 0.35, `filter_speckles`
+   false. `mapping_loop.sh` sweep widened to ±30 deg at 0.5 deg steps. After
+   tuning: 13356 voxels, 1972 points within 2 m at z 0.15-0.9, app display
+   13372 points. Baseline before tuning was 7872 voxels and 1235 furniture
+   points.
+4. Points are coloured by height: warm orange in the 0.2-0.9 m furniture band,
+   cool blue for floor and ceiling with reduced alpha. A headless screenshot of
+   the LiDAR tab confirmed visible edges and distinct furniture band.
+
+`filter_speckles` stays off; it removes small objects. Further tuning past
+resolution 0.04 or sweep ±30 needs a measured before/after run.
+
 ## Reality check
 
 This setup can show walls, floor, ceiling and large objects. It will not
