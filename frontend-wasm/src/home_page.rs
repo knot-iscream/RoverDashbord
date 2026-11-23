@@ -7,6 +7,8 @@
 //! gracefully). This settles the parked `simulateData()` question: live
 //! wins, simulation is the no-device fallback, never shown as real data.
 
+use std::collections::HashSet;
+
 use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -475,7 +477,8 @@ fn paint_lidar_3d(
     }
     // Project every point, world coordinates: x from the A1 angle, y from the
     // tilt plane, z as height.
-    let mut points: Vec<(f64, f64, f64, f64)> = Vec::new();
+    // (depth, screen x, screen y, quality, height in metres)
+    let mut points: Vec<(f64, f64, f64, f64, f64)> = Vec::new();
     for (pitch, pts) in &rings {
         let pr = pitch.to_radians();
         let (cp, sp) = (pr.cos(), pr.sin());
@@ -486,7 +489,7 @@ fn paint_lidar_3d(
             let a = p[0].to_radians();
             let (x, y_plane) = (p[1] * a.cos(), p[1] * a.sin());
             let (sx, sy, depth) = proj(x, y_plane * cp, y_plane * sp);
-            points.push((depth, sx, sy, p[2]));
+            points.push((depth, sx, sy, p[2], 0.0));
         }
     }
     // ROS cloud is already in 3D metres; convert to mm for the shared scale.
@@ -507,7 +510,7 @@ fn paint_lidar_3d(
                 continue;
             };
             let (sx, sy, depth) = proj(x * 1000.0, y * 1000.0, z * 1000.0);
-            points.push((depth, sx, sy, 15.0));
+            points.push((depth, sx, sy, 15.0, z));
         }
     }
     // Wireframe first, behind the points. Adjacent samples in a ring are
@@ -543,14 +546,95 @@ fn paint_lidar_3d(
                 prev = Some(p);
             }
         }
+        // Surface feed has no rings. Connect occupied OctoMap voxels that are
+        // spatial neighbours on the 5 cm grid, so furniture gets real edges.
+        if has_display {
+            const GRID: f64 = 0.05;
+            let mut occupied = HashSet::new();
+            if let Some(ps) = cloud_pts {
+                for p in ps {
+                    let (Some(x), Some(y), Some(z)) = (
+                        p.get(0).and_then(|v| v.as_f64()),
+                        p.get(1).and_then(|v| v.as_f64()),
+                        p.get(2).and_then(|v| v.as_f64()),
+                    ) else {
+                        continue;
+                    };
+                    occupied.insert((
+                        (x / GRID).round() as i64,
+                        (y / GRID).round() as i64,
+                        (z / GRID).round() as i64,
+                    ));
+                }
+            }
+            let dirs = [(1i64, 0i64, 0i64), (0, 1, 0), (0, 0, 1)];
+            let mut drawn = 0usize;
+            g.set_stroke_style_str("rgba(249,115,22,0.22)");
+            if let Some(ps) = cloud_pts {
+                for p in ps {
+                    let (Some(x), Some(y), Some(z)) = (
+                        p.get(0).and_then(|v| v.as_f64()),
+                        p.get(1).and_then(|v| v.as_f64()),
+                        p.get(2).and_then(|v| v.as_f64()),
+                    ) else {
+                        continue;
+                    };
+                    let key = (
+                        (x / GRID).round() as i64,
+                        (y / GRID).round() as i64,
+                        (z / GRID).round() as i64,
+                    );
+                    for d in dirs {
+                        let nk = (key.0 + d.0, key.1 + d.1, key.2 + d.2);
+                        if !occupied.contains(&nk) {
+                            continue;
+                        }
+                        let a = proj(x * 1000.0, y * 1000.0, z * 1000.0);
+                        let b = proj(
+                            (nk.0 as f64 * GRID) * 1000.0,
+                            (nk.1 as f64 * GRID) * 1000.0,
+                            (nk.2 as f64 * GRID) * 1000.0,
+                        );
+                        g.begin_path();
+                        g.move_to(a.0, a.1);
+                        g.line_to(b.0, b.1);
+                        g.stroke();
+                        drawn += 1;
+                        if drawn > 30000 {
+                            break;
+                        }
+                    }
+                    if drawn > 30000 {
+                        break;
+                    }
+                }
+            }
+        }
     }
     // Painter's algorithm: far points first.
     points.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-    for (depth, sx, sy, q) in points {
+    for (depth, sx, sy, q, z) in points {
         let near = (-depth / dmax).clamp(0.0, 1.0);
         let light = 42.0 + near * 22.0;
-        let alpha = (0.45 + (q / 15.0).clamp(0.0, 1.0) * 0.55).min(1.0);
-        g.set_fill_style_str(&format!("hsla(24,95%,{light:.0}%,{alpha:.2})"));
+        let mut alpha = (0.45 + (q / 15.0).clamp(0.0, 1.0) * 0.55).min(1.0);
+        let (hue, sat, light) = if has_display {
+            if (0.2..=0.9).contains(&z) {
+                // Furniture height: bright warm points against floor and walls.
+                alpha = alpha.min(1.0);
+                (28.0, 95.0, light + 10.0)
+            } else if z > 1.0 {
+                // Ceiling returns fade so they do not dominate the silhouette.
+                alpha *= 0.35;
+                (205.0, 45.0, light - 6.0)
+            } else {
+                // Floor and low voxels stay visible but cool and quiet.
+                alpha *= 0.55;
+                (205.0, 55.0, light - 4.0)
+            }
+        } else {
+            (24.0, 95.0, light)
+        };
+        g.set_fill_style_str(&format!("hsla({hue:.0},{sat:.0}%,{light:.0}%,{alpha:.2})"));
         g.begin_path();
         g.arc(sx, sy, 2.6, 0.0, std::f64::consts::PI * 2.0).ok();
         g.fill();

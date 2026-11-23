@@ -12,7 +12,7 @@ from sensor_msgs.msg import PointCloud2
 from sensor_msgs import point_cloud2
 import paho.mqtt.client as mqtt
 
-MAX_POINTS = 12000
+MAX_POINTS = 30000
 PUBLISH_EVERY_S = 1.0
 
 
