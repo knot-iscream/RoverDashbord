@@ -99,6 +99,38 @@ stopped, Pi left on with mosquitto active, and the PC dashboard stopped. The
 servo red V+ wire is still physically connected; only software parking was
 possible remotely.
 
+## 23 Nov training on the new surface
+
+Auto-flat on the softer surface found a 1 deg offset. Commanded 5 published as
+ROS `/tilt` 4, confirming the bridge subtraction. `flat_offset.txt` holds 1 and
+`tilt_mqtt.py` now reads it at startup.
+
+The 45 minute run was paused once and resumed from the missing pass 4 config
+with a fresh timer. It finished at 23:31 with 88 runs across the eight configs
+in `training3/`.
+
+Result summary:
+
+| config | runs | avg count | rings | zspan |
+|---|---|---|---|---|
+| 0.5 / 200 / 200, ±25 | 11 | 40000 | 40.0 | 2.48 |
+| 1 / 500 / 500, ±25 | 11 | 40000 | 40.0 | 2.52 |
+| 1 / 200 / 200, ±35 | 11 | 40000 | 40.0 | 3.30 |
+| 0.5 / 150 / 150, ±30 | 11 | 39878 | 39.0 | 2.92 |
+| 1 / 300 / 300, ±25 | 11 | 39407 | 39.2 | 2.42 |
+| 2 / 200 / 200, ±30 | 11 | 29718 | 27.5 | 2.91 |
+| 0.5 / 100 / 100, ±25 | 11 | 28712 | 26.7 | 2.47 |
+| 2 / 500 / 400, ±25 | 11 | 27336 | 25.4 | 2.52 |
+
+Several configs hit the 40000 point cap, so count alone cannot rank them.
+Among the capped configs, 0.5 / 200 / 200 keeps 40 rings with the smallest z
+span, 2.48, so it remains the best setting. The coarse 2 deg settings lose
+about a third of the points and around 13 rings.
+
+The new surface gives larger z spans than the 22 Nov run, roughly 2.5 m versus
+1.0 m, and mean range around 1.3 m versus 0.9 m. That is a room/layout change,
+not a regression in the sweep logic.
+
 ## Reality check
 
 This setup can show walls, floor, ceiling and large objects. It will not
