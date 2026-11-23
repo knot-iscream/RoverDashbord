@@ -196,6 +196,24 @@ App API showed 95352 points and 100 rings with mqtt connected.
 Geometric limit remains: at knee height with ±25 deg tilt, the floor patch is
 a ring around the rover, not directly underneath it.
 
+## App toolbar and payload fix, 24 Nov
+
+Manual LiDAR controls were removed from the card and overlay: Live, Tilt -5/+5,
+pitch readout, Capture ring and Clear rings. The servo performs the sweep, so
+only 2D, 3D, Wire, Clear cloud, Reset view, Expand and Close remain. The hint
+now says the 3D cloud is from the servo sweep. Canvas painting samples at most
+20000 points per frame while the label keeps the true count and ring count.
+
+Clear cloud was resetting ROS and the local signal only. It now also clears the
+backend `lidar_cloud` cache and broadcasts an empty `lidar_cloud_update`, so a
+page reconnect cannot replay the old cloud. A regression test covers this.
+
+The app failure reported after the larger cloud budget was not Clear itself:
+the cloud reached about 5.5 MB and exceeded the 4 MiB MQTT packet limit. Lowered
+the ROS point cap to 60000 and raised the backend limit to 16 MiB. Verified
+`/api/lidar/cloud` returned 1.5 MB with 55560 points and 74 rings, Clear
+returned null, and the loop refilled to 10506 points in 13 rings.
+
 ## Reality check
 
 This setup can show walls, floor, ceiling and large objects. It will not
