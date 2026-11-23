@@ -215,6 +215,8 @@ struct HomeCtx {
     lidar_stale: RwSignal<bool>,
     /// ROS-built 3D cloud from `rover/lidar/cloud`, points in metres.
     lidar_cloud: RwSignal<serde_json::Value>,
+    /// Lighter OctoMap surface feed from `rover/lidar/display_cloud`.
+    lidar_display_cloud: RwSignal<serde_json::Value>,
     cloud_seen: RwSignal<f64>,
     cloud_stale: RwSignal<bool>,
     /// Manually stacked rings for the 3D view: (pitch_deg, points).
@@ -402,7 +404,19 @@ fn paint_lidar_3d(
     rmax: f64,
 ) {
     let rings = ctx.lidar_rings.get();
-    let cloud = ctx.lidar_cloud.get();
+    let raw_cloud = ctx.lidar_cloud.get();
+    let display_cloud = ctx.lidar_display_cloud.get();
+    let has_display = display_cloud
+        .get("points")
+        .and_then(|p| p.as_array())
+        .is_some_and(|p| !p.is_empty());
+    // Prefer the OctoMap surface feed. Raw points remain available for the
+    // API and RViz, but the app paints the much lighter surface cloud.
+    let cloud = if has_display {
+        display_cloud
+    } else {
+        raw_cloud
+    };
     let cloud_pts = cloud.get("points").and_then(|p| p.as_array());
     let cloud_rings = cloud.get("rings").and_then(|v| v.as_u64()).unwrap_or(0);
     let ring_count: usize = rings.iter().map(|(_, p)| p.len()).sum();
@@ -548,6 +562,8 @@ fn paint_lidar_3d(
                 "SAVED SCAN - {} pts / {} rings - start rover-ros for live",
                 cloud_count, cloud_rings
             )
+        } else if has_display {
+            format!("SURFACE - {} pts - drag orbit / wheel zoom", cloud_count)
         } else {
             format!(
                 "LIVE - {} pts / {} rings - drag orbit / wheel zoom",
@@ -663,6 +679,12 @@ fn connect_home_ws(ctx: HomeCtx) {
                     ctx.cloud_stale.set(false);
                     paint_lidar(&ctx);
                 }
+                "lidar_display_update" => {
+                    ctx.lidar_display_cloud.set(v.clone());
+                    ctx.cloud_seen.set(now_ms());
+                    ctx.cloud_stale.set(false);
+                    paint_lidar(&ctx);
+                }
                 _ => {}
             }
         }
@@ -759,6 +781,7 @@ pub fn HomePage() -> impl IntoView {
     let lidar_seen = RwSignal::new(0.0f64);
     let lidar_stale = RwSignal::new(true);
     let lidar_cloud = RwSignal::new(serde_json::Value::Null);
+    let lidar_display_cloud = RwSignal::new(serde_json::Value::Null);
     let cloud_seen = RwSignal::new(0.0f64);
     let cloud_stale = RwSignal::new(true);
     let lidar_rings = RwSignal::new(Vec::new());
@@ -794,6 +817,7 @@ pub fn HomePage() -> impl IntoView {
         lidar_seen,
         lidar_stale,
         lidar_cloud,
+        lidar_display_cloud,
         cloud_seen,
         cloud_stale,
         lidar_rings,
@@ -938,11 +962,13 @@ pub fn HomePage() -> impl IntoView {
         paint_lidar(&ctx);
     };
     let on_lidar_clear_scan = move |_| {
-        ctx.lidar_cloud.set(serde_json::json!({
+        let empty = serde_json::json!({
             "count": 0,
             "rings": 0,
             "points": []
-        }));
+        });
+        ctx.lidar_cloud.set(empty.clone());
+        ctx.lidar_display_cloud.set(empty);
         ctx.cloud_seen.set(0.0);
         ctx.cloud_stale.set(false);
         wasm_bindgen_futures::spawn_local(async move {

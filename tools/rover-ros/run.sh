@@ -53,6 +53,7 @@ sleep 3
 
 python3 /root/rover-ros/scripts/cloud_to_mqtt.py &
 python3 /root/rover-ros/scripts/cloud_to_ros.py &
+python3 /root/rover-ros/scripts/octomap_display.py &
 
 sleep 3
 

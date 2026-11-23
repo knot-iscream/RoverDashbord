@@ -95,6 +95,11 @@ pub async fn lidar_cloud(State(s): State<AppState>) -> Json<Value> {
     Json(json!({"cloud": s.lidar_cloud.read().await.clone()}))
 }
 
+/// Lighter OctoMap surface cloud used by the dashboard instead of raw points.
+pub async fn lidar_display_cloud(State(s): State<AppState>) -> Json<Value> {
+    Json(json!({"cloud": s.lidar_display_cloud.read().await.clone()}))
+}
+
 /// Manual tilt for the ROS pipeline. The bracket must be moved by hand to
 /// match this angle until the servo/IMU is wired. The ROS node subscribes to
 /// the same topic, so the point cloud gets a real pitch instead of z = 0.
@@ -125,10 +130,20 @@ pub async fn lidar_cloud_clear(State(s): State<AppState>) -> Json<Value> {
     // connected page to drop its copy. Without the local cache reset, a page
     // reconnect replays the old cloud straight back onto the cleared canvas.
     *s.lidar_cloud.write().await = Value::Null;
+    *s.lidar_display_cloud.write().await = Value::Null;
     broadcast(
         &s.ctx(),
         json!({
             "type": "lidar_cloud_update",
+            "count": 0,
+            "rings": 0,
+            "points": []
+        }),
+    );
+    broadcast(
+        &s.ctx(),
+        json!({
+            "type": "lidar_display_update",
             "count": 0,
             "rings": 0,
             "points": []

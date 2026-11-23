@@ -58,6 +58,8 @@ pub struct AppState {
     /// Latest ROS-built 3D cloud from `rover/lidar/cloud`, in metres, as
     /// `[[x, y, z], ...]`. Null until the ROS container publishes one.
     pub lidar_cloud: Arc<tokio::sync::RwLock<Value>>,
+    /// OctoMap voxel centres published as `rover/lidar/display_cloud`.
+    pub lidar_display_cloud: Arc<tokio::sync::RwLock<Value>>,
     /// Derived O2 for the ENV node (no galvanic cell fitted). Stateful
     /// because of the attack/release filter; brief std::sync locks only.
     pub o2: Arc<std::sync::Mutex<o2_estimate::O2Estimator>>,
@@ -87,6 +89,7 @@ impl AppState {
             servo: self.servo.clone(),
             lidar: self.lidar.clone(),
             lidar_cloud: self.lidar_cloud.clone(),
+            lidar_display_cloud: self.lidar_display_cloud.clone(),
             o2: self.o2.clone(),
             sensors: self.sensors.clone(),
             device: self.device.clone(),
@@ -163,6 +166,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/servo", get(routes::servo))
         .route("/api/lidar", get(routes::lidar))
         .route("/api/lidar/cloud", get(routes::lidar_cloud))
+        .route("/api/lidar/display_cloud", get(routes::lidar_display_cloud))
         .route("/api/calibration", get(routes::calibration))
         .route("/api/calibration/status", get(routes::calibration_status))
         .route("/api/calibration/export", get(routes::calibration_export))
@@ -271,6 +275,7 @@ pub async fn build_state() -> AppState {
     let servo = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let lidar = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let lidar_cloud = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let lidar_display_cloud = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let o2 = Arc::new(std::sync::Mutex::new(o2_estimate::O2Estimator::new()));
     let bench = bench::new_bench();
     let sensors = Arc::new(std::sync::Mutex::new(SensorLog::default()));
@@ -285,6 +290,7 @@ pub async fn build_state() -> AppState {
         servo: servo.clone(),
         lidar: lidar.clone(),
         lidar_cloud: lidar_cloud.clone(),
+        lidar_display_cloud: lidar_display_cloud.clone(),
         o2: o2.clone(),
         sensors: sensors.clone(),
         device: device.clone(),
@@ -303,6 +309,7 @@ pub async fn build_state() -> AppState {
         servo,
         lidar,
         lidar_cloud,
+        lidar_display_cloud,
         o2,
         bench,
         sensors,

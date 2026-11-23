@@ -214,6 +214,18 @@ the ROS point cap to 60000 and raised the backend limit to 16 MiB. Verified
 `/api/lidar/cloud` returned 1.5 MB with 55560 points and 74 rings, Clear
 returned null, and the loop refilled to 10506 points in 13 rings.
 
+## OctoMap display feed, 24 Nov
+
+The app now paints the OctoMap surface cloud instead of the raw A1 points.
+`octomap_display.py` subscribes to `/octomap_point_cloud_centers` and publishes
+`rover/lidar/display_cloud` once per second, capped at 12000 points. Backend
+caches it as `lidar_display_cloud`, exposes `/api/lidar/display_cloud`, and
+replays it as `lidar_display_update` on WS. The raw `rover/lidar/cloud` stays
+API-only for RViz and recording; it is no longer fanned out over WS because it
+was several MB per frame. `lidar_cloud_clear` clears both caches. Frontend
+prefers the display cloud when it has points and labels it `SURFACE - N pts`.
+Verified 4113 to 8157 surface points with the app healthy.
+
 ## Reality check
 
 This setup can show walls, floor, ceiling and large objects. It will not

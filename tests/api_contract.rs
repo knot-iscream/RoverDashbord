@@ -526,6 +526,37 @@ async fn lidar_cloud_route_is_public_and_null_until_published() {
 }
 
 #[tokio::test]
+async fn lidar_display_cloud_route_and_clear() {
+    let (state, dir) = common::test_state("api-display-cloud").await;
+    let _g = PathBufGuard(dir);
+    let r = digital_twin_dashboard::build_router(state.clone());
+    let (s, v, _) = req(r.clone(), "GET", "/api/lidar/display_cloud", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v, json!({"cloud": null}));
+    digital_twin_dashboard::mqtt::on_mqtt_message(
+        &state.ctx(),
+        "rover/lidar/display_cloud",
+        json!({"count": 2, "points": [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]}),
+    )
+    .await;
+    let (s, v, _) = req(r.clone(), "GET", "/api/lidar/display_cloud", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["cloud"]["count"], 2);
+    let (s, _, _) = req(
+        r.clone(),
+        "POST",
+        "/api/lidar/cloud/clear",
+        Some(TEST_TOKEN),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, v, _) = req(r, "GET", "/api/lidar/display_cloud", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v, json!({"cloud": null}));
+}
+
+#[tokio::test]
 async fn lidar_tilt_and_clear_require_the_token_and_report_offline() {
     let (state, dir) = common::test_state("api-lidar-clear").await;
     let _g = PathBufGuard(dir);

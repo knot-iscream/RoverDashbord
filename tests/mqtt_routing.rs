@@ -421,7 +421,7 @@ async fn lidar_scan_caches_and_relays_without_becoming_motor_data() {
 }
 
 #[tokio::test]
-async fn lidar_cloud_caches_and_relays_as_its_own_type() {
+async fn lidar_cloud_caches_without_ws_fanout_and_display_relays() {
     let mut f = common::fixture("mqtt-lidar-cloud");
     mqtt::on_mqtt_message(
         &f.ctx,
@@ -431,7 +431,20 @@ async fn lidar_cloud_caches_and_relays_as_its_own_type() {
     .await;
     assert_eq!(f.lidar_cloud.read().await["points"][0][2], 0.3);
     let d = common::drain(&mut f.rx);
-    assert!(d.iter().any(|m| m["type"] == "lidar_cloud_update"));
+    assert!(
+        !d.iter().any(|m| m["type"] == "lidar_cloud_update"),
+        "raw cloud is API-only"
+    );
+
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/lidar/display_cloud",
+        json!({"count": 1, "points": [[0.4, 0.5, 0.6]]}),
+    )
+    .await;
+    assert_eq!(f.lidar_display_cloud.read().await["points"][0][2], 0.6);
+    let d = common::drain(&mut f.rx);
+    assert!(d.iter().any(|m| m["type"] == "lidar_display_update"));
     assert!(f.data.read().await.latest.is_empty());
     std::fs::remove_dir_all(&f.dir).ok();
 }

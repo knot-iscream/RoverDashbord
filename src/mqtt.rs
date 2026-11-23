@@ -22,7 +22,7 @@ pub const DEVICE_OFFLINE_TIMEOUT_S: i64 = 8;
 /// echoes are dropped by the `*/command` guard below, same as motor commands.
 /// `rover/lidar/servo` is the swing arm state: commanded angle and sweep
 /// flags, no measured angle because no encoder is fitted.
-const SUB_TOPICS: [&str; 8] = [
+const SUB_TOPICS: [&str; 9] = [
     "rover/motor/#",
     "rover/mid/#",
     "rover/calibration/status",
@@ -33,6 +33,8 @@ const SUB_TOPICS: [&str; 8] = [
     "rover/lidar/scan",
     // ROS-built 3D cloud: [[x, y, z], ...] in metres.
     "rover/lidar/cloud",
+    // OctoMap voxel centres: a lighter surface feed for the dashboard.
+    "rover/lidar/display_cloud",
 ];
 
 /// The shared pieces the ingest loop needs. `AppState` (main.rs) builds one
@@ -49,6 +51,9 @@ pub struct Ctx {
     pub servo: Arc<tokio::sync::RwLock<Value>>,
     pub lidar: Arc<tokio::sync::RwLock<Value>>,
     pub lidar_cloud: Arc<tokio::sync::RwLock<Value>>,
+    /// OctoMap voxel centres for the app display feed. Same frame shape as
+    /// `lidar_cloud`, but much smaller; null until the bridge publishes one.
+    pub lidar_display_cloud: Arc<tokio::sync::RwLock<Value>>,
     /// Derived O2 filter for the ENV node. Brief std::sync lock, no await.
     pub o2: Arc<std::sync::Mutex<crate::o2_estimate::O2Estimator>>,
     /// Rolling ENV + IMU logs behind the Detailed charts and the Excel
@@ -261,8 +266,18 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
 
     // ── ROS point cloud (Pi container): already transformed into 3D ──
     if topic.starts_with("rover/lidar/cloud") {
+        // Raw cloud stays available on /api/lidar/cloud for recording and
+        // RViz, but it is several MB and is not fanned out to pages: the
+        // OctoMap display feed below is the WS payload.
         *ctx.lidar_cloud.write().await = data.clone();
-        broadcast(ctx, tagged("lidar_cloud_update", data));
+        return;
+    }
+
+    // OctoMap surface feed: the dashboard paints this instead of the raw
+    // cloud when it is available. Raw stays on `lidar_cloud` for recording.
+    if topic.starts_with("rover/lidar/display_cloud") {
+        *ctx.lidar_display_cloud.write().await = data.clone();
+        broadcast(ctx, tagged("lidar_display_update", data));
         return;
     }
 
