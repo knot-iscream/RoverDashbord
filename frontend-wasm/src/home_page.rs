@@ -477,8 +477,8 @@ fn paint_lidar_3d(
     }
     // Project every point, world coordinates: x from the A1 angle, y from the
     // tilt plane, z as height.
-    // (depth, screen x, screen y, quality, height in metres)
-    let mut points: Vec<(f64, f64, f64, f64, f64)> = Vec::new();
+    // (depth, screen x, screen y, quality, height m, range m)
+    let mut points: Vec<(f64, f64, f64, f64, f64, f64)> = Vec::new();
     for (pitch, pts) in &rings {
         let pr = pitch.to_radians();
         let (cp, sp) = (pr.cos(), pr.sin());
@@ -489,7 +489,7 @@ fn paint_lidar_3d(
             let a = p[0].to_radians();
             let (x, y_plane) = (p[1] * a.cos(), p[1] * a.sin());
             let (sx, sy, depth) = proj(x, y_plane * cp, y_plane * sp);
-            points.push((depth, sx, sy, p[2], 0.0));
+            points.push((depth, sx, sy, p[2], 0.0, 0.0));
         }
     }
     // ROS cloud is already in 3D metres; convert to mm for the shared scale.
@@ -510,7 +510,8 @@ fn paint_lidar_3d(
                 continue;
             };
             let (sx, sy, depth) = proj(x * 1000.0, y * 1000.0, z * 1000.0);
-            points.push((depth, sx, sy, 15.0, z));
+            let range = (x * x + y * y + z * z).sqrt();
+            points.push((depth, sx, sy, 15.0, z, range));
         }
     }
     // Wireframe first, behind the points. Adjacent samples in a ring are
@@ -613,31 +614,45 @@ fn paint_lidar_3d(
     }
     // Painter's algorithm: far points first.
     points.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-    for (depth, sx, sy, q, z) in points {
-        let near = (-depth / dmax).clamp(0.0, 1.0);
-        let light = 42.0 + near * 22.0;
-        let mut alpha = (0.45 + (q / 15.0).clamp(0.0, 1.0) * 0.55).min(1.0);
-        let (hue, sat, light) = if has_display {
-            if (0.2..=0.9).contains(&z) {
-                // Furniture height: bright warm points against floor and walls.
-                alpha = alpha.min(1.0);
-                (28.0, 95.0, light + 10.0)
-            } else if z > 1.0 {
-                // Ceiling returns fade so they do not dominate the silhouette.
-                alpha *= 0.35;
-                (205.0, 45.0, light - 6.0)
-            } else {
-                // Floor and low voxels stay visible but cool and quiet.
-                alpha *= 0.55;
-                (205.0, 55.0, light - 4.0)
-            }
+    for (depth, sx, sy, q, _z, range) in points {
+        if has_display {
+            // Depth ramp: warm and bright near, cool and dim far. Height is
+            // no longer the main colour mapping.
+            let far = (dmax / 1000.0).max(0.1);
+            let t = (range / far).clamp(0.0, 1.0);
+            let hue = 28.0 + t * 177.0;
+            let light = 58.0 - t * 20.0;
+            let alpha = 0.95 - t * 0.5;
+            g.set_fill_style_str(&format!("hsla({hue:.0},95%,{light:.0}%,{alpha:.2})"));
         } else {
-            (24.0, 95.0, light)
-        };
-        g.set_fill_style_str(&format!("hsla({hue:.0},{sat:.0}%,{light:.0}%,{alpha:.2})"));
+            let near = (-depth / dmax).clamp(0.0, 1.0);
+            let light = 42.0 + near * 22.0;
+            let alpha = (0.45 + (q / 15.0).clamp(0.0, 1.0) * 0.55).min(1.0);
+            g.set_fill_style_str(&format!("hsla(24,95%,{light:.0}%,{alpha:.2})"));
+        }
         g.begin_path();
         g.arc(sx, sy, 2.6, 0.0, std::f64::consts::PI * 2.0).ok();
         g.fill();
+    }
+    if has_display {
+        // Small depth legend, drawn in canvas so no CSS/theme bump is needed.
+        let far = dmax / 1000.0;
+        let bar_w = 120.0;
+        for i in 0..12 {
+            let t = i as f64 / 11.0;
+            let hue = 28.0 + t * 177.0;
+            g.set_fill_style_str(&format!("hsla({hue:.0},95%,55%,0.95)"));
+            g.fill_rect(
+                10.0 + i as f64 * bar_w / 12.0,
+                12.0,
+                bar_w / 12.0 + 0.5,
+                6.0,
+            );
+        }
+        g.set_fill_style_str("rgba(255,255,255,0.65)");
+        g.set_font("10px sans-serif");
+        g.fill_text(&format!("DEPTH 0-{:.0}m", far), 10.0, 30.0)
+            .ok();
     }
     g.set_fill_style_str("rgba(255,255,255,0.65)");
     let label = if cloud_count > 0 {

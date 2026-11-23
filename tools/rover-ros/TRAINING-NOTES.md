@@ -247,6 +247,11 @@ Four steps completed from the live handoff:
 `filter_speckles` stays off; it removes small objects. Further tuning past
 resolution 0.04 or sweep ±30 needs a measured before/after run.
 
+After seeing the height-banded view, the user said colour should define depth,
+not height. The surface paint now uses a depth ramp (warm near, cool far) with
+a small `DEPTH 0-Nm` legend drawn on the canvas. Height is no longer the main
+colour mapping. Screenshot verified the new view at 23801 points.
+
 ## Reality check
 
 This setup can show walls, floor, ceiling and large objects. It will not
