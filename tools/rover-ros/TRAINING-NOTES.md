@@ -145,6 +145,33 @@ It publishes a bare sweep every 46 seconds, never clears the cloud, and saves
 `/home/iscream-pi/rover-ros/maps/room-<timestamp>.bt` every five sweeps using
 `octomap_saver`. OctoMap had 70156 nodes at 0.05 m resolution when checked.
 
+## Filtering and ring budget, 24 Nov
+
+Raised `cloud_to_mqtt.py` to 120 rings and 100000 points, publish every 1 s.
+Rings from repeated sweeps are merged in 0.25 degree angle bins, averaging only
+points in the same tiny bin; no gaps are bridged across occlusions.
+
+Added a PCL nodelet chain in `run.sh`, installed with `ros-noetic-pcl-ros`,
+`ros-noetic-pcl-conversions` and `ros-noetic-nodelet`:
+
+- `pcl/VoxelGrid`, leaf 0.03 m
+- `pcl/StatisticalOutlierRemoval`, mean_k 8, stddev 1.0
+- `pcl/RadiusOutlierRemoval`, radius 0.06 m, min_neighbors 2
+
+Chain is `/lidar_points` to `/lidar_voxel` to `/lidar_stat` to
+`/lidar_filtered`. Both `cloud_to_mqtt` and `octomap_server` subscribe to
+`/lidar_filtered`. Nodelet loads must run in the background and must use the
+private `~input` / `~output` remaps; `in` / `out` does not work.
+
+Raised the Rust backend MQTT packet limit from 1 MiB to 4 MiB in `src/mqtt.rs`
+so the larger cloud reaches the app. Tests and clippy stayed green.
+
+Verified after two sweeps of the non-clearing loop: broker cloud had 33393
+points in 93 rings, z span 0.81 m; app `/api/lidar/cloud` had 37883 points in
+101 rings with `mqtt_connected: true`. The point count is lower than the old
+capped 40000 because voxel and outlier filters removed noise; the important
+change is that nearly all 101 tilt rings survive.
+
 ## Reality check
 
 This setup can show walls, floor, ceiling and large objects. It will not
