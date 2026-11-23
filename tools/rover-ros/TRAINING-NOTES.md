@@ -172,6 +172,30 @@ points in 93 rings, z span 0.81 m; app `/api/lidar/cloud` had 37883 points in
 capped 40000 because voxel and outlier filters removed noise; the important
 change is that nearly all 101 tilt rings survive.
 
+## Floor erasure fix, 24 Nov
+
+The earlier note blaming radius/statistical outlier filters was wrong. Staged
+testing showed voxel-only still removed every negative-z point. The cause was
+PCL VoxelGrid's default pass-through: `filter_field_name: z`,
+`filter_limit_min: 0.0`, `filter_limit_max: 1.0`. It silently discarded the
+floor because the lidar is above map z=0.
+
+Fix: widen the voxel filter to `_filter_limit_min:=-2.0` and
+`_filter_limit_max:=2.0`. Statistical and radius outlier nodelets were removed
+for now; voxel-only still reduced 121k raw points to about 49k during a sweep.
+
+Verified during a sweep:
+
+- raw `/lidar_points`: 121159 points, min z -0.51, 1843 below -0.35 m
+- filtered `/lidar_filtered`: 49013 points, min z -0.51, 1375 below -0.35 m
+
+After two sweeps of the resumed non-clearing loop: accumulated cloud had
+92738 points, 100 rings, z -1.04 to 1.12, with 9252 points below -0.35 m.
+App API showed 95352 points and 100 rings with mqtt connected.
+
+Geometric limit remains: at knee height with ±25 deg tilt, the floor patch is
+a ring around the rover, not directly underneath it.
+
 ## Reality check
 
 This setup can show walls, floor, ceiling and large objects. It will not
