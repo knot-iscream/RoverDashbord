@@ -156,7 +156,7 @@
 | ☐ | Alert | open | firmware does not use it |
 | ☐ | VCC | 3V3 rail | see the module table below |
 | ☐ | GND | GND rail | one ground for every module |
-| ☐ | SDA, SCL | mux channel pair for that motor | never the main bus |
+| ☐ | SDA, SCL | GPIO 21 and GPIO 22 | main bus, one net for all four modules |
 
 | ☐ | Part | Ref | Value and type | First leg | Second leg |
 |---|---|---|---|---|---|
@@ -182,8 +182,8 @@
 
 | ☐ | Net | U3 pin | Goes to | Note |
 |---|---|---|---|---|
-| ☐ | SDA | GPIO 21 | M8 SDA only | muxed modules do not sit on this wire |
-| ☐ | SCL | GPIO 22 | M8 SCL only | muxed modules do not sit on this wire |
+| ☐ | SDA | GPIO 21 | M8 SDA and U2, U7, U6, U9 SDA | main bus, shared by mux and all four INA |
+| ☐ | SCL | GPIO 22 | M8 SCL and U2, U7, U6, U9 SCL | main bus, shared by mux and all four INA |
 | ☐ | 3V3 | 3V3 pin | M8 VCC | mux logic supply |
 | ☐ | GND | GND pin | M8 GND | common ground |
 
@@ -200,14 +200,20 @@
 | ☐ | 1 | P2 SDA | P2 SCL | ADXL345 number 2 | 2 front right |
 | ☐ | 2 | P3 SDA | P3 SCL | ADXL345 number 3 | 3 rear left |
 | ☐ | 3 | P4 SDA | P4 SCL | ADXL345 number 4 | 4 rear right |
-| ☐ | 4 | U2 SDA | U2 SCL | INA226 number 1 | 1 front left |
-| ☐ | 5 | U7 SDA | U7 SCL | INA226 number 2 | 2 front right |
-| ☐ | 6 | U6 SDA | U6 SCL | INA226 number 3 | 3 rear left |
-| ☐ | 7 | U9 SDA | U9 SCL | INA226 number 4 | 4 rear right |
+
+The four INA226 are not on the mux. They share the main bus at different
+addresses, one per motor:
+
+| ☐ | Motor | Ref | I2C address | A0 strap | A1 strap |
+|---|---|---|---|---|---|
+| ☐ | 1 front left | U2 | 0x41 | 3V3 | GND |
+| ☐ | 2 front right | U7 | 0x44 | GND | 3V3 |
+| ☐ | 3 rear left | U6 | 0x45 | 3V3 | 3V3 |
+| ☐ | 4 rear right | U9 | 0x40 | GND | GND |
 
 | ☐ | Module | Pin | Set to | Result |
 |---|---|---|---|---|
-| ☐ | INA226 U2, U6, U7, U9 | ALE | GND | address 0x40 on every module |
+| ☐ | INA226 U2, U6, U7, U9 | A0, A1 | as in the table above | sets the four different addresses |
 | ☐ | INA226 U2, U6, U7, U9 | VCC | 3V3 rail | powered, shared |
 | ☐ | INA226 U2, U6, U7, U9 | GND | GND rail | shared |
 | ☐ | ADXL345 P1 to P4 | CS | 3V3 | I2C mode |
@@ -217,8 +223,8 @@
 
 | ☐ | Warning | Why |
 |---|---|---|
-| ☐ | one mux channel active at a time | the firmware selects before every read |
-| ☐ | all four INA226 keep 0x40 | the mux is what separates them, not the address |
+| ☐ | one mux channel active at a time | the firmware selects before every ADXL345 read |
+| ☐ | all four INA226 have different addresses | the mux only carries the ADXL345, not the INA |
 | ☐ | do not tie VBS to the motor side of the shunt | the PWM off time reads 0 V and the frame goes invalid |
 | ☐ | keep the I2C wires short | long stubs at 400 kHz pick up motor noise |
 
@@ -356,10 +362,11 @@
 | ☐ | Step | Action | Expected result |
 |---|---|---|---|
 | ☐ | 1 | Wire motor 1 and the pump branch only | nothing else powered yet |
-| ☐ | 2 | Flash U3 and U16, open both serial logs | U3 lists INA on mux 4, U16 prints pump pin low |
-| ☐ | 3 | Power U3 on USB, 12 V off | four INA226 and four ADXL345 answer on the mux |
+| ☐ | 2 | Flash U3 and U16, open both serial logs | U3 lists INA at 0x41, 0x44, 0x45 and 0x40, U16 prints pump pin low |
+| ☐ | 3 | Power U3 on USB, 12 V off | four INA226 answer on the main bus, four ADXL345 answer on mux channels 0 to 3 |
 | ☐ | 4 | Apply 12 V, motors idle | U1 5 V pin reads about 5 V, or 0 V means feed it 5 V, C7 stays cool |
-| ☐ | 5 | Command motor 1 at 25, 50, 75 percent | wheel follows, current sign follows direction |
+| ☐ | 5 | Command motor 1 at 25, 50, 75 percent | speed eases in over 12 s, wheel follows, current sign follows direction |
+| ☐ | 5a | Press STOP while the ramp is still climbing | PWM drops to zero at once, no 12 s coast |
 | ☐ | 6 | Pump in a bucket, press THROW WATER | 10 s run, about 0.7 L, MOSFET cool |
 | ☐ | 7 | Press STOP WATER during a burst | pump stops at once |
 | ☐ | 8 | Kill the broker during a burst | pump still stops at the 10 s deadline |
@@ -380,8 +387,8 @@
 | ☐ | motor lead through INA226 in series | never VIN+ to VIN− across the motor |
 | ☐ | INA226 VBS on the 12 V rail | not on the PWM motor side |
 | ☐ | INA226 shunt marking | R100 on all four modules |
-| ☐ | INA226 ALE to GND | all four modules answer 0x40 behind the mux |
-| ☐ | mux channel map | 0 to 3 ADXL, 4 to 7 INA |
+| ☐ | INA226 A0 and A1 straps | 0x41, 0x44, 0x45, 0x40 for motors 1 to 4 |
+| ☐ | mux channel map | 0 to 3 ADXL only, no INA on the mux |
 | ☐ | C7 and C8 polarity | striped leg to ground |
 | ☐ | C9 polarity | striped leg to ground, on the 6 V rail |
 | ☐ | motor capacitors | six total, no polarity, across the terminals |
@@ -399,8 +406,8 @@
 | ☐ | What you see | Likely cause | First check |
 |---|---|---|---|
 | ☐ | board never appears online | wrong broker address | serial log prints the address |
-| ☐ | all INA226 report not found | mux not selected, or A0 to A2 not grounded | serial log shows the mux channel |
-| ☐ | one INA226 missing | wrong channel pair, or power on that module | swap the module to a known channel |
+| ☐ | all INA226 report not found | main SDA/SCL swapped, or no 3.3 V on the modules | serial log shows each address |
+| ☐ | one INA226 missing | wrong A0/A1 straps, or power on that module | meter the straps, then swap the module |
 | ☐ | current always 0 A | calibration rejected, or VBS open | serial log, then VBS to 12 V |
 | ☐ | current stuck at 0.8 A | stock 0.1 Ω shunt at full scale | expected on the bench, voltage still valid |
 | ☐ | voltage reads 0 V | VBS not connected to 12 V | meter VBS to ground |
@@ -430,13 +437,13 @@
 | ☐ | tilt measurement from the second MPU | U15 is wired at 0x69 but the firmware does not read it yet | add the tilt code and publish `rover/lidar/tilt_deg` |
 | ☐ | extra ADXL345 on the middle motors | the MID board has no vibration sensors today | use address 0x1D for the second one |
 | ☐ | flame D4 and A3 | planned, left open for the first bench | wire D4 to GPIO 39 and A3 to U18 A3 |
-| ☐ | second TCA9548A mux | one mux carries all eight devices | add a second mux only if a ninth device appears |
+| ☐ | INA226 on the mux | the INAs keep four distinct addresses on the main bus | unused mux channels 4 to 7 could carry more ADXL345 later |
 
 ## The numbers came from these files
 
 | ☐ | File | What it decides |
 |---|---|---|
-| ☐ | firmware/ESP32-WROOM-32/config.h | motor pins, INA226 mux channels and shunt, ADXL channels, probe pins |
+| ☐ | firmware/ESP32-WROOM-32/config.h | motor pins, INA226 addresses and shunt, ADXL mux channels, probe pins, torque ramp |
 | ☐ | firmware/ESP32-WROOM-32-MID/config.h | middle motor pins, both IMU addresses, servo pin |
 | ☐ | firmware/ESP32-WROOM-32-ENV/config.h | ADS addresses, divider ratio, flame pins, pump pin and burst |
 | ☐ | src/routes.rs | `/api/pump` request shape |

@@ -49,6 +49,10 @@
 #define MOTOR_PWM_RES    8
 #define DEFAULT_MOTOR_SPEED 0
 
+// Same soft start as the corner board: 12 s quadratic ease-in to any
+// new speed target, with STOP immediate. The hold mount is the reason.
+#define TORQUE_RAMP_MS 12000UL
+
 // ============================================================
 // MPU6050 IMU (GY-521) — localization subsystem, NOT motor data.
 // Own topic rover/imu. Yaw is gyro-integrated and drifts by design (no

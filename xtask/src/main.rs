@@ -396,7 +396,7 @@ fn cmd_package() -> i32 {
 }
 
 // ---------------------------------------------------------------------------
-// pack-dev — dev-only standalone build (no Pi), v4.0-dev1
+// pack-dev — dev-only standalone build (no Pi), 4.1.0a-dev
 // ---------------------------------------------------------------------------
 
 const DEV_BOARDS: [&str; 3] = ["ESP32-WROOM-32", "ESP32-WROOM-32-MID", "ESP32-WROOM-32-ENV"];
@@ -622,7 +622,7 @@ fn cmd_pack_dev() -> i32 {
         println!("[WARN] docs/WIRING.pdf missing, not shipped in the dev pack");
     }
 
-    let zip = root.join("RoverDash-4.0-dev1-portable.zip");
+    let zip = root.join("RoverDash-4.1.0a-dev-portable.zip");
     if zip.exists() {
         std::fs::remove_file(&zip).ok();
     }
@@ -652,6 +652,41 @@ fn cmd_pack_dev() -> i32 {
     0
 }
 
+// pack-stable — same portable app, zipped with the stable release name.
+fn cmd_pack_stable() -> i32 {
+    let rc = cmd_package();
+    if rc != 0 {
+        return rc;
+    }
+    let root = repo_root();
+    let dist = root.join("dist").join("RoverDash");
+    let zip = root.join("RoverDash-4.1.0b-stable-portable.zip");
+    if zip.exists() {
+        std::fs::remove_file(&zip).ok();
+    }
+    let pattern = format!("{}\\*", dist.display());
+    let ps = format!(
+        "Import-Module Microsoft.PowerShell.Archive; Compress-Archive -Path '{}' -DestinationPath '{}' -CompressionLevel Optimal -Force",
+        pattern,
+        zip.display()
+    );
+    match Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &ps])
+        .status()
+    {
+        Ok(s) if s.success() => println!("[OK] Stable release: {}", zip.display()),
+        Ok(s) => {
+            eprintln!("[ERROR] Compress-Archive exited {s}");
+            return 1;
+        }
+        Err(e) => {
+            eprintln!("[ERROR] Could not run PowerShell to zip: {e}");
+            return 1;
+        }
+    }
+    0
+}
+
 fn usage() -> i32 {
     println!("xtask — RoverDash repo tasks:");
     println!("  cargo launch   start the app (packaged exe, else backend from source + browser)");
@@ -660,7 +695,8 @@ fn usage() -> i32 {
     println!("  cargo pack     assemble portable dist\\RoverDash\\ (was package.bat;");
     println!("                 `package` alone is cargo's built-in, so the alias is `pack`)");
     println!("  cargo pack-dev stable pack plus DEV\\ (firmware source, launcher, docs),");
-    println!("                 zipped as RoverDash-4.0-dev1-portable.zip");
+    println!("                 zipped as RoverDash-4.1.0a-dev-portable.zip");
+    println!("  cargo pack-stable portable app zipped as RoverDash-4.1.0b-stable-portable.zip");
     0
 }
 
@@ -671,6 +707,7 @@ fn main() {
         Some("doctor") => cmd_doctor(),
         Some("package") => cmd_package(),
         Some("pack-dev") => cmd_pack_dev(),
+        Some("pack-stable") => cmd_pack_stable(),
         Some("-h" | "--help" | "help") | None => usage(),
         Some(other) => {
             eprintln!("[ERROR] Unknown task: {other}");

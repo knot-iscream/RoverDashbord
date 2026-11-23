@@ -1,4 +1,4 @@
-RoverDash 4.0 DEV BUILD - standalone, no Raspberry Pi
+RoverDash 4.1.0a-dev DEV BUILD - standalone, no Raspberry Pi
 
 WHAT THIS IS
 A portable copy of the stable 4.0 app with everything it needs already inside:

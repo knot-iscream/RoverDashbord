@@ -1101,7 +1101,7 @@ dependencies = [
 
 [[package]]
 name = "digital-twin-dashboard"
-version = "4.0.1-dev1"
+version = "4.1.0-dev.1"
 dependencies = [
  "axum",
  "chrono",
@@ -1465,7 +1465,7 @@ dependencies = [
 
 [[package]]
 name = "frontend-wasm"
-version = "4.0.1-dev1"
+version = "4.1.0-dev.1"
 dependencies = [
  "console_error_panic_hook",
  "gloo-net",
@@ -3890,7 +3890,7 @@ dependencies = [
 
 [[package]]
 name = "roverdash"
-version = "4.0.1-dev1"
+version = "4.1.0-dev.1"
 dependencies = [
  "chrono",
  "digital-twin-dashboard",
@@ -6333,7 +6333,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "4.0.1-dev1"
+version = "4.1.0-dev.1"
 
 [[package]]
 name = "xxhash-rust"

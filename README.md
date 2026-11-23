@@ -154,17 +154,15 @@ motor.
   3-strike hysteresis). A missing or failed probe reports `temp_valid:0`
   and the dashboard shows `--`. Replug self-heals within ~10s, no reboot.
 
-### I2C bus (TCA9548A, with both sensor families behind it)
+### I2C bus (TCA9548A for the ADXL345, INA226 on the main bus)
 
 | I2C pin | ESP32 GPIO |
 |---------|-----------|
 | SDA | GPIO 21 |
 | SCL | GPIO 22 |
 
-The main SDA/SCL pair goes **only to the TCA9548A** at `0x70` (A0-A2 to
-GND). The eight devices hang off the mux channels, four ADXL345 on SD0-SD3
-and four INA226 on SD4-SD7. Each downstream module wires its SDA/SCL to that
-channel's SDn/SCn pair; it never touches the main bus.
+The TCA9548A at `0x70` (A0-A2 to GND) carries the four ADXL345 on channels
+0-3. Those four share `0x53` because each breakout is strapped SDO→GND.
 
 | Module | Mux channel | Address | Motor |
 |--------|-------------|---------|-------|
@@ -172,14 +170,19 @@ channel's SDn/SCn pair; it never touches the main bus.
 | ADXL345 2 | 1 | 0x53 | 2 (FR) |
 | ADXL345 3 | 2 | 0x53 | 3 (RL) |
 | ADXL345 4 | 3 | 0x53 | 4 (RR) |
-| INA226 1 | 4 | 0x40 | 1 (FL) |
-| INA226 2 | 5 | 0x40 | 2 (FR) |
-| INA226 3 | 6 | 0x40 | 3 (RL) |
-| INA226 4 | 7 | 0x40 | 4 (RR) |
 
-All four ADXL345 breakouts are strapped SDO→GND so each answers at `0x53`.
-All four INA226 modules keep ALE→GND and the stock address `0x40`. The mux
-is what separates them, so no address or shunt surgery is needed.
+The four INA226 sit on the main SDA/SCL pair at different addresses, set by
+their A0/A1 straps in the wiring schematic. They never touch the mux.
+
+| Module | Address | A0 | A1 | Motor | Ref |
+|--------|---------|----|----|-------|-----|
+| INA226 1 | 0x41 | 3.3 V | GND | 1 (FL) | U2 |
+| INA226 2 | 0x44 | GND | 3.3 V | 2 (FR) | U7 |
+| INA226 3 | 0x45 | 3.3 V | 3.3 V | 3 (RL) | U6 |
+| INA226 4 | 0x40 | GND | GND | 4 (RR) | U9 |
+
+The stock R100 0.1 Ω shunt stays on every module. Only the address pins are
+strapped, so no shunt surgery is needed.
 
 Presence is re-checked every 5s. A chip that answers but returns NaN, or a
 bus voltage outside 3-36V, counts as `ina_ok:false` and voltage/current
@@ -207,6 +210,11 @@ logic inputs per channel and no enable pin:
 - PWM on one input with the other held low drives that direction at the
   duty. Both low coasts, both high brakes. The `A B C D` pads are not part
   of this interface and stay as shipped.
+- **Torque ramp**: a new speed target is reached over 12 s with a quadratic
+  ease-in (slow at first, larger steps near the end), on all six motors.
+  This protects the lidar and motor holders from a sudden jolt. STOP is
+  immediate, it does not wait for the ramp. Calibration bypasses the ramp
+  because it changes speed far more often than every 12 s.
 
 ### INA226 current sensing (per motor)
 
@@ -239,14 +247,15 @@ The pack goes to the driver input, not through the INA226.
 - **ADXL345 + TCA9548A**: all VCC to 3.3V (never 5V), all GND to GND.
   Mux SDA/SCL to 21/22. ADXL345 SDO→GND on every board (all answer at
   0x53); mux channels 0-3 go to motors 1-4.
-- **INA226**: VCC to 3.3V, GND to GND. SDA/SCL to the mux channel pair
-  for that motor (4-7), never the main bus. VBS to the 12 V rail after the
-  master switch. Alert stays open.
+- **INA226**: VCC to 3.3V, GND to GND. SDA/SCL to the main bus (GPIO 21/22),
+  one net for all four, with A0/A1 strapped for the addresses in the table
+  above. VBS to the 12 V rail after the master switch. Alert stays open.
 
 ### Wiring order
 
 1. Wire the TCA9548A to ESP-1 (SDA/SCL/3V3/GND, A0-A2 to GND), then the
-   four INA226 on mux channels 4-7 at 0x40 with the stock R100 shunt.
+   four INA226 on the main bus with the A0/A1 straps in the table above and
+   the stock R100 shunt. VBS goes to the fused 12 V rail.
 2. Connect each DS18B20 DATA pin with its own 4.7kΩ pull-up.
 3. Connect the 4 ADXL345 boards through mux channels 0-3 (SDO→GND each).
 4. Wire the 6A board's `IN1..IN8` to ESP-1 and the pack rail to its

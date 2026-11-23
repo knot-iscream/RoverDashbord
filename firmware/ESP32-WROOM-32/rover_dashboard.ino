@@ -8,9 +8,11 @@ SensorManager sensors;
 MQTTManager mqtt;
 MotorDriver driver;
 
-// Pin assignments
-// All four modules keep 0x40; the mux channel picks the chip.
-uint8_t ina_addrs[4] = {INA226_ADDR, INA226_ADDR, INA226_ADDR, INA226_ADDR};
+// INA226 addresses from the wiring schematic (U2, U7, U6, U9).
+// These four sit on the main I2C bus; the mux only carries the ADXL345.
+uint8_t ina_addrs[4] = {
+  INA226_ADDR_1, INA226_ADDR_2, INA226_ADDR_3, INA226_ADDR_4
+};
 
 unsigned long last_sample = 0;
 int current_motor = 0;
@@ -65,12 +67,16 @@ void onCalibrationCommand(const char* action) {
     cal_pct = 1;
     cal_dir = 1;
     cal_cycle = 1;
+    // Calibration flips speed every half step. Bypass the torque ramp so
+    // the warmup and sweep keep their timing.
+    driver.setRampEnabled(false);
     driver.runAll(255);
     Serial.println("[Cal] Warmup started (2 min) — +255");
     publishCal();
   } else if (strcmp(action, "stop") == 0 && cal_state != CAL_IDLE) {
     cal_state = CAL_IDLE;
     driver.stopAll();
+    driver.setRampEnabled(true);
     Serial.println("[Cal] Stopped — motors idle");
     mqtt.publishCalibrationStatus(0, "idle", 0, 0, 0, 0);
   }
@@ -157,6 +163,7 @@ void setup() {
 }
 
 void loop() {
+  driver.update();    // advance the 12 s torque ramps
   mqtt.loop();
   updateCalibration();
   sensors.update();   // async DS18B20 conversion

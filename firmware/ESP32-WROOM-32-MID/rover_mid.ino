@@ -83,6 +83,7 @@ void setup() {
 }
 
 void loop() {
+  driver.update();    // advance the 12 s torque ramps
   mqtt.loop();
   imu.update();
   servo.update();

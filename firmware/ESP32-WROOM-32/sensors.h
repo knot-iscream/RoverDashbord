@@ -17,11 +17,6 @@ static const uint8_t ADXL345_CH[NUM_MOTORS] = {
   ADXL345_CH_1, ADXL345_CH_2, ADXL345_CH_3, ADXL345_CH_4
 };
 
-// INA226 mux channels, index = motor slot. Same mux, upper half.
-static const uint8_t INA226_CH[NUM_MOTORS] = {
-  INA226_CH_1, INA226_CH_2, INA226_CH_3, INA226_CH_4
-};
-
 // One dedicated OneWire bus per motor (pin = motor slot). Indexing by motor
 // means no ROM matching: whichever probe is on that pin reports as that motor.
 // Pins set to -1 in config.h are disabled (published as temp_valid:0).
@@ -82,7 +77,8 @@ class SensorManager {
       Wire.endTransmission();
     }
 
-    // Select the motor's INA channel, then load the shunt calibration.
+    // Load the shunt calibration. The INAs are on the main bus at four
+    // different addresses, so no mux selection is needed here.
     // setMaxCurrentShunt returns false when max_current * shunt exceeds
     // the chip's 81.92 mV full scale (0.8 A * 0.1 ohm = 80 mV, just fits).
     // Without calibration getCurrent() reads 0, so a failed write is
@@ -95,11 +91,6 @@ class SensorManager {
         return false;
       }
       return true;
-    }
-
-    void selectIna(int i) {
-      tcaSelect(INA226_CH[i]);
-      delay(1);   // mux settle before the chip answers
     }
 
     void requestConversion() {
@@ -150,7 +141,6 @@ class SensorManager {
     void recheckIna() {
       for (int i = 0; i < NUM_MOTORS; i++) {
         if (!ina_sensors[i]) continue;
-        selectIna(i);
         ina_ok[i] = ina_sensors[i]->isConnected();
         if (ina_ok[i]) calibrateIna(i);
       }
@@ -179,9 +169,7 @@ class SensorManager {
       for (int i = 0; i < NUM_MOTORS; i++) {
         ina_addresses[i] = ina_addrs[i];
 
-        // Each module sits behind its own mux channel, so the channel must
-        // be live before the chip is probed or the scan sees nothing.
-        selectIna(i);
+        // The INAs live on the main bus, each at its own address.
         ina_sensors[i] = new INA226(ina_addresses[i]);
         bool found = ina_sensors[i]->begin();
         if (found) {
@@ -190,8 +178,6 @@ class SensorManager {
           ina_ok[i] = calibrateIna(i);
           Serial.print("[Sensors] INA226 motor ");
           Serial.print(i + 1);
-          Serial.print(" on mux ch ");
-          Serial.print(INA226_CH[i]);
           Serial.print(" addr 0x");
           Serial.print(ina_addresses[i], HEX);
           Serial.println(ina_ok[i] ? " initialized" : " calibration FAILED");
@@ -199,8 +185,8 @@ class SensorManager {
           ina_ok[i] = false;
           Serial.print("[Sensors] INA226 motor ");
           Serial.print(i + 1);
-          Serial.print(" on mux ch ");
-          Serial.print(INA226_CH[i]);
+          Serial.print(" addr 0x");
+          Serial.print(ina_addresses[i], HEX);
           Serial.println(" not found!");
         }
       }
@@ -352,9 +338,7 @@ class SensorManager {
       data.ina_ok = ina_ok[motor_idx];
       float shunt_mV = 0.0f, bus_v = 0.0f, current_mA = 0.0f;
       if (data.ina_ok) {
-        // Point the mux at this motor's INA before touching it: the last
-        // read left the mux on another channel (ADXL or a different motor).
-        selectIna(motor_idx);
+        // No mux select: the INAs sit on the main bus at fixed addresses.
         shunt_mV = ina_sensors[motor_idx]->getShuntVoltage_mV();
         bus_v = ina_sensors[motor_idx]->getBusVoltage();
         current_mA = ina_sensors[motor_idx]->getCurrent_mA();

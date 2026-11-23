@@ -1,5 +1,20 @@
 # Changelog
 
+## 4.1.0a-dev / 4.1.0b-stable - 2026-11-23 - torque ramp, schematic addresses
+
+- All six motors now ease into a new speed over 12 s with a quadratic
+  ease-in. Slow at first, larger steps near the end, so the holders are not
+  jolted. STOP is immediate and calibration bypasses the ramp. Corner and MID
+  firmware report the applied speed in telemetry, not just the command.
+- INA226 addressing follows the wiring schematic after all: U2 0x41, U7 0x44,
+  U6 0x45 and U9 0x40 on the main I2C bus. The TCA9548A carries only the four
+  ADXL345 on channels 0-3. The corner firmware no longer selects the mux for
+  INA begin, recheck or reads. This reverses the v4.0 decision below.
+- Two builds from the same source: `4.1.0a-dev` and `4.1.0b-stable`. Cargo
+  holds valid semver (`4.1.0-dev.1` and `4.1.0`) while the tags, zip names
+  and UI labels carry the a/b names. VBS still needs wiring on the real
+  board; the schematic export has all four VBUS pins open.
+
 ## v4.0-dev1 - 2026-11-21 - standalone dev build, no Raspberry Pi
 
 - New `dev/4.0-standalone` branch off v4.0. Stable v4.0 and `master` are
@@ -27,10 +42,10 @@
 
 ## v4.0 - 2026-11-21 - 4-channel 6A corners, 3S LiPo rail, derived O2
 
-- INA226 modules keep the stock 0.1 Ω R100 shunt. All four sit at 0x40
-  behind TCA9548A channels 4-7 while the ADXL345 keep 0-3; the firmware
-  selects the mux before begin, before the 5 s recheck and before every read,
-  and re-applies the shunt calibration on reconnect. The bench calibration is
+- INA226 modules keep the stock 0.1 Ω R100 shunt. This release first put all
+  four at 0x40 behind TCA9548A channels 4-7 while the ADXL345 kept 0-3; the
+  4.1.0 entry above reverses that in favour of the schematic addresses. The
+  firmware re-applies the shunt calibration on reconnect. The bench calibration is
   0.1 Ω / 0.8 A, so current clips at 0.8 A and the 2 A over-current rule
   cannot fire. VBS goes to the 12 V rail, not the PWM motor terminal.
 - Water pump on ESP-3: GPIO 25 drives an IRLZ44N low-side switch with a

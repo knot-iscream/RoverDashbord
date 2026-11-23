@@ -56,6 +56,12 @@
 // behaviour. 1 = brake (both inputs HIGH). Confirm on the bench.
 #define MOTOR_STOP_BRAKE 0
 
+// Torque ramp: a new speed target is reached over 12 s with a quadratic
+// ease-in (slow at first, larger steps near the end). STOP is still
+// immediate. Calibration bypasses the ramp, it changes speed far too
+// quickly for a 12 s ramp to be useful.
+#define TORQUE_RAMP_MS 12000UL
+
 // Calibration sweep profile: warm up, then sweep every speed % forward+reverse
 #define CALIB_WARMUP_MS    120000  // total warmup (split: 1min +255, 1min -255)
 #define CALIB_SWEEP_STEP_MS 120000 // 2 min per speed % (1min FWD + 1min REV)
@@ -93,16 +99,16 @@
 // |mag - 1g| above this counts as vibration (at rest mag ~= 1g gravity).
 #define VIB_THRESHOLD_G 0.25f
 
-// INA226 current sensors — four breakout modules behind the SAME
-// TCA9548A mux as the ADXL345. The modules keep their stock address
-// (ALE to GND -> 0x40) and never share a bus segment, so no address
-// surgery is needed. Channels 0-3 carry the ADXL345, 4-7 the INA226.
+// INA226 current sensors — four breakout modules on the main I2C bus.
+// Their A0/A1 straps come from the wiring schematic (U2, U7, U6, U9):
+// motor 1 = 0x41, motor 2 = 0x44, motor 3 = 0x45, motor 4 = 0x40.
+// The TCA9548A mux stays in front of the four ADXL345 on channels 0-3
+// only. It is never selected for an INA read.
 // I2C bus: SDA = GPIO 21, SCL = GPIO 22
-#define INA226_ADDR 0x40
-#define INA226_CH_1 4   // Motor 1 (FL) on mux channel 4
-#define INA226_CH_2 5   // Motor 2 (FR) on mux channel 5
-#define INA226_CH_3 6   // Motor 3 (RL) on mux channel 6
-#define INA226_CH_4 7   // Motor 4 (RR) on mux channel 7
+#define INA226_ADDR_1 0x41  // Motor 1 (FL), U2
+#define INA226_ADDR_2 0x44  // Motor 2 (FR), U7
+#define INA226_ADDR_3 0x45  // Motor 3 (RL), U6
+#define INA226_ADDR_4 0x40  // Motor 4 (RR), U9
 
 // INA226 calibration — stock R100 0.1 ohm shunt on the breakout.
 // The chip accepts +/-81.92 mV across the shunt, so 0.1 ohm tops out
