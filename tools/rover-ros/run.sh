@@ -42,19 +42,13 @@ python3 /root/rover-ros/scripts/tilt_mqtt.py &
 python3 /root/rover-ros/scripts/scan_to_cloud.py &
 python3 /root/rover-ros/scripts/scan_to_mqtt.py &
 
-# PCL filters as nodelets: voxel grid, statistical and radius outlier removal.
+# PCL filter nodelets. Only voxel grid for now. Its default z pass-through is
+# 0..1 m, which silently deleted the floor, so widen the limits to +/-2 m.
 rosrun nodelet nodelet manager __name:=pcl_manager &
 sleep 3
 rosrun nodelet nodelet load pcl/VoxelGrid pcl_manager __name:=voxel_grid \
-  '~input:=/lidar_points' '~output:=/lidar_voxel' _leaf_size:=0.03 &
-sleep 2
-rosrun nodelet nodelet load pcl/StatisticalOutlierRemoval pcl_manager \
-  __name:=stat_outlier '~input:=/lidar_voxel' '~output:=/lidar_stat' \
-  _mean_k:=8 _stddev:=1.0 &
-sleep 2
-rosrun nodelet nodelet load pcl/RadiusOutlierRemoval pcl_manager \
-  __name:=radius_outlier '~input:=/lidar_stat' '~output:=/lidar_filtered' \
-  _radius:=0.06 _min_neighbors:=2 &
+  '~input:=/lidar_points' '~output:=/lidar_filtered' _leaf_size:=0.03 \
+  _filter_limit_min:=-2.0 _filter_limit_max:=2.0 &
 sleep 3
 
 python3 /root/rover-ros/scripts/cloud_to_mqtt.py &
