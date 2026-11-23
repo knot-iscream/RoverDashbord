@@ -121,6 +121,19 @@ pub async fn lidar_tilt(State(s): State<AppState>, Json(body): Json<Value>) -> J
 
 /// Clear the ROS-side accumulated rings, so the next sweep starts clean.
 pub async fn lidar_cloud_clear(State(s): State<AppState>) -> Json<Value> {
+    // Clear the ROS rings and this backend's cached frame, then tell every
+    // connected page to drop its copy. Without the local cache reset, a page
+    // reconnect replays the old cloud straight back onto the cleared canvas.
+    *s.lidar_cloud.write().await = Value::Null;
+    broadcast(
+        &s.ctx(),
+        json!({
+            "type": "lidar_cloud_update",
+            "count": 0,
+            "rings": 0,
+            "points": []
+        }),
+    );
     let sent = s
         .mqtt
         .read()

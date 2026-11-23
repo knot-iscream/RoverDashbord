@@ -223,7 +223,6 @@ struct HomeCtx {
     /// its gaps instead of showing one sparse revolution.
     lidar_acc: RwSignal<Vec<[f64; 3]>>,
     lidar_view: RwSignal<u8>,
-    lidar_pitch: RwSignal<f64>,
     lidar_wire: RwSignal<bool>,
     lidar_yaw: RwSignal<f64>,
     lidar_el: RwSignal<f64>,
@@ -478,7 +477,14 @@ fn paint_lidar_3d(
     }
     // ROS cloud is already in 3D metres; convert to mm for the shared scale.
     if let Some(ps) = cloud_pts {
-        for p in ps {
+        // The accumulated cloud can reach 100k points. Draw a stride-limited
+        // sample so the canvas stays responsive; the label keeps the true
+        // count and ring count from the full frame.
+        let stride = (cloud_count / 20000).max(1);
+        for (i, p) in ps.iter().enumerate() {
+            if i % stride != 0 {
+                continue;
+            }
             let (Some(x), Some(y), Some(z)) = (
                 p.get(0).and_then(|v| v.as_f64()),
                 p.get(1).and_then(|v| v.as_f64()),
@@ -758,7 +764,6 @@ pub fn HomePage() -> impl IntoView {
     let lidar_rings = RwSignal::new(Vec::new());
     let lidar_acc = RwSignal::new(Vec::new());
     let lidar_view = RwSignal::new(1u8);
-    let lidar_pitch = RwSignal::new(0.0f64);
     let lidar_wire = RwSignal::new(true);
     let lidar_yaw = RwSignal::new(-0.75f64);
     let lidar_el = RwSignal::new(0.6f64);
@@ -794,7 +799,6 @@ pub fn HomePage() -> impl IntoView {
         lidar_rings,
         lidar_acc,
         lidar_view,
-        lidar_pitch,
         lidar_wire,
         lidar_yaw,
         lidar_el,
@@ -929,78 +933,23 @@ pub fn HomePage() -> impl IntoView {
         });
     }
 
-    let push_tilt = move |angle: f64| {
-        wasm_bindgen_futures::spawn_local(async move {
-            let _ = post_json("/api/lidar/tilt", serde_json::json!({ "angle": angle })).await;
-        });
-    };
     let on_lidar_view = move |v: u8| {
         ctx.lidar_view.set(v);
         paint_lidar(&ctx);
     };
-    let on_lidar_tilt = move |d: f64| {
-        let next = (ctx.lidar_pitch.get() + d).clamp(-90.0, 90.0);
-        ctx.lidar_pitch.set(next);
-        push_tilt(next);
-    };
-    let on_lidar_capture = move |_| {
-        let pts: Vec<[f64; 3]> = ctx
-            .lidar_acc
-            .get()
-            .iter()
-            .copied()
-            .filter(|p| p[1] > 0.0)
-            .collect();
-        if pts.is_empty() {
-            ctx.lidar_notice
-                .set("No live ring yet - start rover-ros and wait".into());
-            paint_lidar(&ctx);
-            return;
-        }
-        let pitch = ctx.lidar_pitch.get();
-        push_tilt(pitch);
-        ctx.lidar_rings.update(|rings| {
-            if let Some(ring) = rings.iter_mut().find(|(p, _)| (*p - pitch).abs() <= 2.0) {
-                // Same tilt pressed again: densify that ring instead of
-                // stacking a duplicate at a slightly different angle.
-                for np in pts {
-                    if !ring
-                        .1
-                        .iter()
-                        .any(|e| (e[0] - np[0]).abs() < 1.0 && (e[1] - np[1]).abs() < 80.0)
-                    {
-                        ring.1.push(np);
-                    }
-                }
-            } else {
-                rings.push((pitch, pts));
-            }
-        });
-        ctx.lidar_notice
-            .set(format!("Captured ring at {:+.0} deg", pitch));
-        paint_lidar(&ctx);
-    };
-    let on_lidar_live = move |_| {
-        ctx.lidar_rings.set(Vec::new());
-        ctx.lidar_view.set(1);
-        ctx.lidar_notice
-            .set("Live cloud - manual rings cleared".into());
-        paint_lidar(&ctx);
-    };
-    let on_lidar_clear_rings = move |_| {
-        ctx.lidar_rings.set(Vec::new());
-        ctx.lidar_notice.set("Manual rings cleared".into());
-        paint_lidar(&ctx);
-    };
     let on_lidar_clear_scan = move |_| {
-        ctx.lidar_cloud.set(serde_json::Value::Null);
+        ctx.lidar_cloud.set(serde_json::json!({
+            "count": 0,
+            "rings": 0,
+            "points": []
+        }));
         ctx.cloud_seen.set(0.0);
-        ctx.cloud_stale.set(true);
+        ctx.cloud_stale.set(false);
         wasm_bindgen_futures::spawn_local(async move {
             let _ = post_json("/api/lidar/cloud/clear", serde_json::json!({})).await;
         });
         ctx.lidar_notice
-            .set("Saved scan cleared - waiting for live scan".into());
+            .set("Cloud cleared - waiting for next sweep".into());
         paint_lidar(&ctx);
     };
     let on_lidar_expand = move |_| {
@@ -1251,14 +1200,8 @@ pub fn HomePage() -> impl IntoView {
                                     <div class="lidar-controls" style=move || if cam.get() == 1 { "display:flex" } else { "display:none" }>
                                         <button class="lidar-btn" on:click=move |_| on_lidar_view(0)>"2D"</button>
                                         <button class="lidar-btn" on:click=move |_| on_lidar_view(1)>"3D"</button>
-                                        <button class="lidar-btn lidar-btn-live" on:click=on_lidar_live>"Live"</button>
                                         <button class="lidar-btn" on:click=on_lidar_wire>"Wire"</button>
-                                        <button class="lidar-btn" title="Tilt the bracket, then set the matching angle" on:click=move |_| on_lidar_tilt(-5.0)>"Tilt -5°"</button>
-                                        <span class="lidar-pitch">{move || format!("{:+.0}°", ctx.lidar_pitch.get())}</span>
-                                        <button class="lidar-btn" title="Tilt the bracket, then set the matching angle" on:click=move |_| on_lidar_tilt(5.0)>"Tilt +5°"</button>
-                                        <button class="lidar-btn" on:click=on_lidar_capture>"Capture ring"</button>
-                                        <button class="lidar-btn" on:click=on_lidar_clear_rings>"Clear rings"</button>
-                                        <button class="lidar-btn" on:click=on_lidar_clear_scan>"Clear scan"</button>
+                                        <button class="lidar-btn" on:click=on_lidar_clear_scan>"Clear cloud"</button>
                                         <button class="lidar-btn" on:click=on_lidar_reset_view>"Reset view"</button>
                                         <button class="lidar-btn lidar-btn-accent" on:click=on_lidar_expand>"Expand"</button>
                                     </div>
@@ -1266,7 +1209,7 @@ pub fn HomePage() -> impl IntoView {
                                         {move || {
                                             let notice = ctx.lidar_notice.get();
                                             if notice.is_empty() {
-                                                "Tilt the bracket by hand, set the matching angle, wait for the ring, repeat. Live returns to the ROS cloud; Clear rings only removes the manual overlay."
+                                                "Live 3D cloud from the servo sweep. Drag to orbit, wheel to zoom."
                                                     .to_string()
                                             } else {
                                                 notice
@@ -1303,7 +1246,7 @@ pub fn HomePage() -> impl IntoView {
                 <div class="lidar-modal-head">
                     <div>
                         <h2 class="lidar-modal-title">"LiDAR 3D view"</h2>
-                        <span class="lidar-modal-sub">"Tilt by hand, set the angle, wait for the ring, repeat"</span>
+                        <span class="lidar-modal-sub">"Live 3D cloud from the servo sweep"</span>
                     </div>
                     <button class="lidar-btn" on:click=on_lidar_close>"Close"</button>
                 </div>
@@ -1323,14 +1266,8 @@ pub fn HomePage() -> impl IntoView {
                 <div class="lidar-controls lidar-controls-modal">
                     <button class="lidar-btn" on:click=move |_| on_lidar_view(0)>"2D"</button>
                     <button class="lidar-btn" on:click=move |_| on_lidar_view(1)>"3D"</button>
-                    <button class="lidar-btn lidar-btn-live" on:click=on_lidar_live>"Live"</button>
                     <button class="lidar-btn" on:click=on_lidar_wire>"Wire"</button>
-                    <button class="lidar-btn" title="Tilt the bracket, then set the matching angle" on:click=move |_| on_lidar_tilt(-5.0)>"Tilt -5°"</button>
-                    <span class="lidar-pitch">{move || format!("{:+.0}°", ctx.lidar_pitch.get())}</span>
-                    <button class="lidar-btn" title="Tilt the bracket, then set the matching angle" on:click=move |_| on_lidar_tilt(5.0)>"Tilt +5°"</button>
-                    <button class="lidar-btn" on:click=on_lidar_capture>"Capture ring"</button>
-                    <button class="lidar-btn" on:click=on_lidar_clear_rings>"Clear rings"</button>
-                    <button class="lidar-btn" on:click=on_lidar_clear_scan>"Clear scan"</button>
+                    <button class="lidar-btn" on:click=on_lidar_clear_scan>"Clear cloud"</button>
                     <button class="lidar-btn" on:click=on_lidar_reset_view>"Reset view"</button>
                     <button class="lidar-btn" on:click=on_lidar_close>"Close"</button>
                 </div>

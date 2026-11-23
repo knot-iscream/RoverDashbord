@@ -128,7 +128,7 @@ pub async fn spawn_mqtt(ctx: Ctx, broker: &str, port: u16) -> MqttSlot {
     opts.set_keep_alive(Duration::from_secs(15));
     // Lidar scan (~20 KB) and ROS cloud can be several MB after the tilt-ring
     // budget was raised. rumqttc's small default triggers a reconnect loop.
-    opts.set_max_packet_size(4 * 1024 * 1024, 4 * 1024 * 1024);
+    opts.set_max_packet_size(16 * 1024 * 1024, 16 * 1024 * 1024);
     let (client, mut eventloop) = AsyncClient::new(opts, 256);
     let handle = MqttHandle {
         client: client.clone(),

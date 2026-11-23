@@ -17,7 +17,7 @@ from std_msgs.msg import Float32
 import paho.mqtt.client as mqtt
 
 MAX_RINGS = 120
-MAX_TOTAL_POINTS = 100000
+MAX_TOTAL_POINTS = 60000
 PUBLISH_EVERY_S = 1.0
 ANGLE_BINS = 1440  # 0.25 degree bins for within-ring merging only
 
