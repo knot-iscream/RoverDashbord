@@ -22,6 +22,8 @@ class MQTTManager {
     void (*_cmd_handler)(const char* action) = nullptr;
     void (*_motor_cmd_handler)(const char* json) = nullptr;
     void (*_lidar_cmd_handler)(const char* json) = nullptr;
+    void (*_tilt_deg_handler)(const char* json) = nullptr;
+    void (*_tilt_zero_handler)() = nullptr;
 
   public:
     MQTTManager() : mqtt_client(wifi_client) {
@@ -84,6 +86,8 @@ class MQTTManager {
           subscribe(MQTT_CALIB_CMD_TOPIC);
           subscribe(MQTT_MOTOR_CMD_TOPIC);
           subscribe(MQTT_LIDAR_CMD_TOPIC);
+          subscribe(MQTT_TILT_DEG_TOPIC);
+          subscribe(MQTT_TILT_ZERO_TOPIC);
           return true;
         } else {
           Serial.print("[MQTT] Failed, rc=");
@@ -119,6 +123,14 @@ class MQTTManager {
 
     void setLidarCommandHandler(void (*handler)(const char* json)) {
       _lidar_cmd_handler = handler;
+    }
+
+    void setTiltDegHandler(void (*handler)(const char* json)) {
+      _tilt_deg_handler = handler;
+    }
+
+    void setTiltZeroHandler(void (*handler)()) {
+      _tilt_zero_handler = handler;
     }
 
     void publishCalibrationStatus(int warmup_pct, const char* state,
@@ -242,6 +254,22 @@ class MQTTManager {
       mqtt_client.publish(MQTT_LIDAR_SERVO_TOPIC, buffer, n);
     }
 
+    // ---- Bracket tilt measurement (rover/lidar/tilt_measured) ----
+    void publishTiltMeasured(bool tilt_ok, float angle, float raw, float zero,
+                             float cmd, bool settled) {
+      if (!mqtt_client.connected()) return;
+      StaticJsonDocument<192> doc;
+      doc["angle"] = angle;
+      doc["raw"] = raw;
+      doc["zero"] = zero;
+      doc["cmd"] = cmd;
+      doc["settled"] = settled ? 1 : 0;
+      doc["ok"] = tilt_ok ? 1 : 0;
+      char buffer[192];
+      size_t n = serializeJson(doc, buffer);
+      mqtt_client.publish(MQTT_TILT_MEASURED_TOPIC, buffer, n);
+    }
+
   private:
     static void mqttCallback(char* topic, byte* payload, unsigned int length) {
       if (!_mqtt_instance) return;
@@ -265,6 +293,12 @@ class MQTTManager {
       } else if (strcmp(topic, MQTT_LIDAR_CMD_TOPIC) == 0
                  && _mqtt_instance->_lidar_cmd_handler) {
         _mqtt_instance->_lidar_cmd_handler(buf);
+      } else if (strcmp(topic, MQTT_TILT_DEG_TOPIC) == 0
+                 && _mqtt_instance->_tilt_deg_handler) {
+        _mqtt_instance->_tilt_deg_handler(buf);
+      } else if (strcmp(topic, MQTT_TILT_ZERO_TOPIC) == 0
+                 && _mqtt_instance->_tilt_zero_handler) {
+        _mqtt_instance->_tilt_zero_handler();
       }
     }
 };

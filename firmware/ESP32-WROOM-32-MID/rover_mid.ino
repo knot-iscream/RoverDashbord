@@ -15,6 +15,7 @@
 MQTTManager mqtt;
 MotorDriver driver;
 Imu imu;
+BracketImu bracket;
 LidarServo servo;
 
 unsigned long last_sample = 0;
@@ -22,10 +23,14 @@ int current_motor = 0;
 unsigned long last_status_pub = 0;
 unsigned long last_imu_pub = 0;
 unsigned long last_servo_pub = 0;
+unsigned long last_meas_pub = 0;
 bool last_servo_settled = true;
 bool last_servo_sweeping = false;
 int last_servo_step = 0;
 float last_servo_target = 0;
+
+// 0 idle, 1 ramping to centre, 2 zero after settle
+uint8_t zero_stage = 0;
 
 // Water pump: low-side IRLZ44N on PUMP_PIN. pump_on is the live state
 // published in telemetry; pump_off_ms is the firmware deadline, so the
@@ -90,11 +95,37 @@ void onLidarCommand(const char* json) {
   } else if (strcmp(action, "stop") == 0) {
     servo.stopSweep();
   } else if (strcmp(action, "goto") == 0) {
-    servo.gotoDeg(doc["angle"] | 0.0f);
+    servo.rampTo(doc["angle"] | 0.0f);
   } else {
     Serial.print("[Lidar] Unknown action: ");
     Serial.println(action);
   }
+}
+
+// rover/lidar/tilt_deg payload is {"angle":15} or a bare number.
+void onTiltDeg(const char* json) {
+  StaticJsonDocument<96> doc;
+  bool has_angle = false;
+  float angle = 0;
+  if (!deserializeJson(doc, json) && doc.containsKey("angle")) {
+    angle = doc["angle"] | 0.0f;
+    has_angle = true;
+  } else {
+    char* end = nullptr;
+    angle = strtof(json, &end);
+    has_angle = (end != nullptr && end != json);
+  }
+  if (has_angle) {
+    servo.rampTo(angle);
+  } else {
+    Serial.println("[Lidar] tilt_deg without an angle");
+  }
+}
+
+void onTiltZero() {
+  zero_stage = 1;
+  servo.rampTo(0);
+  Serial.println("[IMU] bracket zero requested, moving to servo centre");
 }
 
 void setup() {
@@ -110,8 +141,12 @@ void setup() {
   pump_off_ms = 0;
 
   driver.begin();
-  imu.begin();
   servo.begin();
+  // Both MPUs share the same bus: body at 0x68, bracket at 0x69.
+  Wire.begin(I2C_SDA, I2C_SCL);
+  imu.begin();
+  bracket.begin();
+  if (bracket.isOk()) bracket.zero();
 
   if (!portalEnsureWiFi()) {
     Serial.println("[Setup] No WiFi yet - rebooting to retry portal");
@@ -125,14 +160,17 @@ void setup() {
   mqtt.subscribe(MQTT_MOTOR_CMD_TOPIC);
   mqtt.setMotorCommandHandler(onMotorCommand);
   mqtt.setLidarCommandHandler(onLidarCommand);
+  mqtt.setTiltDegHandler(onTiltDeg);
+  mqtt.setTiltZeroHandler(onTiltZero);
 
-  Serial.println("[Setup] MID + IMU + lidar servo ready");
+  Serial.println("[Setup] MID + body IMU + bracket + lidar servo ready");
 }
 
 void loop() {
   driver.update();    // advance the 12 s torque ramps
   mqtt.loop();
   imu.update();
+  bracket.update();
   servo.update();
 
   unsigned long now = millis();
@@ -169,6 +207,23 @@ void loop() {
     last_imu_pub = now;
     mqtt.publishImu(imu.isOk(), imu.getAx(), imu.getAy(), imu.getAz(),
                     imu.getGz(), imu.getYaw(), imu.getPitch(), imu.getRoll());
+  }
+
+  // ---- Bracket tilt: publish at 4 Hz, zero after a requested move ----
+  if (zero_stage == 1 && servo.isSettled() &&
+      fabsf(servo.getTarget()) < 0.1f) {
+    zero_stage = 2;
+  }
+  if (zero_stage == 2) {
+    zero_stage = 0;
+    bracket.zero();
+    Serial.println("[IMU] bracket zeroed at servo centre");
+  }
+  if (now - last_meas_pub >= IMU_PUBLISH_MS) {
+    last_meas_pub = now;
+    mqtt.publishTiltMeasured(bracket.isOk(), bracket.getPitch(),
+                             bracket.getRaw(), bracket.getZero(),
+                             servo.getTarget(), servo.isSettled());
   }
 
   // ---- Lidar servo: publish on change + a 1 Hz heartbeat ----

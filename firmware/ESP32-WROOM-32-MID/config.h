@@ -70,16 +70,23 @@
 // stand it off the board and away from the servo leads, or yaw gets noisy.
 // ============================================================
 #define MPU6050_ADDR 0x68
-// Second MPU6050 for the future tilt bracket. AD0 to 3.3 V gives 0x69.
+// Second MPU6050 on the tilt bracket. AD0 to 3.3 V gives 0x69.
 #define MPU_BRACKET_ADDR 0x69
+#define I2C_SDA 21              // shared body + bracket MPU bus
+#define I2C_SCL 22
 #define IMU_SAMPLE_MS 20        // internal filter step (50 Hz)
 #define IMU_PUBLISH_MS 250      // rover/imu publish rate (4 Hz)
-#define IMU_COMP_ALPHA 0.98f    // complementary filter: gyro weight vs accel
+#define IMU_COMP_ALPHA 0.98f    // body complementary filter: gyro weight
+#define BRACKET_IMU_COMP_ALPHA 0.96f
+#define IMU_ZERO_SAMPLES 50     // bracket zero samples at boot / tilt_zero
+#define MPU_GYRO_SENS 131.0f    // LSB per deg/s at +/-250 deg/s
+// Flip if the bracket MPU is mounted facing the other way.
+#define TILT_SIGN -1.0f
 
 // ============================================================
 // Lidar swing servo (MG996R). No angle encoder is fitted: the servo settles
-// on time and publishes the commanded angle only. The second MPU6050 at 0x69
-// is wired for a future bracket-tilt measurement but is not read yet.
+// on time and publishes the commanded angle. The bracket MPU at 0x69 measures
+// the real tilt for diagnostics and the tilt_zero flow.
 // Servo V+ comes from the 12V->6V arm rail (1000 uF cap at the servo end),
 // never from the ESP. Common GND. Step-and-settle sweep only: the Pi grabs
 // frames while "settled" is 1, so MQTT latency cannot smear the cloud.
@@ -89,13 +96,16 @@
 #define SERVO_MAX_DEG 35.0f           // HARD limit (clamped in code too)
 #define SERVO_SWEEP_MIN_DEG (-30.0f)  // default sweep range
 #define SERVO_SWEEP_MAX_DEG 30.0f
-#define SERVO_STEP_DEG 5.0f
-#define SERVO_SETTLE_MS 500           // pause after a move before settled
-#define SERVO_DWELL_MS 600            // hold per step (Pi captures here)
-#define SERVO_CENTER_US 1500          // pulse at mount zero (calibrate on bench)
+#define SERVO_STEP_DEG 0.5f           // proven bench profile
+#define SERVO_SETTLE_MS 200
+#define SERVO_DWELL_MS 200
+#define SERVO_CENTER_US 1311          // physically flat on this mount
 #define SERVO_US_PER_DEG 11.11f       // (2500-500)/180 for an MG996R
 #define SERVO_PWM_FREQ 50
 #define SERVO_PWM_RES 16
+// Commanded moves ramp in small steps instead of slewing at full speed.
+#define SERVO_RAMP_STEP_DEG 2.0f
+#define SERVO_RAMP_MS 60
 
 // No angle encoder fitted. These two flags stay in the payload so the
 // backend and the dashboard contract do not change; they are always 0.
@@ -113,6 +123,9 @@
 #define MQTT_IMU_TOPIC          "rover/imu"
 #define MQTT_LIDAR_SERVO_TOPIC  "rover/lidar/servo"
 #define MQTT_LIDAR_CMD_TOPIC    "rover/lidar/command"
+#define MQTT_TILT_DEG_TOPIC     "rover/lidar/tilt_deg"
+#define MQTT_TILT_MEASURED_TOPIC "rover/lidar/tilt_measured"
+#define MQTT_TILT_ZERO_TOPIC    "rover/lidar/tilt_zero"
 
 // ============================================================
 // Timing
