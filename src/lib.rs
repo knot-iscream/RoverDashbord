@@ -149,6 +149,7 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/api/lidar/auto", post(routes::lidar_auto))
         .route("/api/scans/sync", post(routes::scan_sync))
+        .route("/api/scans/save", post(routes::scan_save))
         .route("/api/scans/:id", delete(routes::scan_delete))
         .route("/api/scans/:id/label", post(routes::scan_label))
         .route(

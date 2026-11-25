@@ -778,6 +778,14 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
   min-height: 30px;
 }
 .lidar-btn:hover { color: #f97316; border-color: rgba(249,115,22,0.65); }
+.lidar-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.lidar-btn:disabled:hover {
+  color: var(--gray-300);
+  border-color: rgba(255,255,255,0.16);
+}
 .lidar-btn-accent { color: #fff; border-color: rgba(249,115,22,0.6); background: rgba(249,115,22,0.18); }
 .lidar-btn-live { color: #86efac; border-color: rgba(34,197,94,0.5); background: rgba(34,197,94,0.10); }
 .lidar-btn-live:hover { color: #fff; border-color: #22c55e; }

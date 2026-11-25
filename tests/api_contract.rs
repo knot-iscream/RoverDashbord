@@ -777,6 +777,19 @@ async fn scan_missing_routes_and_sync_without_pi() {
     }
     let (s, _, _) = req(r.clone(), "POST", "/api/scans/sync", None, Some(json!({}))).await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, _, _) = req(r.clone(), "POST", "/api/scans/save", None, Some(json!({}))).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, v, _) = req(
+        r.clone(),
+        "POST",
+        "/api/scans/save",
+        Some(TEST_TOKEN),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["sent"], false);
+    assert_eq!(v["action"], "save");
     let (s, v, _) = req(
         r.clone(),
         "POST",

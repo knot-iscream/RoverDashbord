@@ -72,6 +72,11 @@ still has the scans when the Pi is off. A checkpoint `.bt` is written every
 five sweeps inside the session folder as a crash safety net; it is not a
 history entry.
 
+The Home toolbar also has `Save scan`. It asks the loop to close the current
+session now, save it, and start a new one if the rover is still parked. It is
+enabled only while a session is scanning. The OctoMap is not cleared by a
+save; use `Clear map` for a fresh room.
+
 Restarting the agent kills the active sweep loop with the service cgroup. The
 loop saves the session on SIGTERM, then the next Start begins a new one.
 

@@ -823,6 +823,16 @@ fn scan_auto(ctx: &HomeCtx) -> bool {
             .unwrap_or(true)
 }
 
+fn scan_active(ctx: &HomeCtx) -> bool {
+    let state = ctx.scan_state.get();
+    scan_running(ctx)
+        && state.get("phase").and_then(|v| v.as_str()) == Some("scanning")
+        && state
+            .get("session")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.is_empty())
+}
+
 /// `2026-11-25T18:37:05+06:00` -> `2026-11-25 18:37`. Falls back to the id.
 fn scan_time(scan: &serde_json::Value) -> String {
     let raw = scan.get("start").and_then(|v| v.as_str()).unwrap_or("");
@@ -1351,6 +1361,15 @@ pub fn HomePage() -> impl IntoView {
         ctx.lidar_view.set(v);
         paint_lidar(&ctx);
     };
+    let on_scan_save = move |_| {
+        if !scan_active(&ctx) {
+            return;
+        }
+        set_notice_ttl(ctx, "Saving current scan...".into(), 8000);
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = post_json("/api/scans/save", serde_json::json!({})).await;
+        });
+    };
     let on_scan_toggle = move |_| {
         if scan_running(&ctx) {
             ctx.lidar_notice.set("Stopping scan...".into());
@@ -1831,6 +1850,7 @@ pub fn HomePage() -> impl IntoView {
                                         <button class="lidar-btn" on:click=on_lidar_wire>"Wire"</button>
                                         <button class={move || if scan_auto(&ctx) { "lidar-btn lidar-btn-live" } else { "lidar-btn" }} on:click=on_auto_toggle>{move || if scan_auto(&ctx) { "Auto on" } else { "Auto off" }}</button>
                                         <button class="lidar-btn" on:click=on_history_open>"History"</button>
+                                        <button class="lidar-btn" disabled=move || !scan_active(&ctx) on:click=on_scan_save>"Save scan"</button>
                                         <button class={move || if scan_running(&ctx) { "lidar-btn lidar-btn-accent" } else { "lidar-btn" }} on:click=on_scan_toggle>{move || if scan_running(&ctx) { "Stop scan" } else { "Start scan" }}</button>
                                         <button class="lidar-btn" on:click=on_lidar_clear_map>"Clear map"</button>
                                         <button class="lidar-btn" on:click=on_lidar_reset_view>"Reset view"</button>
@@ -1917,6 +1937,7 @@ pub fn HomePage() -> impl IntoView {
                     <button class="lidar-btn" on:click=on_lidar_wire>"Wire"</button>
                     <button class={move || if scan_auto(&ctx) { "lidar-btn lidar-btn-live" } else { "lidar-btn" }} on:click=on_auto_toggle>{move || if scan_auto(&ctx) { "Auto on" } else { "Auto off" }}</button>
                     <button class="lidar-btn" on:click=on_history_open>"History"</button>
+                    <button class="lidar-btn" disabled=move || !scan_active(&ctx) on:click=on_scan_save>"Save scan"</button>
                     <button class={move || if scan_running(&ctx) { "lidar-btn lidar-btn-accent" } else { "lidar-btn" }} on:click=on_scan_toggle>{move || if scan_running(&ctx) { "Stop scan" } else { "Start scan" }}</button>
                     <button class="lidar-btn" on:click=on_lidar_clear_map>"Clear map"</button>
                     <button class="lidar-btn" on:click=on_lidar_reset_view>"Reset view"</button>

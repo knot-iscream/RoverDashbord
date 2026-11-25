@@ -289,6 +289,23 @@ async fn pi_conn(s: &AppState) -> (String, String) {
     (url, token)
 }
 
+/// Ask the Pi sweep loop to close the current session now and start a new one.
+pub async fn scan_save(State(s): State<AppState>) -> Json<Value> {
+    let sent = s
+        .mqtt
+        .read()
+        .await
+        .handle
+        .publish("rover/scan/command", &json!({"action": "save"}))
+        .await;
+    Json(json!({
+        "status": if sent { "ok" } else { "error" },
+        "action": "save",
+        "sent": sent,
+        "mqtt_connected": s.mqtt.read().await.handle.is_connected(),
+    }))
+}
+
 pub async fn scan_sync(
     State(s): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
@@ -456,7 +473,7 @@ pub async fn motor_status(State(s): State<AppState>) -> Json<Value> {
     Json(s.motor_status.read().await.clone())
 }
 
-/// Water pump on ESP-3. `{"on":true,"seconds":10}` runs a burst,
+/// Water pump on ESP-2 (MID). `{"on":true,"seconds":10}` runs a burst,
 /// `{"on":false}` stops it now. Anything missing or non-boolean counts as
 /// off: a malformed request must never start water. Seconds clamp to 1-60,
 /// and the firmware caps at PUMP_MAX_MS on its own as well.
@@ -473,7 +490,7 @@ pub async fn pump_control(State(s): State<AppState>, Json(body): Json<Value>) ->
         .read()
         .await
         .handle
-        .publish("rover/env/command", &payload)
+        .publish("rover/mid/command", &payload)
         .await;
     if sent {
         Json(json!({"status": "ok", "on": on, "seconds": seconds, "sent": true}))

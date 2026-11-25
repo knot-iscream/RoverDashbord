@@ -32,6 +32,7 @@ MOTOR_TOPIC = "rover/motor/+"
 AUTO_TOPIC = "rover/lidar/auto_scan"
 STATE_TOPIC = "rover/scan/state"
 SAVED_TOPIC = "rover/scan/saved"
+SCAN_CMD_TOPIC = "rover/scan/command"
 CMD_TOPIC = "rover/lidar/command"
 CONTAINER = "rover-ros"
 SCANS_DIR = "/home/iscream-pi/rover-ros/maps/scans"
@@ -62,6 +63,7 @@ sweeps_done = 0
 sweep_started = 0.0
 last_motion = 0.0
 speeds = {}
+save_requested = False
 last_state = 0.0
 last_container_check = 0.0
 container_ok = False
@@ -248,15 +250,21 @@ def close_session(partial):
 def on_connect(c, _userdata, _flags, _rc, _props=None):
     c.subscribe(MOTOR_TOPIC)
     c.subscribe(AUTO_TOPIC)
+    c.subscribe(SCAN_CMD_TOPIC)
     log("mqtt connected")
     publish_state("Auto scan armed" if auto else "Auto scan off", force=True)
 
 
 def on_message(_c, _userdata, msg):
-    global auto, last_motion
+    global auto, last_motion, save_requested
     try:
         body = json.loads(msg.payload.decode("utf-8", "replace"))
     except (ValueError, UnicodeDecodeError):
+        return
+    if msg.topic == SCAN_CMD_TOPIC:
+        if body.get("action") == "save":
+            with lock:
+                save_requested = True
         return
     if msg.topic == AUTO_TOPIC:
         value = body.get("enabled", body.get("auto"))
@@ -287,7 +295,7 @@ def on_sigterm(_signum, _frame):
 def state_tick(now, moving):
     """Advance the state machine one tick."""
     global phase, sweeps_done, sweep_started, container_ok, last_container_check
-    global container_fail
+    global container_fail, save_requested
     # Motor telemetry can go quiet on the bench with the MID board off. Never
     # clear the last known speed here: a board that dies while the rover is
     # moving must not look parked and trigger a scan mid-drive.
@@ -319,6 +327,14 @@ def state_tick(now, moving):
         if phase != "idle":
             phase = "idle"
             publish_state("Auto scan off", force=True)
+        return
+
+    if save_requested and phase != "scanning":
+        save_requested = False
+    if phase == "scanning" and save_requested:
+        save_requested = False
+        log("manual save requested")
+        close_session(partial=sweeps_done == 0)
         return
 
     if phase == "idle":
