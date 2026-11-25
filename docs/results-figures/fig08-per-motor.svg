@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="618" viewBox="0 0 920 618">
+<rect width="920" height="618" fill="#ffffff"/>
+<rect x="90.0" y="95.0" width="740.0" height="370.0" fill="none" fill-opacity="1.0" stroke="#e2e8f0"/>
+<line x1="90.0" y1="465.0" x2="830.0" y2="465.0" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="449.6" x2="830.0" y2="449.6" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="434.2" x2="830.0" y2="434.2" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="418.8" x2="830.0" y2="418.8" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="403.3" x2="830.0" y2="403.3" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="387.9" x2="830.0" y2="387.9" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="372.5" x2="830.0" y2="372.5" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="357.1" x2="830.0" y2="357.1" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="341.7" x2="830.0" y2="341.7" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="326.2" x2="830.0" y2="326.2" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="310.8" x2="830.0" y2="310.8" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="295.4" x2="830.0" y2="295.4" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="280.0" x2="830.0" y2="280.0" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="264.6" x2="830.0" y2="264.6" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="249.2" x2="830.0" y2="249.2" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="233.8" x2="830.0" y2="233.8" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="218.3" x2="830.0" y2="218.3" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="202.9" x2="830.0" y2="202.9" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="187.5" x2="830.0" y2="187.5" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="172.1" x2="830.0" y2="172.1" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="156.7" x2="830.0" y2="156.7" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="141.2" x2="830.0" y2="141.2" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="125.8" x2="830.0" y2="125.8" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="110.4" x2="830.0" y2="110.4" stroke="#f1f5f9" stroke-width="1"/>
+<line x1="90.0" y1="465.0" x2="830.0" y2="465.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="82.0" y="469.0" font-family="Segoe UI, Arial, sans-serif" font-size="10" fill="#64748b" text-anchor="end" font-weight="normal">0.00</text>
+<line x1="90.0" y1="403.3" x2="830.0" y2="403.3" stroke="#e2e8f0" stroke-width="1"/>
+<text x="82.0" y="407.3" font-family="Segoe UI, Arial, sans-serif" font-size="10" fill="#64748b" text-anchor="end" font-weight="normal">0.15</text>
+<line x1="90.0" y1="341.7" x2="830.0" y2="341.7" stroke="#e2e8f0" stroke-width="1"/>
+<text x="82.0" y="345.7" font-family="Segoe UI, Arial, sans-serif" font-size="10" fill="#64748b" text-anchor="end" font-weight="normal">0.29</text>
+<line x1="90.0" y1="280.0" x2="830.0" y2="280.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="82.0" y="284.0" font-family="Segoe UI, Arial, sans-serif" font-size="10" fill="#64748b" text-anchor="end" font-weight="normal">0.44</text>
+<line x1="90.0" y1="218.3" x2="830.0" y2="218.3" stroke="#e2e8f0" stroke-width="1"/>
+<text x="82.0" y="222.3" font-family="Segoe UI, Arial, sans-serif" font-size="10" fill="#64748b" text-anchor="end" font-weight="normal">0.58</text>
+<line x1="90.0" y1="156.7" x2="830.0" y2="156.7" stroke="#e2e8f0" stroke-width="1"/>
+<text x="82.0" y="160.7" font-family="Segoe UI, Arial, sans-serif" font-size="10" fill="#64748b" text-anchor="end" font-weight="normal">0.73</text>
+<line x1="90.0" y1="95.0" x2="830.0" y2="95.0" stroke="#e2e8f0" stroke-width="1"/>
+<text x="82.0" y="99.0" font-family="Segoe UI, Arial, sans-serif" font-size="10" fill="#64748b" text-anchor="end" font-weight="normal">0.87</text>
+<text x="28.0" y="83.0" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="#64748b" text-anchor="start" font-weight="normal">amperes</text>
+<rect x="109.3" y="159.9" width="84.7" height="305.1" fill="#f97316" fill-opacity="1.0"/>
+<rect x="232.7" y="172.6" width="84.7" height="292.4" fill="#f97316" fill-opacity="1.0"/>
+<rect x="356.0" y="151.4" width="84.7" height="313.6" fill="#f97316" fill-opacity="1.0"/>
+<rect x="479.3" y="164.2" width="84.7" height="300.8" fill="#f97316" fill-opacity="1.0"/>
+<rect x="602.7" y="219.2" width="84.7" height="245.8" fill="#f97316" fill-opacity="1.0"/>
+<rect x="726.0" y="206.5" width="84.7" height="258.5" fill="#f97316" fill-opacity="1.0"/>
+<text x="240.0" y="505.0" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#f97316" text-anchor="start" font-weight="normal">Current A</text>
+<text x="151.7" y="490.0" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#1e293b" text-anchor="middle" font-weight="normal">FL</text>
+<text x="275.0" y="490.0" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#1e293b" text-anchor="middle" font-weight="normal">FR</text>
+<text x="398.3" y="490.0" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#1e293b" text-anchor="middle" font-weight="normal">RL</text>
+<text x="521.7" y="490.0" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#1e293b" text-anchor="middle" font-weight="normal">RR</text>
+<text x="645.0" y="490.0" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#1e293b" text-anchor="middle" font-weight="normal">ML</text>
+<text x="768.3" y="490.0" font-family="Segoe UI, Arial, sans-serif" font-size="11" fill="#1e293b" text-anchor="middle" font-weight="normal">MR</text>
+<text x="460.0" y="576.0" font-family="Segoe UI, Arial, sans-serif" font-size="19" fill="#1e293b" text-anchor="middle" font-weight="700">Current drawn by each of the six motors at full duty</text>
+</svg>

@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="638" viewBox="0 0 980 638">
+<rect width="980" height="638" fill="#ffffff"/>
+<g transform="rotate(-1.40 141.0 211.0)">
+<rect x="46.0" y="158.0" width="190.0" height="106.0" fill="#fef3c7" fill-opacity="0.8"/>
+<polyline points="45.8,158.2 79.1,157.9 109.4,158.3 139.9,158.0 173.1,159.0 203.0,157.3 234.6,159.1" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="46.7,156.4 79.3,159.6 109.9,158.4 139.8,156.4 172.8,156.5 203.3,157.1 234.4,157.9" fill="none" stroke="#334155" stroke-width="1.045"/>
+<polyline points="235.5,157.9 235.7,193.2 235.7,229.2 235.2,264.5" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="234.3,157.3 235.4,192.1 236.8,228.0 237.0,265.6" fill="none" stroke="#334155" stroke-width="1.045"/>
+<polyline points="234.9,264.6 204.8,263.9 171.7,265.0 142.0,264.0 109.4,263.1 76.0,263.6 46.3,262.5" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="237.0,263.1 203.4,262.4 174.4,264.8 142.3,264.4 107.7,263.4 77.7,262.7 47.5,263.6" fill="none" stroke="#334155" stroke-width="1.045"/>
+<polyline points="46.8,263.0 45.0,229.0 44.5,194.3 46.9,156.4" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="46.6,264.0 46.5,230.2 47.7,193.0 47.2,159.0" fill="none" stroke="#334155" stroke-width="1.045"/>
+<text x="59.0" y="188.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="15" fill="#0f172a" text-anchor="start" font-weight="700">ESP32 boards</text>
+<text x="59.0" y="213.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="12" fill="#475569" text-anchor="start" font-weight="normal">corner / MID / ENV</text>
+<text x="59.0" y="235.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="12" fill="#475569" text-anchor="start" font-weight="normal">Arduino C++</text>
+</g>
+<g transform="rotate(1.10 386.0 158.0)">
+<rect x="302.0" y="112.0" width="168.0" height="92.0" fill="#dbeafe" fill-opacity="0.8"/>
+<polyline points="302.2,111.5 331.2,111.3 358.0,111.5 385.7,113.6 412.7,111.8 441.1,111.5 471.7,111.4" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="302.4,111.7 330.8,111.8 356.9,111.8 385.7,113.0 414.2,111.0 442.6,111.3 470.0,111.0" fill="none" stroke="#334155" stroke-width="1.045"/>
+<polyline points="470.1,112.3 471.2,144.0 471.3,172.9 471.5,203.7" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="469.3,110.6 470.0,141.5 469.2,173.7 470.9,204.9" fill="none" stroke="#334155" stroke-width="1.045"/>
+<polyline points="469.0,203.6 441.0,203.6 414.2,204.5 385.2,203.5 356.9,205.1 329.3,205.3 300.6,202.3" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="469.7,203.7 442.9,205.2 414.0,203.3 386.7,203.9 357.2,203.4 328.3,204.7 300.5,202.9" fill="none" stroke="#334155" stroke-width="1.045"/>
+<polyline points="301.7,204.1 303.2,172.2 301.1,141.1 300.7,110.3" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="300.8,204.0 303.7,174.0 301.6,142.3 302.7,111.4" fill="none" stroke="#334155" stroke-width="1.045"/>
+<text x="315.0" y="142.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="15" fill="#0f172a" text-anchor="start" font-weight="700">mosquitto</text>
+<text x="315.0" y="167.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="12" fill="#475569" text-anchor="start" font-weight="normal">broker on 1883</text>
+<text x="315.0" y="189.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="12" fill="#475569" text-anchor="start" font-weight="normal">topics unchanged</text>
+</g>
+<g transform="rotate(-0.70 647.5 150.0)">
+<rect x="545.0" y="96.0" width="205.0" height="108.0" fill="#dcfce7" fill-opacity="0.8"/>
+<polyline points="544.5,95.8 574.1,95.5 603.6,95.6 631.3,95.7 660.5,94.6 690.6,97.6 720.7,96.2 751.4,97.4" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="545.2,95.1 574.4,95.5 605.1,94.4 632.4,96.6 662.5,96.2 692.3,95.1 721.9,97.4 748.4,95.4" fill="none" stroke="#334155" stroke-width="1.045"/>
+<polyline points="751.6,94.5 750.8,131.9 751.5,167.7 751.4,202.8" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="751.7,95.7 748.9,131.5 750.4,166.4 749.6,202.3" fill="none" stroke="#334155" stroke-width="1.045"/>
+<polyline points="748.4,204.3 719.1,204.0 693.0,203.3 663.8,204.5 634.2,202.4 604.4,204.1 574.6,203.6 546.6,204.5" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="750.8,204.6 720.9,205.1 691.8,204.2 660.9,204.2 631.7,204.3 603.3,204.9 574.6,203.5 545.1,203.0" fill="none" stroke="#334155" stroke-width="1.045"/>
+<polyline points="546.5,202.9 546.6,167.1 544.9,133.4 544.5,96.0" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="543.8,205.6 546.6,166.9 543.7,131.9 545.1,96.9" fill="none" stroke="#334155" stroke-width="1.045"/>
+<text x="558.0" y="126.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="15" fill="#0f172a" text-anchor="start" font-weight="700">Axum backend</text>
+<text x="558.0" y="151.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="12" fill="#475569" text-anchor="start" font-weight="normal">subscribe + cache</text>
+<text x="558.0" y="173.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="12" fill="#475569" text-anchor="start" font-weight="normal">release build</text>
+</g>
+<g transform="rotate(1.60 871.0 210.0)">
+<rect x="800.0" y="162.0" width="142.0" height="96.0" fill="#f3e8ff" fill-opacity="0.8"/>
+<polyline points="799.8,161.3 829.8,161.9 855.4,162.8 883.8,161.0 912.2,162.4 943.2,162.4" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="799.1,163.2 829.7,161.4 856.0,162.6 886.8,163.4 914.9,162.7 941.1,162.4" fill="none" stroke="#334155" stroke-width="1.045"/>
+<polyline points="942.8,163.5 942.8,195.4 940.7,226.3 941.8,257.2" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="943.2,161.4 943.6,193.5 942.2,226.9 943.0,256.4" fill="none" stroke="#334155" stroke-width="1.045"/>
+<polyline points="941.3,258.0 913.8,257.9 885.5,258.0 856.9,257.0 827.1,257.2 801.0,256.4" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="941.5,257.7 913.8,257.8 886.4,259.5 857.0,257.0 829.7,259.2 799.9,259.0" fill="none" stroke="#334155" stroke-width="1.045"/>
+<polyline points="801.1,256.6 801.4,226.8 799.2,193.8 798.4,160.8" fill="none" stroke="#334155" stroke-width="1.9"/>
+<polyline points="800.5,258.9 798.9,226.7 799.6,194.2 801.1,161.1" fill="none" stroke="#334155" stroke-width="1.045"/>
+<text x="813.0" y="192.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="15" fill="#0f172a" text-anchor="start" font-weight="700">Leptos UI</text>
+<text x="813.0" y="217.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="12" fill="#475569" text-anchor="start" font-weight="normal">WASM pages</text>
+<text x="813.0" y="239.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="12" fill="#475569" text-anchor="start" font-weight="normal">WebSocket client</text>
+</g>
+<polyline points="236.7,205.2 269.4,186.5 302.6,164.9" fill="none" stroke="#f97316" stroke-width="2.1"/>
+<polyline points="235.7,206.6 268.8,184.7 304.4,166.9" fill="none" stroke="#f97316" stroke-width="1.1550000000000002"/>
+<polyline points="286.3,169.0 294.3,167.3 302.8,167.8" fill="none" stroke="#f97316" stroke-width="1.6"/>
+<polyline points="286.5,168.3 294.1,167.6 301.3,168.2" fill="none" stroke="#f97316" stroke-width="1"/>
+<polyline points="292.4,180.0 298.4,173.4 302.0,167.2" fill="none" stroke="#f97316" stroke-width="1.6"/>
+<polyline points="291.7,179.9 297.6,174.2 300.9,166.5" fill="none" stroke="#f97316" stroke-width="1"/>
+<text x="205.0" y="233.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="13" fill="#475569" text-anchor="start" font-weight="normal">rover/* telemetry</text>
+<polyline points="470.1,161.5 509.7,156.0 546.3,155.0" fill="none" stroke="#f97316" stroke-width="2.1"/>
+<polyline points="470.8,158.1 505.2,156.4 546.2,152.8" fill="none" stroke="#f97316" stroke-width="1.1550000000000002"/>
+<polyline points="530.4,149.8 536.6,152.8 544.2,154.4" fill="none" stroke="#f97316" stroke-width="1.6"/>
+<polyline points="528.8,149.6 536.5,152.0 545.6,154.7" fill="none" stroke="#f97316" stroke-width="1"/>
+<polyline points="530.5,162.5 538.8,156.9 546.0,154.4" fill="none" stroke="#f97316" stroke-width="1.6"/>
+<polyline points="529.6,162.6 537.3,157.2 544.8,154.2" fill="none" stroke="#f97316" stroke-width="1"/>
+<text x="470.0" y="205.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="13" fill="#475569" text-anchor="start" font-weight="normal">subscribe on 1883</text>
+<polyline points="747.7,153.1 774.5,177.9 798.3,197.1" fill="none" stroke="#f97316" stroke-width="2.1"/>
+<polyline points="748.7,156.2 773.3,178.2 800.8,197.3" fill="none" stroke="#f97316" stroke-width="1.1550000000000002"/>
+<polyline points="793.4,184.4 797.1,190.7 800.5,198.7" fill="none" stroke="#f97316" stroke-width="1.6"/>
+<polyline points="793.3,183.7 796.1,191.2 799.6,199.6" fill="none" stroke="#f97316" stroke-width="1"/>
+<polyline points="784.1,193.6 791.6,196.2 800.2,199.4" fill="none" stroke="#f97316" stroke-width="1.6"/>
+<polyline points="784.2,193.6 791.6,197.3 799.5,200.0" fill="none" stroke="#f97316" stroke-width="1"/>
+<text x="758.0" y="285.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="13" fill="#475569" text-anchor="start" font-weight="normal">WS  motor_update</text>
+<polyline points="871.6,260.3 870.9,274.4 872.7,287.8" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="871.5,259.3 871.0,272.7 871.0,287.1" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="871.5,313.3 872.1,326.6 872.2,340.0" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="872.0,312.7 871.1,326.1 872.6,339.0" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="871.9,366.5 871.0,380.6 872.4,393.7" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="871.9,367.0 872.8,380.4 871.7,394.2" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="871.2,420.3 858.9,420.5 847.6,419.7" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="872.3,420.1 858.7,420.1 847.6,420.0" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="823.7,420.8 810.8,419.4 797.6,420.5" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="823.3,418.9 809.6,420.9 797.2,420.3" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="773.8,420.9 759.9,421.0 749.4,419.0" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="774.0,420.7 760.3,421.0 748.4,419.9" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="723.2,420.7 712.5,419.7 698.8,419.3" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="723.1,419.4 711.0,420.8 698.7,419.3" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="675.6,419.8 663.0,419.4 650.0,419.5" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="674.8,419.1 662.2,419.6 649.0,420.7" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="650.0,420.0 650.6,407.6 649.6,393.8" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="650.3,420.5 651.0,407.4 650.8,394.1" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="650.4,367.8 650.2,354.3 650.7,340.4" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="649.5,367.7 649.2,354.7 649.7,342.0" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="649.1,314.8 651.1,301.3 649.7,289.5" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="650.9,315.0 651.0,302.6 650.1,287.9" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="648.9,262.9 650.1,250.2 651.0,236.6" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="650.5,262.6 650.1,250.2 650.6,235.9" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="649.1,209.6 651.0,223.0 650.2,235.4" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="649.8,208.9 650.8,222.4 650.8,235.8" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="649.3,262.7 649.8,275.2 649.0,289.3" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="651.0,262.0 650.7,276.6 650.5,288.7" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="650.5,315.0 649.7,327.5 649.3,342.0" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="650.0,315.6 650.2,329.0 650.4,340.4" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="650.6,368.4 650.2,380.2 649.4,393.2" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="649.2,368.2 648.9,381.5 649.6,393.7" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="650.2,419.0 636.7,420.4 625.6,419.8" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="650.3,420.5 637.7,420.5 625.6,419.4" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="599.7,419.2 585.9,419.3 573.6,420.2" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="599.5,421.0 588.0,420.8 575.1,420.4" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="548.9,419.8 536.1,420.5 522.9,420.4" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="548.9,419.4 536.8,420.6 523.7,420.0" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="497.8,419.6 485.1,419.5 474.2,420.4" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="498.7,420.6 486.1,420.8 473.8,419.2" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="447.5,420.8 436.0,419.4 423.8,420.2" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="449.1,420.2 436.3,420.6 422.9,419.1" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="398.0,420.8 385.6,420.2 372.0,419.7" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="399.0,419.7 386.5,420.7 374.0,420.1" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="348.9,420.4 334.9,419.4 322.9,420.9" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="348.4,419.9 336.5,419.2 323.7,420.8" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="298.5,419.6 286.5,420.8 273.1,420.4" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="298.6,420.0 286.4,420.8 273.8,420.3" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="247.5,419.4 234.6,420.8 222.5,419.5" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="249.0,419.8 235.5,419.2 222.5,419.7" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="197.7,420.8 186.3,420.9 173.0,420.0" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="198.9,421.0 186.5,419.7 173.0,420.8" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="147.6,419.1 148.1,407.6 146.9,395.7" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="148.7,419.9 148.3,408.3 147.4,395.5" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="147.0,370.1 147.9,358.4 148.3,344.4" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="147.1,370.6 148.0,358.1 148.9,345.2" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<polyline points="147.9,321.1 147.3,306.5 148.7,295.2" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+<polyline points="148.6,320.6 147.5,307.4 147.4,294.3" fill="none" stroke="#94a3b8" stroke-width="1"/>
+<text x="510.0" y="452.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="13" fill="#475569" text-anchor="middle" font-weight="normal">POST /api/motor  -&gt;  rover/*/command   (token guarded)</text>
+<text x="510.0" y="492.0" font-family="Comic Sans MS, Segoe Print, cursive" font-size="13" fill="#0f172a" text-anchor="middle" font-weight="normal">firmware unchanged, same topics and fields, no reflash</text>
+<text x="490.0" y="596.0" font-family="Segoe UI, Arial, sans-serif" font-size="19" fill="#1e293b" text-anchor="middle" font-weight="700">Data flow from boards to dashboard</text>
+</svg>
