@@ -22,7 +22,7 @@ pub const DEVICE_OFFLINE_TIMEOUT_S: i64 = 8;
 /// echoes are dropped by the `*/command` guard below, same as motor commands.
 /// `rover/lidar/servo` is the swing arm state: commanded angle and sweep
 /// flags, no measured angle because no encoder is fitted.
-const SUB_TOPICS: [&str; 9] = [
+const SUB_TOPICS: [&str; 12] = [
     "rover/motor/#",
     "rover/mid/#",
     "rover/calibration/status",
@@ -35,6 +35,11 @@ const SUB_TOPICS: [&str; 9] = [
     "rover/lidar/cloud",
     // OctoMap voxel centres: a lighter surface feed for the dashboard.
     "rover/lidar/display_cloud",
+    // Pi agent state: container running, mapping loop, USB presence.
+    "rover/lidar/service/status",
+    // Auto-scan state and one-shot "session saved" events.
+    "rover/scan/state",
+    "rover/scan/saved",
 ];
 
 /// The shared pieces the ingest loop needs. `AppState` (main.rs) builds one
@@ -54,6 +59,17 @@ pub struct Ctx {
     /// OctoMap voxel centres for the app display feed. Same frame shape as
     /// `lidar_cloud`, but much smaller; null until the bridge publishes one.
     pub lidar_display_cloud: Arc<tokio::sync::RwLock<Value>>,
+    /// Pi-side lidar agent status: container, mapping loop, USB presence.
+    pub lidar_service: Arc<tokio::sync::RwLock<Value>>,
+    /// Auto-scan state from the Pi sweep loop (retained).
+    pub scan_state: Arc<tokio::sync::RwLock<Value>>,
+    /// Scan history archive on this laptop.
+    pub scans: Arc<tokio::sync::RwLock<crate::scan_store::ScanStore>>,
+    /// Backend config, needed for the Pi HTTP token during scan sync.
+    pub cfg: Arc<tokio::sync::RwLock<crate::config::AppConfig>>,
+    /// Serializes Pi scan syncs; two overlapping fetches must not race on the
+    /// same temporary folder.
+    pub scan_sync_lock: Arc<tokio::sync::Mutex<()>>,
     /// Derived O2 filter for the ENV node. Brief std::sync lock, no await.
     pub o2: Arc<std::sync::Mutex<crate::o2_estimate::O2Estimator>>,
     /// Rolling ENV + IMU logs behind the Detailed charts and the Excel
@@ -110,6 +126,17 @@ impl MqttHandle {
         let text = payload.to_string();
         self.client
             .publish(topic, QoS::AtMostOnce, false, text)
+            .await
+            .is_ok()
+    }
+
+    /// Publish a retained setting, so a restarted Pi loop sees the last value.
+    pub async fn publish_retained(&self, topic: &str, payload: &Value) -> bool {
+        if !self.is_connected() {
+            return false;
+        }
+        self.client
+            .publish(topic, QoS::AtMostOnce, true, payload.to_string())
             .await
             .is_ok()
     }
@@ -281,6 +308,29 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
         return;
     }
 
+    if topic.starts_with("rover/lidar/service/status") {
+        *ctx.lidar_service.write().await = data.clone();
+        broadcast(ctx, tagged("lidar_service_update", data));
+        return;
+    }
+
+    // Auto-scan state from the Pi sweep loop. Retained, so a page that loads
+    // between edits still sees armed / scanning / paused.
+    if topic.starts_with("rover/scan/state") {
+        *ctx.scan_state.write().await = data.clone();
+        broadcast(ctx, tagged("scan_state_update", data));
+        return;
+    }
+
+    // A save finished on the Pi. Relay the event, then pull the bundle into
+    // the laptop archive in the background.
+    if topic.starts_with("rover/scan/saved") {
+        broadcast(ctx, tagged("scan_saved", data));
+        let c = ctx.clone();
+        tokio::spawn(async move { sync_scans(&c).await });
+        return;
+    }
+
     // ── Swing arm servo (ESP-2): state only. No angle encoder is fitted,
     // so cal_ok is always 0 and there is no stored reference to clear. ──
     if topic.starts_with("rover/lidar/servo") {
@@ -430,6 +480,31 @@ pub async fn status_value(ctx: &Ctx) -> Value {
 
 pub fn broadcast(ctx: &Ctx, payload: Value) {
     let _ = ctx.bcast.send(payload);
+}
+
+/// Pull any scan session the Pi has but this laptop does not. Called after a
+/// `rover/scan/saved` event and by the startup/periodic sync task.
+pub async fn sync_scans(ctx: &Ctx) {
+    let _guard = ctx.scan_sync_lock.lock().await;
+    let url = ctx
+        .lidar_service
+        .read()
+        .await
+        .get("http_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if url.is_empty() {
+        return;
+    }
+    let token = ctx.cfg.read().await.auth_token.clone();
+    match crate::scan_store::sync_from_pi(&ctx.scans, &url, &token).await {
+        Ok(_) => {
+            let list = ctx.scans.read().await.list();
+            broadcast(ctx, json!({"type": "scan_list_update", "scans": list}));
+        }
+        Err(e) => broadcast(ctx, json!({"type": "scan_sync_error", "message": e})),
+    }
 }
 
 /// Background loop: broadcast `device_status` only when the state flips.

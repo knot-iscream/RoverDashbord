@@ -98,6 +98,29 @@ async fn req(
     (status, json, headers)
 }
 
+async fn req_bytes(
+    router: axum::Router,
+    method: &str,
+    uri: &str,
+    token: Option<&str>,
+) -> (StatusCode, Vec<u8>, axum::http::HeaderMap) {
+    let mut builder = Request::builder().method(method).uri(uri);
+    if let Some(t) = token {
+        builder = builder.header("authorization", format!("Bearer {t}"));
+    }
+    let resp = router
+        .oneshot(builder.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = resp.status();
+    let headers = resp.headers().clone();
+    let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap()
+        .to_vec();
+    (status, bytes, headers)
+}
+
 #[tokio::test]
 async fn health_shape_and_public() {
     let (r, _g) = app().await;
@@ -557,6 +580,51 @@ async fn lidar_display_cloud_route_and_clear() {
 }
 
 #[tokio::test]
+async fn lidar_service_routes_report_status_and_require_token() {
+    let (state, dir) = common::test_state("api-lidar-service").await;
+    let _g = PathBufGuard(dir);
+    let r = digital_twin_dashboard::build_router(state.clone());
+    let (s, v, _) = req(r.clone(), "GET", "/api/lidar/service/status", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v, json!({"service": null}));
+    for action in ["start", "stop", "clear"] {
+        let path = format!("/api/lidar/service/{action}");
+        let (s, _, _) = req(r.clone(), "POST", &path, None, Some(json!({}))).await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+        let (s, v, _) = req(r.clone(), "POST", &path, Some(TEST_TOKEN), Some(json!({}))).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(v["sent"], false);
+        let expected = if action == "clear" {
+            "clear_map"
+        } else {
+            action
+        };
+        assert_eq!(v["action"], expected);
+    }
+    // Clear map also drops the backend caches, so a page reload cannot
+    // replay the old surface while the Pi resets OctoMap.
+    digital_twin_dashboard::mqtt::on_mqtt_message(
+        &state.ctx(),
+        "rover/lidar/display_cloud",
+        json!({"count": 1, "points": [[0.0, 0.0, 0.0]]}),
+    )
+    .await;
+    let (_, v, _) = req(r.clone(), "GET", "/api/lidar/display_cloud", None, None).await;
+    assert_eq!(v["cloud"]["count"], 1);
+    let (s, _, _) = req(
+        r.clone(),
+        "POST",
+        "/api/lidar/service/clear",
+        Some(TEST_TOKEN),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, v, _) = req(r, "GET", "/api/lidar/display_cloud", None, None).await;
+    assert_eq!(v, json!({"cloud": null}));
+}
+
+#[tokio::test]
 async fn lidar_tilt_and_clear_require_the_token_and_report_offline() {
     let (state, dir) = common::test_state("api-lidar-clear").await;
     let _g = PathBufGuard(dir);
@@ -603,6 +671,143 @@ async fn lidar_tilt_and_clear_require_the_token_and_report_offline() {
     let (s, v, _) = req(r, "GET", "/api/lidar/cloud", None, None).await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(v, json!({"cloud": null}));
+}
+
+#[tokio::test]
+async fn scan_archive_list_cloud_download_label_delete() {
+    let (state, dir) = common::test_state("api-scans").await;
+    let _g = PathBufGuard(dir);
+    let r = digital_twin_dashboard::build_router(state.clone());
+    let (s, v, _) = req(r.clone(), "GET", "/api/scans", None, None).await;
+    assert_eq!((s, v), (StatusCode::OK, json!({"scans": []})));
+    let (s, v, _) = req(r.clone(), "GET", "/api/lidar/scan_state", None, None).await;
+    assert_eq!((s, v), (StatusCode::OK, json!({"state": null})));
+
+    // Seed one saved session in the laptop archive.
+    let id = "20261125-190000";
+    let scan_dir = state.scans.read().await.root().join(id);
+    std::fs::create_dir_all(&scan_dir).unwrap();
+    std::fs::write(
+        scan_dir.join("meta.json"),
+        json!({"id": id, "start": "x", "sweeps": 3, "partial": false, "points": 2}).to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        scan_dir.join("display.json"),
+        json!({"count": 2, "rings": 0, "points": [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]}).to_string(),
+    )
+    .unwrap();
+
+    let (s, v, _) = req(r.clone(), "GET", "/api/scans", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["scans"][0]["id"], id);
+    assert_eq!(v["scans"][0]["sweeps"], 3);
+    let (s, v, _) = req(r.clone(), "GET", &format!("/api/scans/{id}"), None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["scan"]["points"], 2);
+    let (s, v, _) = req(
+        r.clone(),
+        "GET",
+        &format!("/api/scans/{id}/cloud"),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["cloud"]["points"][1][2], 0.6);
+
+    let (s, bytes, headers) =
+        req_bytes(r.clone(), "GET", &format!("/api/scans/{id}/download"), None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(headers["content-type"], "application/zip");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    assert!(zip.by_name("meta.json").is_ok());
+    assert!(zip.by_name("display.json").is_ok());
+
+    let (s, _, _) = req(
+        r.clone(),
+        "POST",
+        &format!("/api/scans/{id}/label"),
+        None,
+        Some(json!({"label": "Living room"})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, v, _) = req(
+        r.clone(),
+        "POST",
+        &format!("/api/scans/{id}/label"),
+        Some(TEST_TOKEN),
+        Some(json!({"label": "  Living room  "})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["scan"]["label"], "Living room");
+    let (_, v, _) = req(r.clone(), "GET", "/api/scans", None, None).await;
+    assert_eq!(v["scans"][0]["label"], "Living room");
+
+    let (s, _, _) = req(r.clone(), "DELETE", &format!("/api/scans/{id}"), None, None).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, _, _) = req(
+        r.clone(),
+        "DELETE",
+        &format!("/api/scans/{id}"),
+        Some(TEST_TOKEN),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let (_, v, _) = req(r, "GET", "/api/scans", None, None).await;
+    assert_eq!(v, json!({"scans": []}));
+}
+
+#[tokio::test]
+async fn scan_missing_routes_and_sync_without_pi() {
+    let (state, dir) = common::test_state("api-scans-missing").await;
+    let _g = PathBufGuard(dir);
+    let r = digital_twin_dashboard::build_router(state.clone());
+    for path in [
+        "/api/scans/nope",
+        "/api/scans/nope/cloud",
+        "/api/scans/nope/download",
+        "/api/scans/download_all",
+    ] {
+        let (s, _, _) = req(r.clone(), "GET", path, None, None).await;
+        assert_eq!(s, StatusCode::NOT_FOUND, "{path}");
+    }
+    let (s, _, _) = req(r.clone(), "POST", "/api/scans/sync", None, Some(json!({}))).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, v, _) = req(
+        r.clone(),
+        "POST",
+        "/api/scans/sync",
+        Some(TEST_TOKEN),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_GATEWAY);
+    assert_eq!(v["status"], "error");
+
+    let (s, _, _) = req(
+        r.clone(),
+        "POST",
+        "/api/lidar/auto",
+        None,
+        Some(json!({"enabled": true})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, v, _) = req(
+        r,
+        "POST",
+        "/api/lidar/auto",
+        Some(TEST_TOKEN),
+        Some(json!({"enabled": true})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["sent"], false);
+    assert_eq!(v["enabled"], true);
 }
 
 #[tokio::test]

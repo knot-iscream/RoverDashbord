@@ -202,3 +202,41 @@ async fn lidar_display_cloud_replay_delivers_the_surface_points() {
     assert_eq!(next_json(&mut ws).await["type"], "calibration_status");
     assert_eq!(next_json(&mut ws).await["type"], "device_status");
 }
+
+#[tokio::test]
+async fn scan_state_replay_delivers_auto_mode() {
+    let (url, state, _g) = serve("ws-scan-state").await;
+    digital_twin_dashboard::mqtt::on_mqtt_message(
+        &state.ctx(),
+        "rover/scan/state",
+        json!({"auto": true, "phase": "armed", "message": "Waiting for stop"}),
+    )
+    .await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("{url}?token={TEST_TOKEN}"))
+        .await
+        .unwrap();
+    let frame = next_json(&mut ws).await;
+    assert_eq!(frame["type"], "scan_state_update");
+    assert_eq!(frame["auto"], true);
+    assert_eq!(next_json(&mut ws).await["type"], "calibration_status");
+    assert_eq!(next_json(&mut ws).await["type"], "device_status");
+}
+
+#[tokio::test]
+async fn lidar_service_status_replay_delivers_agent_state() {
+    let (url, state, _g) = serve("ws-lidar-service").await;
+    digital_twin_dashboard::mqtt::on_mqtt_message(
+        &state.ctx(),
+        "rover/lidar/service/status",
+        json!({"container": "running", "mapping": true, "message": "scan running"}),
+    )
+    .await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(format!("{url}?token={TEST_TOKEN}"))
+        .await
+        .unwrap();
+    let frame = next_json(&mut ws).await;
+    assert_eq!(frame["type"], "lidar_service_update");
+    assert_eq!(frame["mapping"], true);
+    assert_eq!(next_json(&mut ws).await["type"], "calibration_status");
+    assert_eq!(next_json(&mut ws).await["type"], "device_status");
+}

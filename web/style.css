@@ -816,6 +816,98 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 }
 .lidar-canvas-big:active { cursor: grabbing; }
 .lidar-controls-modal { position: static; padding-top: 12px; }
+.history-modal {
+  position: fixed; inset: 0;
+  z-index: 2100;
+  align-items: center; justify-content: center;
+  padding: 24px;
+  background: rgba(0,0,0,0.78);
+  backdrop-filter: blur(6px);
+}
+.history-card {
+  display: flex; flex-direction: column;
+  width: min(96vw, 1080px);
+  height: min(90vh, 700px);
+  padding: 14px;
+  border: 1px solid rgba(249,115,22,0.35);
+  border-radius: 14px;
+  background: #0a0a0c;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.7);
+}
+.history-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; padding: 0 4px 10px;
+}
+.history-title { margin: 0; font-size: 16px; font-weight: 800; color: #fafafa; }
+.history-sub { font-size: 11px; color: var(--gray-500); }
+.history-head-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.history-body {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+.history-list {
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 6px;
+  padding-right: 4px;
+}
+.history-row {
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  background: rgba(255,255,255,0.02);
+}
+.history-row:hover { border-color: rgba(249,115,22,0.45); }
+.history-row.active {
+  border-color: rgba(249,115,22,0.8);
+  background: rgba(249,115,22,0.08);
+}
+.history-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.history-date { font-size: 11px; color: var(--gray-400); font-variant-numeric: tabular-nums; }
+.history-badge {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: #f97316; border: 1px solid rgba(249,115,22,0.5);
+  border-radius: 999px; padding: 1px 6px;
+}
+.history-label { font-size: 12px; font-weight: 600; color: #fafafa; margin-top: 2px; }
+.history-stats { font-size: 10px; color: var(--gray-500); margin-top: 1px; }
+.history-empty { color: var(--gray-500); font-size: 12px; padding: 18px 10px; text-align: center; }
+.history-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.history-preview {
+  width: 100%; flex: 1; min-height: 220px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 8px;
+  background: #08080a;
+}
+.history-meta { font-size: 11px; color: var(--gray-400); min-height: 16px; }
+.history-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 760px) {
+  .history-body { grid-template-columns: 1fr; }
+  .history-list { max-height: 180px; }
+  .history-preview { min-height: 180px; }
+}
+.lidar-modal, .history-modal {
+  animation: overlay-fade 160ms ease-out;
+}
+.lidar-modal-card, .history-card {
+  animation: card-pop 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes overlay-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes card-pop {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lidar-modal, .history-modal, .lidar-modal-card, .history-card {
+    animation: none;
+  }
+}
 .camera-placeholder {
   text-align: center;
   color: var(--gray-500);

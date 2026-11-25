@@ -173,6 +173,16 @@ pub async fn post_json(path: &str, body: serde_json::Value) -> Option<serde_json
     resp.json::<serde_json::Value>().await.ok()
 }
 
+/// DELETE an API path, parsed response or `None` on any failure.
+pub async fn delete_json(path: &str) -> Option<serde_json::Value> {
+    let url = format!("{}{path}", api_base());
+    let resp = gloo_net::http::Request::delete(&url).send().await.ok()?;
+    if !resp.ok() {
+        return None;
+    }
+    resp.json::<serde_json::Value>().await.ok()
+}
+
 /// Host part of `api_base()`, used as a fallback when `/api/config` is down.
 fn api_host() -> String {
     let base = api_base();
@@ -196,6 +206,19 @@ pub async fn camera_url() -> String {
         .filter(|h| !h.is_empty())
         .unwrap_or_else(api_host);
     format!("http://{host}:8081/stream.mjpg")
+}
+
+/// Age of the newest frame from `rover-cam`'s `/status` endpoint, in ms.
+/// `None` means the service did not answer, `-1` that it has not produced a
+/// frame yet. An MJPEG `<img>` reports neither load nor error per frame, so
+/// this is the only way the page can tell a live stream from a frozen one.
+pub async fn camera_age_ms(status_url: &str) -> Option<i64> {
+    let resp = gloo_net::http::Request::get(status_url).send().await.ok()?;
+    if !resp.ok() {
+        return None;
+    }
+    let value: serde_json::Value = resp.json().await.ok()?;
+    value.get("age_ms").and_then(|x| x.as_i64())
 }
 
 /// POST `/api/motor/control {motor,speed}`. The response is ignored, exactly

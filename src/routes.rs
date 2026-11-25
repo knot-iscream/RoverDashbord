@@ -100,6 +100,246 @@ pub async fn lidar_display_cloud(State(s): State<AppState>) -> Json<Value> {
     Json(json!({"cloud": s.lidar_display_cloud.read().await.clone()}))
 }
 
+/// Current Pi lidar-agent state, cached from `rover/lidar/service/status`.
+pub async fn lidar_service_status(State(s): State<AppState>) -> Json<Value> {
+    Json(json!({"service": s.lidar_service.read().await.clone()}))
+}
+
+async fn lidar_service_send(s: &AppState, action: &str) -> bool {
+    let token = s.cfg.read().await.auth_token.clone();
+    s.mqtt
+        .read()
+        .await
+        .handle
+        .publish(
+            "rover/lidar/service/command",
+            &json!({"action": action, "token": token}),
+        )
+        .await
+}
+
+async fn lidar_service_action(s: &AppState, action: &str) -> Json<Value> {
+    let sent = lidar_service_send(s, action).await;
+    Json(json!({
+        "status": if sent { "ok" } else { "error" },
+        "action": action,
+        "sent": sent,
+        "mqtt_connected": s.mqtt.read().await.handle.is_connected(),
+    }))
+}
+
+pub async fn lidar_service_start(State(s): State<AppState>) -> Json<Value> {
+    let auto = lidar_auto_set(&s, true).await;
+    let sent = lidar_service_send(&s, "start").await;
+    Json(json!({
+        "status": if sent { "ok" } else { "error" },
+        "action": "start",
+        "sent": sent,
+        "auto": true,
+        "auto_sent": auto,
+        "mqtt_connected": s.mqtt.read().await.handle.is_connected(),
+    }))
+}
+
+pub async fn lidar_service_stop(State(s): State<AppState>) -> Json<Value> {
+    // Turn auto off before the stop command, so a still-running loop sees it
+    // and saves its session before the agent kills the process.
+    let auto = lidar_auto_set(&s, false).await;
+    let sent = lidar_service_send(&s, "stop").await;
+    Json(json!({
+        "status": if sent { "ok" } else { "error" },
+        "action": "stop",
+        "sent": sent,
+        "auto": false,
+        "auto_sent": auto,
+        "mqtt_connected": s.mqtt.read().await.handle.is_connected(),
+    }))
+}
+
+pub async fn lidar_service_clear(State(s): State<AppState>) -> Json<Value> {
+    // Clear the app-side caches first, so a reconnect cannot replay the old
+    // map while the Pi is still resetting OctoMap.
+    clear_lidar_caches(&s).await;
+    lidar_service_action(&s, "clear_map").await
+}
+
+/// Auto-scan state from the Pi sweep loop (retained on `rover/scan/state`).
+pub async fn scan_state_route(State(s): State<AppState>) -> Json<Value> {
+    Json(json!({"state": s.scan_state.read().await.clone()}))
+}
+
+/// One entry per parked scan session, newest first.
+pub async fn scans_list(State(s): State<AppState>) -> Json<Value> {
+    Json(json!({"scans": s.scans.read().await.list()}))
+}
+
+fn not_found(msg: &str) -> (StatusCode, Json<Value>) {
+    (StatusCode::NOT_FOUND, Json(json!({"error": msg})))
+}
+
+pub async fn scan_meta(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    match s.scans.read().await.meta(&id) {
+        Some(meta) => Ok(Json(json!({"scan": meta}))),
+        None => Err(not_found("scan not found")),
+    }
+}
+
+pub async fn scan_cloud(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    match s.scans.read().await.display(&id) {
+        Some(cloud) => Ok(Json(json!({"cloud": cloud}))),
+        None => Err(not_found("scan cloud not found")),
+    }
+}
+
+fn zip_response(name: &str, bytes: Vec<u8>) -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/zip")
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{name}\""),
+        )
+        .body(Body::from(bytes))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+pub async fn scan_download(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    match s.scans.read().await.zip_one(&id) {
+        Ok(bytes) => Ok(zip_response(&format!("{id}.zip"), bytes)),
+        Err(e) => Err(not_found(&e)),
+    }
+}
+
+pub async fn scans_download_all(
+    State(s): State<AppState>,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let store = s.scans.read().await;
+    if store.list().is_empty() {
+        return Err(not_found("no scans yet"));
+    }
+    match store.zip_all() {
+        Ok(bytes) => Ok(zip_response("rover-scans.zip", bytes)),
+        Err(e) => Err(not_found(&e)),
+    }
+}
+
+pub async fn scan_delete(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Delete on the Pi first, so the next sync cannot bring the scan back.
+    let (url, token) = pi_conn(&s).await;
+    if !url.is_empty() {
+        if let Err(e) = crate::scan_store::delete_on_pi(&url, &token, &id).await {
+            return Err((
+                StatusCode::BAD_GATEWAY,
+                Json(json!({"status": "error", "error": e})),
+            ));
+        }
+    }
+    if let Err(e) = s.scans.write().await.delete(&id) {
+        return Err(not_found(&e));
+    }
+    let list = s.scans.read().await.list();
+    broadcast(&s.ctx(), json!({"type": "scan_list_update", "scans": list}));
+    Ok(Json(json!({"status": "ok", "id": id})))
+}
+
+#[derive(Deserialize)]
+pub struct ScanLabelBody {
+    #[serde(default)]
+    pub label: String,
+}
+
+pub async fn scan_label(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<ScanLabelBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let meta = s
+        .scans
+        .write()
+        .await
+        .set_label(&id, &body.label)
+        .map_err(|e| not_found(&e))?;
+    let list = s.scans.read().await.list();
+    broadcast(&s.ctx(), json!({"type": "scan_list_update", "scans": list}));
+    Ok(Json(json!({"status": "ok", "scan": meta})))
+}
+
+async fn pi_conn(s: &AppState) -> (String, String) {
+    let url = s
+        .lidar_service
+        .read()
+        .await
+        .get("http_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let token = s.cfg.read().await.auth_token.clone();
+    (url, token)
+}
+
+pub async fn scan_sync(
+    State(s): State<AppState>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let (url, token) = pi_conn(&s).await;
+    let _guard = s.scan_sync_lock.lock().await;
+    match crate::scan_store::sync_from_pi(&s.scans, &url, &token).await {
+        Ok(fetched) => {
+            let list = s.scans.read().await.list();
+            broadcast(&s.ctx(), json!({"type": "scan_list_update", "scans": list}));
+            Ok(Json(json!({
+                "status": "ok",
+                "fetched": fetched,
+                "scans": list,
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"status": "error", "error": e})),
+        )),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct AutoScanBody {
+    pub enabled: bool,
+}
+
+async fn lidar_auto_set(s: &AppState, enabled: bool) -> bool {
+    s.mqtt
+        .read()
+        .await
+        .handle
+        .publish_retained("rover/lidar/auto_scan", &json!({"enabled": enabled}))
+        .await
+}
+
+pub async fn lidar_auto(State(s): State<AppState>, Json(body): Json<AutoScanBody>) -> Json<Value> {
+    // Auto is the master switch: on starts the service, off stops it fully.
+    let auto_sent = lidar_auto_set(&s, body.enabled).await;
+    let action = if body.enabled { "start" } else { "stop" };
+    let sent = lidar_service_send(&s, action).await;
+    Json(json!({
+        "status": if auto_sent && sent { "ok" } else { "error" },
+        "enabled": body.enabled,
+        "sent": auto_sent,
+        "action": action,
+        "action_sent": sent,
+        "mqtt_connected": s.mqtt.read().await.handle.is_connected(),
+    }))
+}
+
 /// Manual tilt for the ROS pipeline. The bracket must be moved by hand to
 /// match this angle until the servo/IMU is wired. The ROS node subscribes to
 /// the same topic, so the point cloud gets a real pitch instead of z = 0.
@@ -126,29 +366,7 @@ pub async fn lidar_tilt(State(s): State<AppState>, Json(body): Json<Value>) -> J
 
 /// Clear the ROS-side accumulated rings, so the next sweep starts clean.
 pub async fn lidar_cloud_clear(State(s): State<AppState>) -> Json<Value> {
-    // Clear the ROS rings and this backend's cached frame, then tell every
-    // connected page to drop its copy. Without the local cache reset, a page
-    // reconnect replays the old cloud straight back onto the cleared canvas.
-    *s.lidar_cloud.write().await = Value::Null;
-    *s.lidar_display_cloud.write().await = Value::Null;
-    broadcast(
-        &s.ctx(),
-        json!({
-            "type": "lidar_cloud_update",
-            "count": 0,
-            "rings": 0,
-            "points": []
-        }),
-    );
-    broadcast(
-        &s.ctx(),
-        json!({
-            "type": "lidar_display_update",
-            "count": 0,
-            "rings": 0,
-            "points": []
-        }),
-    );
+    clear_lidar_caches(&s).await;
     let sent = s
         .mqtt
         .read()
@@ -161,6 +379,24 @@ pub async fn lidar_cloud_clear(State(s): State<AppState>) -> Json<Value> {
         "sent": sent,
         "mqtt_connected": s.mqtt.read().await.handle.is_connected(),
     }))
+}
+
+/// Drop both cached clouds and tell every page to do the same. Without the
+/// local reset, a reconnect replays the old cloud onto a cleared canvas.
+async fn clear_lidar_caches(s: &AppState) {
+    *s.lidar_cloud.write().await = Value::Null;
+    *s.lidar_display_cloud.write().await = Value::Null;
+    for kind in ["lidar_cloud_update", "lidar_display_update"] {
+        broadcast(
+            &s.ctx(),
+            json!({
+                "type": kind,
+                "count": 0,
+                "rings": 0,
+                "points": []
+            }),
+        );
+    }
 }
 
 fn coerce_motor(v: Option<&Value>) -> i64 {

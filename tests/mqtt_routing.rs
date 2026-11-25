@@ -450,6 +450,47 @@ async fn lidar_cloud_caches_without_ws_fanout_and_display_relays() {
 }
 
 #[tokio::test]
+async fn lidar_service_status_relays_as_service_update() {
+    let mut f = common::fixture("mqtt-lidar-service");
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/lidar/service/status",
+        json!({"container": "running", "mapping": true, "usb": true}),
+    )
+    .await;
+    assert_eq!(f.lidar_service.read().await["container"], "running");
+    let d = common::drain(&mut f.rx);
+    assert!(d.iter().any(|m| m["type"] == "lidar_service_update"));
+    assert!(f.data.read().await.latest.is_empty());
+    std::fs::remove_dir_all(&f.dir).ok();
+}
+
+#[tokio::test]
+async fn auto_scan_state_and_saved_frames_relay() {
+    let mut f = common::fixture("mqtt-scan-state");
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/scan/state",
+        json!({"auto": true, "phase": "scanning", "session": "20261125-190000"}),
+    )
+    .await;
+    assert_eq!(f.scan_state.read().await["phase"], "scanning");
+    let d = common::drain(&mut f.rx);
+    assert!(d.iter().any(|m| m["type"] == "scan_state_update"));
+
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/scan/saved",
+        json!({"id": "20261125-190000", "points": 10}),
+    )
+    .await;
+    let d = common::drain(&mut f.rx);
+    assert!(d.iter().any(|m| m["type"] == "scan_saved"));
+    assert!(f.data.read().await.latest.is_empty());
+    std::fs::remove_dir_all(&f.dir).ok();
+}
+
+#[tokio::test]
 async fn servo_frames_relay_as_commanded_angle_only() {
     let mut f = common::fixture("mqtt-servo");
     // No encoder is fitted: the frame carries the commanded angle and the

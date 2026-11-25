@@ -12,7 +12,8 @@ from sensor_msgs.msg import PointCloud2
 from sensor_msgs import point_cloud2
 import paho.mqtt.client as mqtt
 
-MAX_POINTS = 30000
+from scan_common import bucket_points
+
 PUBLISH_EVERY_S = 1.0
 
 
@@ -29,15 +30,11 @@ def main():
         now = time.monotonic()
         if now - last_publish < PUBLISH_EVERY_S:
             return
-        pts = [
-            [round(p[0], 3), round(p[1], 3), round(p[2], 3)]
-            for p in point_cloud2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True)
-        ]
+        pts = bucket_points(
+            point_cloud2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True)
+        )
         if not pts:
             return
-        if len(pts) > MAX_POINTS:
-            step = len(pts) // MAX_POINTS + 1
-            pts = pts[::step][:MAX_POINTS]
         last_publish = now
         payload = {"count": len(pts), "rings": 0, "points": pts}
         client.publish("rover/lidar/display_cloud", json.dumps(payload))

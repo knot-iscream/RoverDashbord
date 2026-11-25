@@ -19,11 +19,16 @@ SESSION.md
 SESSION-TODO.md
 AGENTS.md
 
+# Python bytecode from the Pi helper scripts
+__pycache__/
+*.pyc
+
 # Runtime state - created on boot / via the Setup page
 rover_config.json
 calibration_baseline.json
 sensor_baseline.json
 history/
+scans/
 Rover.log
 Rover-opener.log
 *.log
@@ -43,6 +48,10 @@ opencode.json
 
 # Wiring PDF generator: kept on this PC only, the PDF itself is tracked
 /tools/wiring_pdf.py
+
+# Generated results chapter PDF and its temporary build file
+/docs/RESULTS-DRAFT.pdf
+/docs/.RESULTS-DRAFT.build.html
 
 # Editor / OS
 .vscode/

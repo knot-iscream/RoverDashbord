@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-serial \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install paho-mqtt
+RUN pip3 install paho-mqtt pyserial
 
 WORKDIR /root/rover-ros
 COPY scripts/ /root/rover-ros/scripts/

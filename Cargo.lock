@@ -1109,6 +1109,7 @@ dependencies = [
  "futures-util",
  "quick-xml 0.31.0",
  "rand 0.8.8",
+ "reqwest",
  "rumqttc",
  "rust_xlsxwriter",
  "serde",

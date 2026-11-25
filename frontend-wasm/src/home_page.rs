@@ -17,7 +17,8 @@ use web_sys::Element;
 use crate::env_ui;
 use crate::shell::app_shell;
 use crate::ws::{
-    camera_url, fetch_device_online, get_json, non_reactive, now_ms, post_json, ws_url,
+    camera_age_ms, camera_url, delete_json, fetch_device_online, get_json, non_reactive, now_ms,
+    post_json, ws_url,
 };
 
 const LABELS: [&str; 4] = ["FL", "FR", "RL", "RR"];
@@ -219,6 +220,8 @@ struct HomeCtx {
     lidar_cloud: RwSignal<serde_json::Value>,
     /// Lighter OctoMap surface feed from `rover/lidar/display_cloud`.
     lidar_display_cloud: RwSignal<serde_json::Value>,
+    /// Pi agent state from `rover/lidar/service/status` (retained).
+    lidar_service: RwSignal<serde_json::Value>,
     cloud_seen: RwSignal<f64>,
     cloud_stale: RwSignal<bool>,
     /// Manually stacked rings for the 3D view: (pitch_deg, points).
@@ -235,6 +238,18 @@ struct HomeCtx {
     lidar_full: RwSignal<bool>,
     /// Short status line under the LiDAR controls (capture, clear, reset).
     lidar_notice: RwSignal<String>,
+    /// Auto-scan state from the Pi sweep loop.
+    scan_state: RwSignal<serde_json::Value>,
+    /// Scan history list, newest first.
+    scans: RwSignal<Vec<serde_json::Value>>,
+    scan_open: RwSignal<bool>,
+    scan_sel: RwSignal<String>,
+    scan_cloud: RwSignal<serde_json::Value>,
+    /// Non-null while the 3D canvas shows a saved scan instead of live data.
+    history_cloud: RwSignal<serde_json::Value>,
+    history_title: RwSignal<String>,
+    scan_canvas: NodeRef<leptos::html::Canvas>,
+    lidar_modal: NodeRef<leptos::html::Div>,
     hud: NodeRef<leptos::html::Div>,
     lidar_canvas: NodeRef<leptos::html::Canvas>,
     lidar_canvas_big: NodeRef<leptos::html::Canvas>,
@@ -407,7 +422,13 @@ fn paint_lidar_3d(
 ) {
     let rings = ctx.lidar_rings.get();
     let raw_cloud = ctx.lidar_cloud.get();
-    let display_cloud = ctx.lidar_display_cloud.get();
+    let history = ctx.history_cloud.get();
+    let is_history = !history.is_null();
+    let display_cloud = if is_history {
+        history
+    } else {
+        ctx.lidar_display_cloud.get()
+    };
     let has_display = display_cloud
         .get("points")
         .and_then(|p| p.as_array())
@@ -497,7 +518,7 @@ fn paint_lidar_3d(
         // The accumulated cloud can reach 100k points. Draw a stride-limited
         // sample so the canvas stays responsive; the label keeps the true
         // count and ring count from the full frame.
-        let stride = (cloud_count / 20000).max(1);
+        let stride = (cloud_count / 12000).max(1);
         for (i, p) in ps.iter().enumerate() {
             if i % stride != 0 {
                 continue;
@@ -548,9 +569,10 @@ fn paint_lidar_3d(
             }
         }
         // Surface feed has no rings. Connect occupied OctoMap voxels that are
-        // spatial neighbours on the 5 cm grid, so furniture gets real edges.
+        // spatial neighbours on the 10 cm display grid, so furniture gets
+        // real edges. The ROS feed is already bucketed at the same size.
         if has_display {
-            const GRID: f64 = 0.05;
+            const GRID: f64 = 0.1;
             let mut occupied = HashSet::new();
             if let Some(ps) = cloud_pts {
                 for p in ps {
@@ -601,11 +623,11 @@ fn paint_lidar_3d(
                         g.line_to(b.0, b.1);
                         g.stroke();
                         drawn += 1;
-                        if drawn > 30000 {
+                        if drawn > 12000 {
                             break;
                         }
                     }
-                    if drawn > 30000 {
+                    if drawn > 12000 {
                         break;
                     }
                 }
@@ -655,7 +677,9 @@ fn paint_lidar_3d(
             .ok();
     }
     g.set_fill_style_str("rgba(255,255,255,0.65)");
-    let label = if cloud_count > 0 {
+    let label = if is_history {
+        format!("HISTORY - {} pts - press Live to return", cloud_count)
+    } else if cloud_count > 0 {
         if ctx.cloud_stale.get() {
             format!(
                 "SAVED SCAN - {} pts / {} rings - start rover-ros for live",
@@ -679,6 +703,196 @@ fn paint_lidar_3d(
         )
     };
     g.fill_text(&label, 10.0, cy + rmax * 0.55 + 16.0).ok();
+}
+
+/// Tiny top-down preview for the history popup. The full 3D canvas is reused
+/// only when the user opens a scan; this stays cheap for a list of sessions.
+fn paint_scan_preview(ctx: &HomeCtx) {
+    let Some(canvas) = ctx.scan_canvas.get() else {
+        return;
+    };
+    let Ok(Some(obj)) = canvas.get_context("2d") else {
+        return;
+    };
+    let Ok(g) = obj.dyn_into::<web_sys::CanvasRenderingContext2d>() else {
+        return;
+    };
+    let w = canvas.client_width() as f64;
+    let h = canvas.client_height() as f64;
+    if w < 2.0 || h < 2.0 {
+        return;
+    }
+    let dpr = web_sys::window()
+        .map(|w| w.device_pixel_ratio())
+        .unwrap_or(1.0)
+        .clamp(1.0, 2.0);
+    canvas.set_width((w * dpr) as u32);
+    canvas.set_height((h * dpr) as u32);
+    g.set_transform(dpr, 0.0, 0.0, dpr, 0.0, 0.0).ok();
+    g.set_fill_style_str("#08080a");
+    g.fill_rect(0.0, 0.0, w, h);
+
+    let cloud = ctx.scan_cloud.get();
+    let mut pts = Vec::new();
+    if let Some(list) = cloud.get("points").and_then(|p| p.as_array()) {
+        for p in list {
+            let (Some(x), Some(y), Some(z)) = (
+                p.get(0).and_then(|v| v.as_f64()),
+                p.get(1).and_then(|v| v.as_f64()),
+                p.get(2).and_then(|v| v.as_f64()),
+            ) else {
+                continue;
+            };
+            pts.push((x, y, z));
+        }
+    }
+    if pts.is_empty() {
+        g.set_fill_style_str("rgba(255,255,255,0.55)");
+        g.set_font("11px sans-serif");
+        g.fill_text("Select a scan to preview it", 10.0, 22.0).ok();
+        return;
+    }
+
+    let (mut minx, mut maxx) = (f64::MAX, f64::MIN);
+    let (mut miny, mut maxy) = (f64::MAX, f64::MIN);
+    for (x, y, _) in &pts {
+        minx = minx.min(*x);
+        maxx = maxx.max(*x);
+        miny = miny.min(*y);
+        maxy = maxy.max(*y);
+    }
+    let cx = (minx + maxx) / 2.0;
+    let cy = (miny + maxy) / 2.0;
+    let span = (maxx - minx).max(maxy - miny).max(0.5);
+    let scale = (w.min(h) - 26.0) / span;
+
+    g.set_stroke_style_str("rgba(255,255,255,0.07)");
+    g.set_line_width(1.0);
+    for i in 0..=4 {
+        let t = i as f64 / 4.0;
+        let x = 12.0 + t * (w - 24.0);
+        let y = 12.0 + t * (h - 24.0);
+        g.begin_path();
+        g.move_to(x, 12.0);
+        g.line_to(x, h - 12.0);
+        g.stroke();
+        g.begin_path();
+        g.move_to(12.0, y);
+        g.line_to(w - 12.0, y);
+        g.stroke();
+    }
+
+    let range_max = pts
+        .iter()
+        .map(|(x, y, z)| (x * x + y * y + z * z).sqrt())
+        .fold(1.0f64, f64::max)
+        .clamp(1.0, 6.0);
+    for (x, y, z) in &pts {
+        let sx = w / 2.0 + (x - cx) * scale;
+        let sy = h / 2.0 - (y - cy) * scale;
+        let range = (x * x + y * y + z * z).sqrt();
+        let t = (range / range_max).clamp(0.0, 1.0);
+        let hue = 28.0 + t * 177.0;
+        let light = 58.0 - t * 20.0;
+        g.set_fill_style_str(&format!("hsla({hue:.0},95%,{light:.0}%,0.95)"));
+        g.begin_path();
+        g.arc(sx, sy, 1.6, 0.0, std::f64::consts::PI * 2.0).ok();
+        g.fill();
+    }
+    g.set_fill_style_str("rgba(255,255,255,0.55)");
+    g.set_font("10px sans-serif");
+    g.fill_text(&format!("{} pts - top view", pts.len()), 8.0, h - 6.0)
+        .ok();
+}
+
+fn scan_running(ctx: &HomeCtx) -> bool {
+    ctx.lidar_service
+        .get()
+        .get("mapping")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+fn scan_auto(ctx: &HomeCtx) -> bool {
+    scan_running(ctx)
+        && ctx
+            .scan_state
+            .get()
+            .get("auto")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true)
+}
+
+/// `2026-11-25T18:37:05+06:00` -> `2026-11-25 18:37`. Falls back to the id.
+fn scan_time(scan: &serde_json::Value) -> String {
+    let raw = scan.get("start").and_then(|v| v.as_str()).unwrap_or("");
+    if raw.len() >= 16 {
+        format!("{} {}", &raw[0..10], &raw[11..16])
+    } else {
+        scan.get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?")
+            .to_string()
+    }
+}
+
+/// Set a short-lived notice, then let the scan-state message show again.
+fn set_notice_ttl(ctx: HomeCtx, msg: String, ms: u32) {
+    ctx.lidar_notice.set(msg.clone());
+    wasm_bindgen_futures::spawn_local(async move {
+        gloo_timers::future::TimeoutFuture::new(ms).await;
+        if ctx.lidar_notice.get() == msg {
+            ctx.lidar_notice.set(String::new());
+        }
+    });
+}
+
+fn select_scan(ctx: HomeCtx, id: String) {
+    ctx.scan_sel.set(id.clone());
+    ctx.scan_cloud.set(serde_json::Value::Null);
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Some(v) = get_json(&format!("/api/scans/{id}/cloud")).await {
+            if let Some(cloud) = v.get("cloud") {
+                if !cloud.is_null() {
+                    ctx.scan_cloud.set(cloud.clone());
+                }
+            }
+        }
+        gloo_timers::future::TimeoutFuture::new(60).await;
+        paint_scan_preview(&ctx);
+    });
+}
+
+fn fetch_scans(ctx: HomeCtx) {
+    wasm_bindgen_futures::spawn_local(async move {
+        let Some(v) = get_json("/api/scans").await else {
+            return;
+        };
+        let Some(list) = v.get("scans").and_then(|s| s.as_array()) else {
+            return;
+        };
+        let list = list.clone();
+        let sel = ctx.scan_sel.get();
+        if !sel.is_empty()
+            && !list
+                .iter()
+                .any(|s| s.get("id").and_then(|v| v.as_str()) == Some(sel.as_str()))
+        {
+            ctx.scan_sel.set(String::new());
+            ctx.scan_cloud.set(serde_json::Value::Null);
+        }
+        ctx.scans.set(list.clone());
+        if ctx.scan_sel.get().is_empty() {
+            if let Some(id) = list
+                .first()
+                .and_then(|s| s.get("id"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+            {
+                select_scan(ctx, id);
+            }
+        }
+    });
 }
 
 /// Home WS loop: motor_update feeds live motors (latching each one),
@@ -784,6 +998,42 @@ fn connect_home_ws(ctx: HomeCtx) {
                     ctx.cloud_stale.set(false);
                     paint_lidar(&ctx);
                 }
+                "lidar_service_update" => {
+                    if let Some(msg) = v.get("message").and_then(|x| x.as_str()) {
+                        // Start is reported by the scan-state feed; only keep
+                        // the messages a user actually needs to see.
+                        let keep = msg == "scan stopped"
+                            || msg.starts_with("map cleared")
+                            || msg.starts_with("unauthorized")
+                            || msg.starts_with("error:");
+                        if keep {
+                            ctx.lidar_notice.set(msg.to_string());
+                        }
+                    }
+                    ctx.lidar_service.set(v.clone());
+                }
+                "scan_state_update" => {
+                    ctx.scan_state.set(v.clone());
+                }
+                "scan_saved" => {
+                    if let Some(id) = v.get("id").and_then(|x| x.as_str()) {
+                        set_notice_ttl(ctx, format!("Scan saved: {id}"), 4000);
+                    }
+                    wasm_bindgen_futures::spawn_local(async move {
+                        gloo_timers::future::TimeoutFuture::new(2500).await;
+                        fetch_scans(ctx);
+                    });
+                }
+                "scan_list_update" => {
+                    if let Some(list) = v.get("scans").and_then(|s| s.as_array()) {
+                        ctx.scans.set(list.clone());
+                    }
+                }
+                "scan_sync_error" => {
+                    if let Some(msg) = v.get("message").and_then(|x| x.as_str()) {
+                        ctx.lidar_notice.set(format!("Scan sync: {msg}"));
+                    }
+                }
                 _ => {}
             }
         }
@@ -881,6 +1131,7 @@ pub fn HomePage() -> impl IntoView {
     let lidar_stale = RwSignal::new(true);
     let lidar_cloud = RwSignal::new(serde_json::Value::Null);
     let lidar_display_cloud = RwSignal::new(serde_json::Value::Null);
+    let lidar_service = RwSignal::new(serde_json::Value::Null);
     let cloud_seen = RwSignal::new(0.0f64);
     let cloud_stale = RwSignal::new(true);
     let lidar_rings = RwSignal::new(Vec::new());
@@ -893,6 +1144,15 @@ pub fn HomePage() -> impl IntoView {
     let lidar_drag = RwSignal::new(None);
     let lidar_full = RwSignal::new(false);
     let lidar_notice = RwSignal::new(String::new());
+    let scan_state = RwSignal::new(serde_json::Value::Null);
+    let scans = RwSignal::new(Vec::<serde_json::Value>::new());
+    let scan_open = RwSignal::new(false);
+    let scan_sel = RwSignal::new(String::new());
+    let scan_cloud = RwSignal::new(serde_json::Value::Null);
+    let history_cloud = RwSignal::new(serde_json::Value::Null);
+    let history_title = RwSignal::new(String::new());
+    let scan_canvas = NodeRef::<leptos::html::Canvas>::new();
+    let lidar_modal = NodeRef::<leptos::html::Div>::new();
 
     let hud = NodeRef::<leptos::html::Div>::new();
     let lidar_canvas = NodeRef::<leptos::html::Canvas>::new();
@@ -917,6 +1177,7 @@ pub fn HomePage() -> impl IntoView {
         lidar_stale,
         lidar_cloud,
         lidar_display_cloud,
+        lidar_service,
         cloud_seen,
         cloud_stale,
         lidar_rings,
@@ -929,6 +1190,15 @@ pub fn HomePage() -> impl IntoView {
         lidar_drag,
         lidar_full,
         lidar_notice,
+        scan_state,
+        scans,
+        scan_open,
+        scan_sel,
+        scan_cloud,
+        history_cloud,
+        history_title,
+        scan_canvas,
+        lidar_modal,
         hud,
         lidar_canvas,
         lidar_canvas_big,
@@ -981,6 +1251,27 @@ pub fn HomePage() -> impl IntoView {
                 }
             }
         });
+        // Retained agent state: container, mapping loop, USB.
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Some(v) = get_json("/api/lidar/service/status").await {
+                if let Some(frame) = v.get("service") {
+                    if !frame.is_null() {
+                        ctx.lidar_service.set(frame.clone());
+                    }
+                }
+            }
+        });
+        // Auto-scan state and the saved scan history.
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Some(v) = get_json("/api/lidar/scan_state").await {
+                if let Some(state) = v.get("state") {
+                    if !state.is_null() {
+                        ctx.scan_state.set(state.clone());
+                    }
+                }
+            }
+        });
+        fetch_scans(ctx);
         wasm_bindgen_futures::spawn_local(async move {
             let _nz = non_reactive();
             // Inject the static HUD, then paint the initial frame.
@@ -1060,7 +1351,20 @@ pub fn HomePage() -> impl IntoView {
         ctx.lidar_view.set(v);
         paint_lidar(&ctx);
     };
-    let on_lidar_clear_scan = move |_| {
+    let on_scan_toggle = move |_| {
+        if scan_running(&ctx) {
+            ctx.lidar_notice.set("Stopping scan...".into());
+            wasm_bindgen_futures::spawn_local(async move {
+                let _ = post_json("/api/lidar/service/stop", serde_json::json!({})).await;
+            });
+        } else {
+            set_notice_ttl(ctx, "Starting scan...".into(), 5000);
+            wasm_bindgen_futures::spawn_local(async move {
+                let _ = post_json("/api/lidar/service/start", serde_json::json!({})).await;
+            });
+        }
+    };
+    let on_lidar_clear_map = move |_| {
         let empty = serde_json::json!({
             "count": 0,
             "rings": 0,
@@ -1071,21 +1375,29 @@ pub fn HomePage() -> impl IntoView {
         ctx.cloud_seen.set(0.0);
         ctx.cloud_stale.set(false);
         wasm_bindgen_futures::spawn_local(async move {
-            let _ = post_json("/api/lidar/cloud/clear", serde_json::json!({})).await;
+            let _ = post_json("/api/lidar/service/clear", serde_json::json!({})).await;
         });
         ctx.lidar_notice
-            .set("Cloud cleared - waiting for next sweep".into());
+            .set("Clearing map - OctoMap reset requested".into());
         paint_lidar(&ctx);
     };
     let on_lidar_expand = move |_| {
         ctx.lidar_full.set(true);
         wasm_bindgen_futures::spawn_local(async move {
             gloo_timers::future::TimeoutFuture::new(60).await;
+            if let Some(el) = ctx.lidar_modal.get() {
+                let _ = el.focus();
+            }
             paint_lidar(&ctx);
         });
     };
     let on_lidar_close = move |_| {
         ctx.lidar_full.set(false);
+    };
+    let on_lidar_key = move |ev: web_sys::KeyboardEvent| {
+        if ev.key() == "Escape" {
+            ctx.lidar_full.set(false);
+        }
     };
     let on_lidar_wire = move |_| {
         ctx.lidar_wire.update(|w| *w = !*w);
@@ -1098,6 +1410,157 @@ pub fn HomePage() -> impl IntoView {
         ctx.lidar_zoom.set(1.0);
         ctx.lidar_notice.set("Isometric view reset".into());
         paint_lidar(&ctx);
+    };
+    let on_auto_toggle = move |_| {
+        let enabled = !scan_auto(&ctx);
+        if let Some(mut obj) = ctx.scan_state.get().as_object().cloned() {
+            obj.insert("auto".into(), serde_json::Value::Bool(enabled));
+            ctx.scan_state.set(serde_json::Value::Object(obj));
+        } else {
+            ctx.scan_state.set(serde_json::json!({"auto": enabled}));
+        }
+        if enabled {
+            set_notice_ttl(ctx, "Auto scan on - starting the lidar".into(), 5000);
+        } else {
+            ctx.lidar_notice
+                .set("Auto scan off - stopping the lidar".into());
+        }
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = post_json("/api/lidar/auto", serde_json::json!({"enabled": enabled})).await;
+        });
+    };
+    let on_history_open = move |_| {
+        ctx.scan_open.set(true);
+        fetch_scans(ctx);
+        wasm_bindgen_futures::spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(120).await;
+            paint_scan_preview(&ctx);
+        });
+    };
+    let on_scan_close = move |_| {
+        ctx.scan_open.set(false);
+    };
+    let on_history_view = move |_| {
+        let cloud = ctx.scan_cloud.get();
+        if cloud.is_null() {
+            ctx.lidar_notice.set("Select a scan first".into());
+            return;
+        }
+        let id = ctx.scan_sel.get();
+        let label = ctx
+            .scans
+            .get()
+            .iter()
+            .find(|s| s.get("id").and_then(|v| v.as_str()) == Some(id.as_str()))
+            .and_then(|s| s.get("label"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&id)
+            .to_string();
+        let points = cloud.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+        ctx.history_title.set(format!("{label} - {points} pts"));
+        ctx.history_cloud.set(cloud);
+        ctx.scan_open.set(false);
+        ctx.lidar_full.set(true);
+        ctx.lidar_view.set(1);
+        wasm_bindgen_futures::spawn_local(async move {
+            gloo_timers::future::TimeoutFuture::new(80).await;
+            paint_lidar(&ctx);
+        });
+    };
+    let on_history_live = move |_| {
+        ctx.history_cloud.set(serde_json::Value::Null);
+        ctx.history_title.set(String::new());
+        ctx.lidar_notice.set("Live view".into());
+        paint_lidar(&ctx);
+    };
+    let on_scan_sync = move |_| {
+        ctx.lidar_notice.set("Syncing scans from the Pi...".into());
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = post_json("/api/scans/sync", serde_json::json!({})).await;
+            fetch_scans(ctx);
+        });
+    };
+    let on_scan_download = move |_| {
+        let id = ctx.scan_sel.get();
+        if id.is_empty() {
+            ctx.lidar_notice.set("Select a scan first".into());
+            return;
+        }
+        if let Some(win) = web_sys::window() {
+            let url = format!("{}/api/scans/{id}/download", crate::ws::api_base());
+            let _ = win.open_with_url_and_target(&url, "_blank");
+        }
+    };
+    let on_scan_download_all = move |_| {
+        if ctx.scans.get().is_empty() {
+            ctx.lidar_notice.set("No scans to download".into());
+            return;
+        }
+        if let Some(win) = web_sys::window() {
+            let url = format!("{}/api/scans/download_all", crate::ws::api_base());
+            let _ = win.open_with_url_and_target(&url, "_blank");
+        }
+    };
+    let on_scan_rename = move |_| {
+        let id = ctx.scan_sel.get();
+        if id.is_empty() {
+            return;
+        }
+        let current = ctx
+            .scans
+            .get()
+            .iter()
+            .find(|s| s.get("id").and_then(|v| v.as_str()) == Some(id.as_str()))
+            .and_then(|s| s.get("label"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let Some(win) = web_sys::window() else {
+            return;
+        };
+        let Ok(Some(name)) = win.prompt_with_message_and_default("Room name", &current) else {
+            return;
+        };
+        let label = name.trim().to_string();
+        wasm_bindgen_futures::spawn_local(async move {
+            let res = post_json(
+                &format!("/api/scans/{id}/label"),
+                serde_json::json!({"label": label}),
+            )
+            .await;
+            if res.is_none() {
+                ctx.lidar_notice
+                    .set("Rename failed - is the app still connected?".into());
+            }
+            fetch_scans(ctx);
+        });
+    };
+    let on_scan_delete = move |_| {
+        let id = ctx.scan_sel.get();
+        if id.is_empty() {
+            return;
+        }
+        let Some(win) = web_sys::window() else {
+            return;
+        };
+        if !win
+            .confirm_with_message(&format!("Delete scan {id}? This removes the Pi copy too."))
+            .unwrap_or(false)
+        {
+            return;
+        }
+        wasm_bindgen_futures::spawn_local(async move {
+            let res = delete_json(&format!("/api/scans/{id}")).await;
+            if res.is_none() {
+                ctx.lidar_notice
+                    .set("Delete failed - Pi offline or scan missing".into());
+            } else {
+                ctx.scan_sel.set(String::new());
+                ctx.scan_cloud.set(serde_json::Value::Null);
+            }
+            fetch_scans(ctx);
+        });
     };
     let on_pd = move |ev: web_sys::PointerEvent| {
         ctx.lidar_drag
@@ -1213,6 +1676,24 @@ pub fn HomePage() -> impl IntoView {
     let on_cam_error = move |_: web_sys::ErrorEvent| {
         cam_live.set(false);
         paint_cam();
+        // An MJPEG <img> never reconnects by itself. Without this, a camera
+        // restart leaves the card offline until the page is reloaded.
+        let retry = gloo_timers::callback::Timeout::new(2_000, move || {
+            if let Some(img) = cam_img.get() {
+                let base = img
+                    .get_attribute("src")
+                    .unwrap_or_default()
+                    .split('?')
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                if !base.is_empty() {
+                    let stamp = js_sys::Date::now() as u64;
+                    img.set_attribute("src", &format!("{base}?r={stamp}")).ok();
+                }
+            }
+        });
+        retry.forget();
     };
     // The Pi serves MJPEG on the broker host; /api/config tells us which host
     // that is, so no address is hardcoded for home vs the Saturday hotspot.
@@ -1222,6 +1703,28 @@ pub fn HomePage() -> impl IntoView {
             if let Some(img) = cam_img.get() {
                 img.set_attribute("src", &url).ok();
             }
+            // The MJPEG <img> never reports a dead stream, so poll the service
+            // and re-arm the source when frames stop arriving. Without this a
+            // camera restart leaves a frozen frame with the LIVE badge on.
+            let status_url = url.replace("/stream.mjpg", "/status");
+            let _iv = gloo_timers::callback::Interval::new(2_000, move || {
+                let status_url = status_url.clone();
+                let base_url = url.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let fresh = camera_age_ms(&status_url)
+                        .await
+                        .is_some_and(|age| (0..2500).contains(&age));
+                    cam_live.set(fresh);
+                    if !fresh {
+                        if let Some(img) = cam_img.get() {
+                            let stamp = js_sys::Date::now() as u64;
+                            img.set_attribute("src", &format!("{base_url}?r={stamp}"))
+                                .ok();
+                        }
+                    }
+                });
+            });
+            _iv.forget();
         });
     }
 
@@ -1326,19 +1829,32 @@ pub fn HomePage() -> impl IntoView {
                                         <button class="lidar-btn" on:click=move |_| on_lidar_view(0)>"2D"</button>
                                         <button class="lidar-btn" on:click=move |_| on_lidar_view(1)>"3D"</button>
                                         <button class="lidar-btn" on:click=on_lidar_wire>"Wire"</button>
-                                        <button class="lidar-btn" on:click=on_lidar_clear_scan>"Clear cloud"</button>
+                                        <button class={move || if scan_auto(&ctx) { "lidar-btn lidar-btn-live" } else { "lidar-btn" }} on:click=on_auto_toggle>{move || if scan_auto(&ctx) { "Auto on" } else { "Auto off" }}</button>
+                                        <button class="lidar-btn" on:click=on_history_open>"History"</button>
+                                        <button class={move || if scan_running(&ctx) { "lidar-btn lidar-btn-accent" } else { "lidar-btn" }} on:click=on_scan_toggle>{move || if scan_running(&ctx) { "Stop scan" } else { "Start scan" }}</button>
+                                        <button class="lidar-btn" on:click=on_lidar_clear_map>"Clear map"</button>
                                         <button class="lidar-btn" on:click=on_lidar_reset_view>"Reset view"</button>
+                                        <button class="lidar-btn" style=move || if ctx.history_cloud.get().is_null() { "display:none" } else { "" } on:click=on_history_live>"Live"</button>
                                         <button class="lidar-btn lidar-btn-accent" on:click=on_lidar_expand>"Expand"</button>
                                     </div>
                                     <div class="lidar-hint" style=move || if cam.get() == 1 { "display:block" } else { "display:none" }>
                                         {move || {
-                                            let notice = ctx.lidar_notice.get();
-                                            if notice.is_empty() {
-                                                "Live 3D cloud from the servo sweep. Drag to orbit, wheel to zoom."
-                                                    .to_string()
-                                            } else {
-                                                notice
+                                            let history = ctx.history_title.get();
+                                            if !history.is_empty() {
+                                                return format!("History: {history}");
                                             }
+                                            let notice = ctx.lidar_notice.get();
+                                            if !notice.is_empty() {
+                                                return notice;
+                                            }
+                                            let state = ctx.scan_state.get();
+                                            if let Some(msg) = state.get("message").and_then(|v| v.as_str()) {
+                                                if !msg.is_empty() {
+                                                    return msg.to_string();
+                                                }
+                                            }
+                                            "Live 3D cloud from the servo sweep. Drag to orbit, wheel to zoom."
+                                                .to_string()
                                         }}
                                     </div>
                                 </div>
@@ -1366,12 +1882,19 @@ pub fn HomePage() -> impl IntoView {
                 </main>
             </div>
         })}
-        <div class="lidar-modal" style=move || if ctx.lidar_full.get() { "display:flex" } else { "display:none" }>
+        <div class="lidar-modal" tabindex="0" node_ref=ctx.lidar_modal style=move || if ctx.lidar_full.get() { "display:flex" } else { "display:none" } on:keydown=on_lidar_key>
             <div class="lidar-modal-card">
                 <div class="lidar-modal-head">
                     <div>
                         <h2 class="lidar-modal-title">"LiDAR 3D view"</h2>
-                        <span class="lidar-modal-sub">"Live 3D cloud from the servo sweep"</span>
+                        <span class="lidar-modal-sub">{move || {
+                            let title = ctx.history_title.get();
+                            if title.is_empty() {
+                                "Live 3D cloud from the servo sweep".to_string()
+                            } else {
+                                format!("History: {title}")
+                            }
+                        }}</span>
                     </div>
                     <button class="lidar-btn" on:click=on_lidar_close>"Close"</button>
                 </div>
@@ -1392,9 +1915,97 @@ pub fn HomePage() -> impl IntoView {
                     <button class="lidar-btn" on:click=move |_| on_lidar_view(0)>"2D"</button>
                     <button class="lidar-btn" on:click=move |_| on_lidar_view(1)>"3D"</button>
                     <button class="lidar-btn" on:click=on_lidar_wire>"Wire"</button>
-                    <button class="lidar-btn" on:click=on_lidar_clear_scan>"Clear cloud"</button>
+                    <button class={move || if scan_auto(&ctx) { "lidar-btn lidar-btn-live" } else { "lidar-btn" }} on:click=on_auto_toggle>{move || if scan_auto(&ctx) { "Auto on" } else { "Auto off" }}</button>
+                    <button class="lidar-btn" on:click=on_history_open>"History"</button>
+                    <button class={move || if scan_running(&ctx) { "lidar-btn lidar-btn-accent" } else { "lidar-btn" }} on:click=on_scan_toggle>{move || if scan_running(&ctx) { "Stop scan" } else { "Start scan" }}</button>
+                    <button class="lidar-btn" on:click=on_lidar_clear_map>"Clear map"</button>
                     <button class="lidar-btn" on:click=on_lidar_reset_view>"Reset view"</button>
-                    <button class="lidar-btn" on:click=on_lidar_close>"Close"</button>
+                    <button class="lidar-btn" style=move || if ctx.history_cloud.get().is_null() { "display:none" } else { "" } on:click=on_history_live>"Live"</button>
+                </div>
+            </div>
+        </div>
+        <div class="history-modal" style=move || if ctx.scan_open.get() { "display:flex" } else { "display:none" }>
+            <div class="history-card">
+                <div class="history-head">
+                    <div>
+                        <h2 class="history-title">"Scan history"</h2>
+                        <span class="history-sub">{move || {
+                            let n = ctx.scans.get().len();
+                            if n == 1 { "1 saved session".to_string() } else { format!("{n} saved sessions") }
+                        }}</span>
+                    </div>
+                    <div class="history-head-actions">
+                        <button class="lidar-btn" on:click=on_scan_sync>"Sync"</button>
+                        <button class="lidar-btn" on:click=on_scan_download_all>"Download all"</button>
+                        <button class="lidar-btn" on:click=on_scan_close>"Close"</button>
+                    </div>
+                </div>
+                <div class="history-body">
+                    <div class="history-list">
+                        <Show
+                            when=move || !ctx.scans.get().is_empty()
+                            fallback=move || view! {
+                                <div class="history-empty">"No scans yet. Park the rover and it will scan automatically."</div>
+                            }
+                        >
+                            <For
+                                each=move || ctx.scans.get()
+                                key=|scan| scan.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string()
+                                children=move |scan| {
+                                    let id = scan.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                    let date = scan_time(&scan);
+                                    let label = scan.get("label").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                    let partial = scan.get("partial").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    let sweeps = scan.get("sweeps").and_then(|v| v.as_u64()).unwrap_or(0);
+                                    let points = scan.get("points").and_then(|v| v.as_u64()).unwrap_or(0);
+                                    let class_id = id.clone();
+                                    let click_id = id.clone();
+                                    view! {
+                                        <div
+                                            class={move || if ctx.scan_sel.get() == class_id { "history-row active" } else { "history-row" }}
+                                            on:click=move |_| select_scan(ctx, click_id.clone())
+                                        >
+                                            <div class="history-row-top">
+                                                <span class="history-date">{date}</span>
+                                                {partial.then(|| view! { <span class="history-badge">"partial"</span> })}
+                                            </div>
+                                            <div class="history-label">{if label.is_empty() { "Unnamed room".to_string() } else { label }}</div>
+                                            <div class="history-stats">{format!("{sweeps} sweeps - {points} pts")}</div>
+                                        </div>
+                                    }
+                                }
+                            />
+                        </Show>
+                    </div>
+                    <div class="history-side">
+                        <canvas class="history-preview" node_ref=ctx.scan_canvas></canvas>
+                        <div class="history-meta">
+                            {move || {
+                                let id = ctx.scan_sel.get();
+                                if id.is_empty() {
+                                    return "Select a scan".to_string();
+                                }
+                                let meta = ctx.scans.get().into_iter().find(|s| {
+                                    s.get("id").and_then(|v| v.as_str()) == Some(id.as_str())
+                                });
+                                match meta {
+                                    Some(m) => {
+                                        let points = m.get("points").and_then(|v| v.as_u64()).unwrap_or(0);
+                                        let voxels = m.get("voxels").and_then(|v| v.as_u64()).unwrap_or(0);
+                                        let size = m.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+                                        format!("{id} - {points} pts / {voxels} voxels / {:.1} MB", size as f64 / 1_048_576.0)
+                                    }
+                                    None => id,
+                                }
+                            }}
+                        </div>
+                        <div class="history-actions">
+                            <button class="lidar-btn lidar-btn-accent" on:click=on_history_view>"Open in 3D"</button>
+                            <button class="lidar-btn" on:click=on_scan_download>"Download"</button>
+                            <button class="lidar-btn" on:click=on_scan_rename>"Rename"</button>
+                            <button class="lidar-btn" on:click=on_scan_delete>"Delete"</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

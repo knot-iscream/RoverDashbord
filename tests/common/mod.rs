@@ -40,6 +40,10 @@ pub struct Fixture {
     pub lidar: Arc<RwLock<Value>>,
     pub lidar_cloud: Arc<RwLock<Value>>,
     pub lidar_display_cloud: Arc<RwLock<Value>>,
+    pub lidar_service: Arc<RwLock<Value>>,
+    pub scan_state: Arc<RwLock<Value>>,
+    pub scans: Arc<RwLock<digital_twin_dashboard::scan_store::ScanStore>>,
+    pub scan_sync_lock: Arc<tokio::sync::Mutex<()>>,
     pub o2: Arc<std::sync::Mutex<digital_twin_dashboard::o2_estimate::O2Estimator>>,
     pub sensors: Arc<std::sync::Mutex<SensorLog>>,
     pub device: Arc<RwLock<mqtt::DeviceState>>,
@@ -72,6 +76,16 @@ pub fn fixture(tag: &str) -> Fixture {
     let lidar = Arc::new(RwLock::new(Value::Null));
     let lidar_cloud = Arc::new(RwLock::new(Value::Null));
     let lidar_display_cloud = Arc::new(RwLock::new(Value::Null));
+    let lidar_service = Arc::new(RwLock::new(Value::Null));
+    let scan_state = Arc::new(RwLock::new(Value::Null));
+    let scans = Arc::new(RwLock::new(
+        digital_twin_dashboard::scan_store::ScanStore::new(dir.join("scans")),
+    ));
+    let cfg = Arc::new(RwLock::new(AppConfig {
+        auth_token: TEST_TOKEN.into(),
+        ..AppConfig::default()
+    }));
+    let scan_sync_lock = Arc::new(tokio::sync::Mutex::new(()));
     let o2 = Arc::new(std::sync::Mutex::new(
         digital_twin_dashboard::o2_estimate::O2Estimator::new(),
     ));
@@ -88,6 +102,11 @@ pub fn fixture(tag: &str) -> Fixture {
         lidar: lidar.clone(),
         lidar_cloud: lidar_cloud.clone(),
         lidar_display_cloud: lidar_display_cloud.clone(),
+        lidar_service: lidar_service.clone(),
+        scan_state: scan_state.clone(),
+        scans: scans.clone(),
+        cfg: cfg.clone(),
+        scan_sync_lock: scan_sync_lock.clone(),
         o2: o2.clone(),
         sensors: sensors.clone(),
         device: device.clone(),
@@ -106,6 +125,10 @@ pub fn fixture(tag: &str) -> Fixture {
         lidar,
         lidar_cloud,
         lidar_display_cloud,
+        lidar_service,
+        scan_state,
+        scans,
+        scan_sync_lock,
         o2,
         sensors,
         device,
@@ -121,10 +144,6 @@ pub async fn test_state(tag: &str) -> (AppState, PathBuf) {
     let f = fixture(tag);
     let slot = mqtt::spawn_mqtt(f.ctx.clone(), "127.0.0.1", 9).await;
     slot.task.abort();
-    let cfg = AppConfig {
-        auth_token: TEST_TOKEN.into(),
-        ..AppConfig::default()
-    };
     let state = AppState {
         data: f.data,
         history: f.history,
@@ -137,13 +156,17 @@ pub async fn test_state(tag: &str) -> (AppState, PathBuf) {
         lidar: f.lidar,
         lidar_cloud: f.lidar_cloud,
         lidar_display_cloud: f.lidar_display_cloud,
+        lidar_service: f.lidar_service,
+        scan_state: f.scan_state,
+        scans: f.scans,
+        scan_sync_lock: f.scan_sync_lock,
         o2: f.o2,
         bench: digital_twin_dashboard::bench::new_bench(),
         sensors: f.sensors,
         device: f.device,
         mqtt: Arc::new(RwLock::new(slot)),
         bcast: f.ctx.bcast.clone(),
-        cfg: Arc::new(RwLock::new(cfg)),
+        cfg: f.ctx.cfg.clone(),
     };
     (state, f.dir)
 }

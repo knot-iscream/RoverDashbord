@@ -12,6 +12,7 @@ pub mod history;
 pub mod mqtt;
 pub mod o2_estimate;
 pub mod routes;
+pub mod scan_store;
 pub mod sensor_cal;
 pub mod sensor_log;
 pub mod ws;
@@ -24,7 +25,7 @@ use axum::{
     http::{header, Method, Request},
     middleware,
     response::IntoResponse,
-    routing::{get, get_service, post},
+    routing::{delete, get, get_service, post},
     Router,
 };
 use serde_json::Value;
@@ -60,6 +61,14 @@ pub struct AppState {
     pub lidar_cloud: Arc<tokio::sync::RwLock<Value>>,
     /// OctoMap voxel centres published as `rover/lidar/display_cloud`.
     pub lidar_display_cloud: Arc<tokio::sync::RwLock<Value>>,
+    /// Pi-side lidar agent status.
+    pub lidar_service: Arc<tokio::sync::RwLock<Value>>,
+    /// Auto-scan state from the Pi sweep loop.
+    pub scan_state: Arc<tokio::sync::RwLock<Value>>,
+    /// Scan history archive on this laptop.
+    pub scans: Arc<tokio::sync::RwLock<scan_store::ScanStore>>,
+    /// Serializes Pi scan syncs.
+    pub scan_sync_lock: Arc<tokio::sync::Mutex<()>>,
     /// Derived O2 for the ENV node (no galvanic cell fitted). Stateful
     /// because of the attack/release filter; brief std::sync locks only.
     pub o2: Arc<std::sync::Mutex<o2_estimate::O2Estimator>>,
@@ -90,6 +99,11 @@ impl AppState {
             lidar: self.lidar.clone(),
             lidar_cloud: self.lidar_cloud.clone(),
             lidar_display_cloud: self.lidar_display_cloud.clone(),
+            lidar_service: self.lidar_service.clone(),
+            scan_state: self.scan_state.clone(),
+            scans: self.scans.clone(),
+            cfg: self.cfg.clone(),
+            scan_sync_lock: self.scan_sync_lock.clone(),
             o2: self.o2.clone(),
             sensors: self.sensors.clone(),
             device: self.device.clone(),
@@ -124,6 +138,19 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/config", post(routes::post_config))
         .route("/api/lidar/tilt", post(routes::lidar_tilt))
         .route("/api/lidar/cloud/clear", post(routes::lidar_cloud_clear))
+        .route(
+            "/api/lidar/service/start",
+            post(routes::lidar_service_start),
+        )
+        .route("/api/lidar/service/stop", post(routes::lidar_service_stop))
+        .route(
+            "/api/lidar/service/clear",
+            post(routes::lidar_service_clear),
+        )
+        .route("/api/lidar/auto", post(routes::lidar_auto))
+        .route("/api/scans/sync", post(routes::scan_sync))
+        .route("/api/scans/:id", delete(routes::scan_delete))
+        .route("/api/scans/:id/label", post(routes::scan_label))
         .route(
             "/api/auth/token",
             get(routes::get_token).post(routes::rotate_token),
@@ -167,6 +194,16 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/lidar", get(routes::lidar))
         .route("/api/lidar/cloud", get(routes::lidar_cloud))
         .route("/api/lidar/display_cloud", get(routes::lidar_display_cloud))
+        .route(
+            "/api/lidar/service/status",
+            get(routes::lidar_service_status),
+        )
+        .route("/api/lidar/scan_state", get(routes::scan_state_route))
+        .route("/api/scans", get(routes::scans_list))
+        .route("/api/scans/download_all", get(routes::scans_download_all))
+        .route("/api/scans/:id", get(routes::scan_meta))
+        .route("/api/scans/:id/cloud", get(routes::scan_cloud))
+        .route("/api/scans/:id/download", get(routes::scan_download))
         .route("/api/calibration", get(routes::calibration))
         .route("/api/calibration/status", get(routes::calibration_status))
         .route("/api/calibration/export", get(routes::calibration_export))
@@ -276,6 +313,13 @@ pub async fn build_state() -> AppState {
     let lidar = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let lidar_cloud = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let lidar_display_cloud = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let lidar_service = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let scan_state = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let scans = Arc::new(tokio::sync::RwLock::new(scan_store::ScanStore::new(
+        config::base_dir().join("scans"),
+    )));
+    let cfg_lock = Arc::new(tokio::sync::RwLock::new(cfg));
+    let scan_sync_lock = Arc::new(tokio::sync::Mutex::new(()));
     let o2 = Arc::new(std::sync::Mutex::new(o2_estimate::O2Estimator::new()));
     let bench = bench::new_bench();
     let sensors = Arc::new(std::sync::Mutex::new(SensorLog::default()));
@@ -291,6 +335,11 @@ pub async fn build_state() -> AppState {
         lidar: lidar.clone(),
         lidar_cloud: lidar_cloud.clone(),
         lidar_display_cloud: lidar_display_cloud.clone(),
+        lidar_service: lidar_service.clone(),
+        scan_state: scan_state.clone(),
+        scans: scans.clone(),
+        cfg: cfg_lock.clone(),
+        scan_sync_lock: scan_sync_lock.clone(),
         o2: o2.clone(),
         sensors: sensors.clone(),
         device: device.clone(),
@@ -310,16 +359,29 @@ pub async fn build_state() -> AppState {
         lidar,
         lidar_cloud,
         lidar_display_cloud,
+        lidar_service,
+        scan_state,
+        scans,
+        scan_sync_lock,
         o2,
         bench,
         sensors,
         device,
         mqtt: Arc::new(tokio::sync::RwLock::new(slot)),
         bcast,
-        cfg: Arc::new(tokio::sync::RwLock::new(cfg)),
+        cfg: cfg_lock,
     };
     // Device presence monitor (broadcasts only on flip, like Python).
     tokio::spawn(mqtt::monitor_device(state.ctx()));
+    // Pull scans the Pi saved while the app was closed, then keep checking.
+    let sync_state = state.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+        loop {
+            mqtt::sync_scans(&sync_state.ctx()).await;
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
+    });
     state
 }
 

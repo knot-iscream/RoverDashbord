@@ -59,11 +59,11 @@ sleep 3
 
 rosrun octomap_server octomap_server_node \
   _frame_id:=map \
-  _resolution:=0.04 \
+  _resolution:=0.05 \
   _filter_ground:=false \
   _filter_speckles:=false \
-  _sensor_model/hit:=0.85 \
-  _sensor_model/miss:=0.35 \
+  _sensor_model/hit:=0.7 \
+  _sensor_model/miss:=0.4 \
   _sensor_model/max_range:=10.0 \
   cloud_in:=/lidar_filtered &
 

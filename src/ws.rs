@@ -79,6 +79,14 @@ async fn handle(socket: WebSocket, s: AppState) {
     if !display_cloud.is_null() {
         send(&mut tx, &tagged("lidar_display_update", display_cloud)).await;
     }
+    let service = s.lidar_service.read().await.clone();
+    if !service.is_null() {
+        send(&mut tx, &tagged("lidar_service_update", service)).await;
+    }
+    let scan_state = s.scan_state.read().await.clone();
+    if !scan_state.is_null() {
+        send(&mut tx, &tagged("scan_state_update", scan_state)).await;
+    }
     send(&mut tx, &calibration_payload(&s.ctx()).await).await;
     send(&mut tx, &s.device.read().await.payload()).await;
 
