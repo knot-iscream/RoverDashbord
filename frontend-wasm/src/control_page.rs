@@ -19,7 +19,8 @@ use web_sys::{Event, HtmlInputElement, WebSocket};
 
 use crate::shell::app_shell;
 use crate::ws::{
-    camera_url, fetch_device_online, non_reactive, now_ms, post_motor, post_pump, ws_url,
+    camera_age_ms, camera_url, fetch_device_online, non_reactive, now_ms, post_motor, post_pump,
+    ws_url,
 };
 
 const SHORT: [&str; 6] = ["FL", "FR", "RL", "RR", "ML", "MR"];
@@ -469,6 +470,28 @@ pub fn ControlPage() -> impl IntoView {
             if let Some(img) = cam_img.get() {
                 img.set_attribute("src", &url).ok();
             }
+            // The MJPEG <img> never reports a dead stream, so poll the service
+            // and re-arm the source when frames stop arriving. Without this a
+            // camera restart leaves a frozen frame with LIVE lit.
+            let status_url = url.replace("/stream.mjpg", "/status");
+            let _iv = gloo_timers::callback::Interval::new(2_000, move || {
+                let status_url = status_url.clone();
+                let base_url = url.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let fresh = camera_age_ms(&status_url)
+                        .await
+                        .is_some_and(|age| (0..2500).contains(&age));
+                    c.cam_live.set(fresh);
+                    if !fresh {
+                        if let Some(img) = cam_img.get() {
+                            let stamp = js_sys::Date::now() as u64;
+                            img.set_attribute("src", &format!("{base_url}?r={stamp}"))
+                                .ok();
+                        }
+                    }
+                });
+            });
+            _iv.forget();
         });
     }
 
@@ -500,7 +523,27 @@ pub fn ControlPage() -> impl IntoView {
     let btn_down = |bit: u8| move |_: web_sys::PointerEvent| pad_down(&c, bit);
     let btn_up = |bit: u8| move |_: web_sys::PointerEvent| pad_up(&c, bit);
     let on_cam_load = move |_: Event| c.cam_live.set(true);
-    let on_cam_error = move |_: web_sys::ErrorEvent| c.cam_live.set(false);
+    let on_cam_error = move |_: web_sys::ErrorEvent| {
+        c.cam_live.set(false);
+        // An MJPEG <img> never reconnects by itself, so a camera restart would
+        // leave the mirror offline until the page is reloaded.
+        let retry = gloo_timers::callback::Timeout::new(2_000, move || {
+            if let Some(img) = cam_img.get() {
+                let base = img
+                    .get_attribute("src")
+                    .unwrap_or_default()
+                    .split('?')
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                if !base.is_empty() {
+                    let stamp = js_sys::Date::now() as u64;
+                    img.set_attribute("src", &format!("{base}?r={stamp}")).ok();
+                }
+            }
+        });
+        retry.forget();
+    };
     let on_jog = |idx: usize| {
         let rev = move |_: web_sys::MouseEvent| jog(&c, idx, -1);
         let stop_one = move |_: web_sys::MouseEvent| jog(&c, idx, 0);

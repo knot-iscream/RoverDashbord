@@ -7,6 +7,8 @@ Wants=network-online.target
 Type=simple
 User=iscream-pi
 WorkingDirectory=/home/iscream-pi/rover-cam
+# watch = brighter low-light feed, drive = 15 fps. Restart to switch.
+Environment=CAM_PROFILE=watch
 ExecStart=/usr/bin/python3 /home/iscream-pi/rover-cam/camera_stream.py
 Restart=always
 RestartSec=2
