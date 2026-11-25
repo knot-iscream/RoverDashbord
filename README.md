@@ -101,7 +101,7 @@ tells you what to do in plain language.
 | 4x DS18B20 waterproof probes + 4x 4.7kΩ resistors | One probe per motor, 3.3V, pull-up per pin |
 | 4x ADXL345 accelerometer modules (GY-291) + 1x TCA9548A I2C mux | Range vibration per corner motor; mux required (all 4 ADXL345 share address 0x53) |
 | 4x INA226 current/voltage modules, stock 0.1 Ω shunt (marked R100) | All four stay at 0x40 behind TCA9548A channels 4-7; no address or shunt surgery |
-| 12 V water pump (AD20P-1230C) + IRLZ44N + 1N5408 + 2 A fuse + 100 µF | ESP-3 GPIO 25 low-side switch, 10 s burst; wiring in `docs/WIRING.md` |
+| 12 V water pump (AD20P-1230C) + IRLZ44N + 1N5408 + 2 A fuse + 100 µF | ESP-2 GPIO 25 low-side switch, 10 s burst; wiring in `docs/WIRING.md` |
 | 1x 4-channel 6A driver board (RBD-3658, "DC_MOTOR_4", MJKDZ) | Drives the 4 corners: two logic inputs per channel, no enable pin |
 | 1x L298N H-bridge board | Drives the 2 blind middles only |
 | 6x 37GB 12V 100RPM gear motors | 4 corners monitored, 2 middles blind |
@@ -262,7 +262,7 @@ The pack goes to the driver input, not through the INA226.
    `3-12V` input. Ground everything to one point.
 5. Run each corner motor lead through its INA226 in series, then to the
    driver output.
-6. Wire the pump branch on ESP-3: GPIO 25 through 100 Ω to the IRLZ44N
+6. Wire the pump branch on ESP-2: GPIO 25 through 100 Ω to the IRLZ44N
    gate, 10 kΩ gate to GND, 12 V through a 2 A fuse to the pump, 1N5408
    across the pump, 100 µF at the pump.
 
@@ -302,8 +302,8 @@ One pack feeds the whole rover. The old 12 V SLA is gone.
 
 One more L298N on a second board drives the 2 middle motors with no motor
 sensors. The same board also carries the localization subsystem: MPU6050 IMU,
-the lidar swing servo (MG996R). No angle encoder is fitted, so the servo
-reports the commanded angle only and settles on time.
+the lidar swing servo (MG996R) and the water pump. No angle encoder is fitted,
+so the servo reports the commanded angle only and settles on time.
 Firmware: `firmware/ESP32-WROOM-32-MID/rover_mid.ino`.
 
 | MID motor | Backend id | L298N pins |
@@ -317,12 +317,20 @@ Firmware: `firmware/ESP32-WROOM-32-MID/rover_mid.ino`.
 | Servo signal | GPIO 27 | LEDC 50 Hz, MG996R V+ from the 6 V rail, 1000 uF cap at the servo |
 | second MPU6050 (tilt bracket) | 21 / 22 | address 0x69 (AD0 to 3.3 V), wired for future tilt, not read yet |
 | Hard servo limits | -35 / +35 deg | clamped in code, no MQTT message can exceed them |
+| Water pump | GPIO 25 | 100 Ω to an IRLZ44N gate, 10 kΩ gate to GND, 2 A fuse, 1N5408 flyback, 100 µF at the pump |
 
 Sweeps are step-and-settle: move, wait, publish `settled:1`, hold, next step.
 The Pi captures lidar frames only while settled, so MQTT latency cannot smear
 the cloud. Same pack rail and common GND as the corners; own
 MQTT namespace `rover/mid/*` (portal AP `Rover-Setup-MID`), so boards never
 fight over motor commands.
+
+The pump takes `{"action":"pump","on":1,"seconds":10}` on `rover/mid/command`.
+Missing or zero seconds means the 10 s default, the firmware caps any request
+at 60 s and stops the pump from `loop()`, so a dead broker cannot leave water
+running. `pump:0/1` rides the MID telemetry, status and motor frames. The
+control page exposes it as THROW WATER / STOP WATER and the backend route is
+`POST /api/pump`.
 
 ### ESP-3 ENV (gas, flame, MLX90614, derived O2)
 
@@ -335,7 +343,6 @@ portal AP `Rover-Setup-ENV`, namespace `rover/env/*`.
 | MQ-135 (air quality) | ADS1115 0x49 A2, same divider rule |
 | Flame magnitude | module A3 to ADS1115 0x49 A3, direct, module powered at 3.3 V |
 | Flame direction | module D1..D5 to GPIO 34, 35, 36, 39, 32, active LOW |
-| Water pump | GPIO 25 through 100 Ω to an IRLZ44N gate, 10 kΩ gate to GND, 12 V through a 2 A fuse, 1N5408 flyback, 100 µF at the pump |
 | MLX90614 left / right | 0x5A / 0x5B (re-address one via EEPROM 0xC7), 20 mm shroud tube each |
 
 The galvanic O2 cell is **not fitted** (not purchasable here). `ADS1115 0x49`
@@ -348,13 +355,6 @@ Gas values are relative (`R0/Rs`, 1.0 = clean air) after
 need 24-48 h of powered burn-in first; powered time accumulates as
 `burn_in_s` on the heartbeat. Serial at 115200 prints raw volts every second
 for the bench.
-
-The pump takes `{"action":"pump","on":1,"seconds":10}` on the same command
-topic. Missing or zero seconds means the 10 s default, the firmware caps any
-request at 60 s and stops the pump from `loop()`, so a dead broker cannot
-leave water running. `pump:0/1` rides telemetry and the heartbeat. The
-control page exposes it as THROW WATER / STOP WATER and the backend route is
-`POST /api/pump`.
 
 **Derived O2** (`src/o2_estimate.rs`): the frame gains `o2_pct`, `o2_est:1`,
 `o2_load` and `o2_src`. The model builds a 0..1 combustion load from the peak

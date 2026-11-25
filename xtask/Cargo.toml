@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-version = "4.1.0-dev.1"
+version = "4.2.0-dev.1"
 edition = "2021"
 
 # Repo task runner: `cargo launch | dev | doctor | package`.

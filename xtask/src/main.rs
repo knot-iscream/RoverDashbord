@@ -396,7 +396,7 @@ fn cmd_package() -> i32 {
 }
 
 // ---------------------------------------------------------------------------
-// pack-dev — dev-only standalone build (no Pi), 4.1.0a-dev
+// pack-dev — dev-only standalone build (no Pi), 4.2.0a-dev
 // ---------------------------------------------------------------------------
 
 const DEV_BOARDS: [&str; 3] = ["ESP32-WROOM-32", "ESP32-WROOM-32-MID", "ESP32-WROOM-32-ENV"];
@@ -622,7 +622,7 @@ fn cmd_pack_dev() -> i32 {
         println!("[WARN] docs/WIRING.pdf missing, not shipped in the dev pack");
     }
 
-    let zip = root.join("RoverDash-4.1.0a-dev-portable.zip");
+    let zip = root.join("RoverDash-4.2.0a-dev-portable.zip");
     if zip.exists() {
         std::fs::remove_file(&zip).ok();
     }
@@ -660,7 +660,7 @@ fn cmd_pack_stable() -> i32 {
     }
     let root = repo_root();
     let dist = root.join("dist").join("RoverDash");
-    let zip = root.join("RoverDash-4.1.0b-stable-portable.zip");
+    let zip = root.join("RoverDash-4.2.0b-stable-portable.zip");
     if zip.exists() {
         std::fs::remove_file(&zip).ok();
     }
@@ -695,8 +695,8 @@ fn usage() -> i32 {
     println!("  cargo pack     assemble portable dist\\RoverDash\\ (was package.bat;");
     println!("                 `package` alone is cargo's built-in, so the alias is `pack`)");
     println!("  cargo pack-dev stable pack plus DEV\\ (firmware source, launcher, docs),");
-    println!("                 zipped as RoverDash-4.1.0a-dev-portable.zip");
-    println!("  cargo pack-stable portable app zipped as RoverDash-4.1.0b-stable-portable.zip");
+    println!("                 zipped as RoverDash-4.2.0a-dev-portable.zip");
+    println!("  cargo pack-stable portable app zipped as RoverDash-4.2.0b-stable-portable.zip");
     0
 }
 

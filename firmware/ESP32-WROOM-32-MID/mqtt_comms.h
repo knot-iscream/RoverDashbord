@@ -139,12 +139,13 @@ class MQTTManager {
       mqtt_client.publish(MQTT_CALIB_STATUS_TOPIC, buffer, n);
     }
 
-    void publishMotorStatus(bool calibrating, int* speeds) {
+    void publishMotorStatus(bool calibrating, int* speeds, bool pump_on) {
       if (!mqtt_client.connected()) return;
 
       StaticJsonDocument<160> doc;
       doc["state"] = calibrating ? "calibrating" : "running";
       doc["source"] = "mid";
+      doc["pump"] = pump_on ? 1 : 0;
       JsonArray arr = doc.createNestedArray("speed");
       for (int i = 0; i < 2; i++) arr.add(speeds[i]);
 
@@ -158,7 +159,7 @@ class MQTTManager {
                           float temperature, bool ina_ok, bool temp_valid,
                           int motor_speed = 0, float vib_mag_g = NAN,
                           float ax_g = NAN, float ay_g = NAN,
-                          float az_g = NAN) {
+                          float az_g = NAN, bool pump_on = false) {
       unsigned long now = millis();
       if (now - last_publish < 250) return;
       last_publish = now;
@@ -175,6 +176,7 @@ class MQTTManager {
       doc["current"] = current;
       doc["temp"] = temperature;
       doc["speed"] = motor_speed;   // signed duty (-255..255)
+      doc["pump"] = pump_on ? 1 : 0;
       // Range extension: only sent when the ADXL345 produced a reading.
       // Old backends ignore unknown fields, so this stays compatible.
       if (vib_mag_g == vib_mag_g) doc["vib_mag"] = vib_mag_g;

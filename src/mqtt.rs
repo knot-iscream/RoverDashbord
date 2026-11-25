@@ -405,27 +405,31 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
     );
     let temp_valid = py_bool(&data.get("temp_valid"));
 
-    broadcast(
-        ctx,
-        json!({
-            "type": "motor_update",
-            "motor": motor,
-            "vibration": data.get("vibration").cloned().unwrap_or(json!(0)),
-            "vibration_valid": vib_valid,
-            "ina_ok": ina_ok,
-            "temp_valid": temp_valid,
-            "voltage": if ina_ok { data.get("voltage").cloned().unwrap_or(Value::Null) } else { Value::Null },
-            "current": if ina_ok { data.get("current").cloned().unwrap_or(Value::Null) } else { Value::Null },
-            "temp": if temp_valid { data.get("temp").or_else(|| data.get("temperature")).cloned().unwrap_or(Value::Null) } else { Value::Null },
-            "speed": data.get("speed").cloned().unwrap_or(json!(0)),
-            "vib_mag": data.get("vib_mag").cloned().unwrap_or(Value::Null),
-            "ax": data.get("ax").cloned().unwrap_or(Value::Null),
-            "ay": data.get("ay").cloned().unwrap_or(Value::Null),
-            "az": data.get("az").cloned().unwrap_or(Value::Null),
-            "health": health.health,
-            "anomalies": health.anomalies,
-        }),
-    );
+    let mut payload = json!({
+        "type": "motor_update",
+        "motor": motor,
+        "vibration": data.get("vibration").cloned().unwrap_or(json!(0)),
+        "vibration_valid": vib_valid,
+        "ina_ok": ina_ok,
+        "temp_valid": temp_valid,
+        "voltage": if ina_ok { data.get("voltage").cloned().unwrap_or(Value::Null) } else { Value::Null },
+        "current": if ina_ok { data.get("current").cloned().unwrap_or(Value::Null) } else { Value::Null },
+        "temp": if temp_valid { data.get("temp").or_else(|| data.get("temperature")).cloned().unwrap_or(Value::Null) } else { Value::Null },
+        "speed": data.get("speed").cloned().unwrap_or(json!(0)),
+        "vib_mag": data.get("vib_mag").cloned().unwrap_or(Value::Null),
+        "ax": data.get("ax").cloned().unwrap_or(Value::Null),
+        "ay": data.get("ay").cloned().unwrap_or(Value::Null),
+        "az": data.get("az").cloned().unwrap_or(Value::Null),
+        "health": health.health,
+        "anomalies": health.anomalies,
+    });
+    // The pump rides the MID frames only; corners do not send it.
+    if let Some(p) = data.get("pump") {
+        if let Value::Object(map) = &mut payload {
+            map.insert("pump".into(), p.clone());
+        }
+    }
+    broadcast(ctx, payload);
 }
 
 /// `{"type": kind, **frame}`: merges a raw payload object into a typed

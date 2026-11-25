@@ -154,7 +154,6 @@ struct EnvSample {
   bool mlx_ok = false;
   bool flame_ok = false;   // module alive (the analog channel is readable)
   bool baseline_ok = false;
-  bool pump_on = false;
   float gas[GAS_CHANNEL_COUNT] = {NAN, NAN, NAN, NAN, NAN};
   float flame_lvl = NAN;
   int flame_dir = 0;

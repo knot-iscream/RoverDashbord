@@ -27,7 +27,47 @@ bool last_servo_sweeping = false;
 int last_servo_step = 0;
 float last_servo_target = 0;
 
+// Water pump: low-side IRLZ44N on PUMP_PIN. pump_on is the live state
+// published in telemetry; pump_off_ms is the firmware deadline, so the
+// pump stops even if the browser, backend or broker disappears.
+bool pump_on = false;
+unsigned long pump_off_ms = 0;
+
+static void pumpStop() {
+  digitalWrite(PUMP_PIN, LOW);
+  pump_off_ms = 0;
+  if (pump_on) Serial.println("[Pump] OFF");
+  pump_on = false;
+}
+
+// ms = 0 -> default burst. Everything is capped at PUMP_MAX_MS so a bad
+// command cannot run the pump dry for minutes.
+static void pumpStart(unsigned long ms) {
+  if (ms == 0) ms = PUMP_BURST_MS;
+  if (ms > PUMP_MAX_MS) ms = PUMP_MAX_MS;
+  digitalWrite(PUMP_PIN, HIGH);
+  pump_on = true;
+  pump_off_ms = millis() + ms;
+  Serial.printf("[Pump] ON for %lu ms\n", ms);
+}
+
 void onMotorCommand(const char* json) {
+  // The pump rides the same rover/mid/command topic as the motors, so
+  // peek at the action and keep the motor parser untouched.
+  StaticJsonDocument<128> doc;
+  if (!deserializeJson(doc, json) && doc.containsKey("action")) {
+    const char* action = doc["action"] | "";
+    if (strcmp(action, "pump") == 0) {
+      int on = doc["on"] | 1;   // {"action":"pump"} alone means "throw water"
+      if (!on) {
+        pumpStop();
+      } else {
+        unsigned long secs = doc["seconds"] | 0;
+        pumpStart(secs * 1000UL);
+      }
+      return;
+    }
+  }
   driver.applyCommand(json);
 }
 
@@ -62,6 +102,13 @@ void setup() {
   delay(500);
   Serial.println("\n===== Rover MID - ESP32 (2 blind motors) =====");
 
+  // Pump gate low before anything else, so a reset mid-burst cannot
+  // leave water running.
+  pinMode(PUMP_PIN, OUTPUT);
+  digitalWrite(PUMP_PIN, LOW);
+  pump_on = false;
+  pump_off_ms = 0;
+
   driver.begin();
   imu.begin();
   servo.begin();
@@ -90,6 +137,11 @@ void loop() {
 
   unsigned long now = millis();
 
+  // Pump deadline: signed difference, so the 49-day millis wrap is safe.
+  if (pump_on && (long)(now - pump_off_ms) >= 0) {
+    pumpStop();
+  }
+
   if (now - last_sample >= SAMPLE_INTERVAL_MS) {
     last_sample = now;
 
@@ -99,7 +151,8 @@ void loop() {
     mqtt.publishMotorData(
       mid_id, false, false,
       NAN, NAN, NAN,
-      false, false, driver.getSpeed(current_motor)
+      false, false, driver.getSpeed(current_motor),
+      NAN, NAN, NAN, NAN, pump_on
     );
 
     current_motor = (current_motor + 1) % 2;
@@ -108,7 +161,7 @@ void loop() {
   if (now - last_status_pub >= 2000) {
     last_status_pub = now;
     int speeds[2] = { driver.getSpeed(0), driver.getSpeed(1) };
-    mqtt.publishMotorStatus(false, speeds);
+    mqtt.publishMotorStatus(false, speeds, pump_on);
   }
 
   // ---- Localization: IMU at 4 Hz ----

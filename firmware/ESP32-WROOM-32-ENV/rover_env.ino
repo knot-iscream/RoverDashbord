@@ -10,11 +10,9 @@
 // Publishes rover/env/telemetry (1 Hz) and rover/env/status (2 s heartbeat),
 // and takes commands on rover/env/command:
 //   {"action":"baseline"}                     capture the clean-air reference
-//   {"action":"pump","on":1,"seconds":10}     run the water pump (default 10 s)
-//   {"action":"pump","on":0}                  stop it now
 // Gas cells need 24-48 h of powered burn-in BEFORE a baseline capture means
 // anything; burn time accumulates in NVS and rides the heartbeat as burn_in_s.
-// The pump has a firmware deadline, so a lost broker cannot leave it running.
+// The water pump moved to the MID board.
 
 MQTTManager mqtt;
 Ads1115 adsGas;   // 0x48: CO, LPG, CH4, H2  (A0..A3 single-ended)
@@ -29,12 +27,6 @@ bool baseline_ok = false;
 // Powered-time accumulator (burn-in proxy across reboots).
 unsigned long burn_base_s = 0;
 unsigned long boot_ms = 0;
-
-// Water pump: low-side IRLZ44N on PUMP_PIN. pump_on is the live state
-// published in telemetry; pump_off_ms is the firmware deadline, so the
-// pump stops even if the browser, backend or broker disappears.
-bool pump_on = false;
-unsigned long pump_off_ms = 0;
 
 unsigned long last_sample = 0;
 unsigned long last_status = 0;
@@ -112,27 +104,6 @@ static void captureBaseline() {
   }
 }
 
-// ------------------------------------------------------------
-// Water pump control
-// ------------------------------------------------------------
-static void pumpStop() {
-  digitalWrite(PUMP_PIN, LOW);
-  pump_off_ms = 0;
-  if (pump_on) Serial.println("[Pump] OFF");
-  pump_on = false;
-}
-
-// ms = 0 -> default burst. Everything is capped at PUMP_MAX_MS so a bad
-// command cannot run the pump dry for minutes.
-static void pumpStart(unsigned long ms) {
-  if (ms == 0) ms = PUMP_BURST_MS;
-  if (ms > PUMP_MAX_MS) ms = PUMP_MAX_MS;
-  digitalWrite(PUMP_PIN, HIGH);
-  pump_on = true;
-  pump_off_ms = millis() + ms;
-  Serial.printf("[Pump] ON for %lu ms\n", ms);
-}
-
 static void onEnvCommand(const char* json) {
   StaticJsonDocument<128> doc;
   if (deserializeJson(doc, json)) {
@@ -142,15 +113,6 @@ static void onEnvCommand(const char* json) {
   const char* action = doc["action"] | "";
   if (strcmp(action, "baseline") == 0) {
     captureBaseline();
-  } else if (strcmp(action, "pump") == 0) {
-    int on = doc["on"] | 1;   // {"action":"pump"} alone means "throw water"
-    if (!on) {
-      pumpStop();
-    } else {
-      // seconds is clamped by pumpStart; missing/0 falls back to the burst.
-      unsigned long ms = (unsigned long)(doc["seconds"] | 0) * 1000UL;
-      pumpStart(ms);
-    }
   } else {
     Serial.print("[Env] Unknown action: ");
     Serial.println(action);
@@ -162,7 +124,6 @@ static void sampleAndPublish() {
   s.ads_ok = adsGas.isOk() && adsMix.isOk();
   s.mlx_ok = mlxL.isOk() && mlxR.isOk();
   s.baseline_ok = baseline_ok;
-  s.pump_on = pump_on;
 
   float gv[5];
   for (int i = 0; i < 4; i++) {
@@ -208,13 +169,6 @@ void setup() {
   delay(500);
   Serial.println("\n===== Rover ENV - ESP32 (gas / flame / MLX) =====");
 
-  // Pump gate low before anything else, so a reset mid-burst cannot
-  // leave the MOSFET on while the board reboots.
-  pinMode(PUMP_PIN, OUTPUT);
-  digitalWrite(PUMP_PIN, LOW);
-  pump_on = false;
-  pump_off_ms = 0;
-
   Wire.begin(I2C_SDA, I2C_SCL);
   adsGas.begin(ADS_GAS_ADDR, "gas board");
   adsMix.begin(ADS_MIX_ADDR, "mix board");
@@ -244,11 +198,6 @@ void loop() {
 
   unsigned long now = millis();
 
-  // Pump deadline: signed difference, so the 49-day millis wrap is safe.
-  if (pump_on && (long)(now - pump_off_ms) >= 0) {
-    pumpStop();
-  }
-
   if (now - last_sample >= SAMPLE_INTERVAL_MS) {
     last_sample = now;
     sampleAndPublish();
@@ -256,7 +205,7 @@ void loop() {
 
   if (now - last_status >= STATUS_INTERVAL_MS) {
     last_status = now;
-    mqtt.publishEnvStatus(burnInNow(), baseline_ok, pump_on);
+    mqtt.publishEnvStatus(burnInNow(), baseline_ok);
   }
 
   if (now - last_burn_flush >= BURNIN_FLUSH_MS) {

@@ -68,14 +68,8 @@
 #define FLAME_PIN_COUNT 5
 #define FLAME_DIR_PINS {34, 35, 36, 39, 32}
 
-// Water pump (RBD-1872, AD20P-1230C): 12 V, ~350 mA, 3.6 W. Driven
-// low-side by an IRLZ44N on GPIO 25 (logic-level gate, works at 3.3 V).
-// GPIO 25 is not a strapping pin and is unused on this board. An
-// external 10k pulls the gate down, so the pump stays off during boot
-// and while the ESP32 resets.
-#define PUMP_PIN 25
-#define PUMP_BURST_MS 10000UL   // default "throw water" burst (about 0.7 L)
-#define PUMP_MAX_MS   60000UL   // hard cap on any single command
+// The water pump moved to the MID board (GPIO 25 there). This board keeps
+// only the gas, flame and IR sensors.
 
 // Timing
 #define SAMPLE_INTERVAL_MS 1000   // telemetry publish (1 Hz)

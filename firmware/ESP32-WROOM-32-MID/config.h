@@ -54,6 +54,16 @@
 #define TORQUE_RAMP_MS 12000UL
 
 // ============================================================
+// Water pump (RBD-1872, AD20P-1230C): 12 V, ~350 mA, 3.6 W.
+// Low-side IRLZ44N on GPIO 25. The gate wire now lands here instead of
+// on ESP-3, so this board owns both the command and the reported state.
+// GPIO 25 is free on MID: motors use 13/15/14/18/19/23, servo 27.
+// ============================================================
+#define PUMP_PIN 25
+#define PUMP_BURST_MS 10000UL   // default "throw water" burst (about 0.7 L)
+#define PUMP_MAX_MS   60000UL   // hard cap on any single command
+
+// ============================================================
 // MPU6050 IMU (GY-521) — localization subsystem, NOT motor data.
 // Own topic rover/imu. Yaw is gyro-integrated and drifts by design (no
 // magnetometer); lidar SLAM corrects it in the Pi phase. Keep the IMU flat,

@@ -64,8 +64,8 @@
 | Board | Name in code | Ref | Talks to | Power in |
 |---|---|---|---|---|
 | ESP-1 | corner | U3 | U1 driver, four INA226, M8 mux, four ADXL345, four DS18B20 | USB 5 V from the Pi or PC |
-| ESP-2 | MID | U10 | U4 L298N, two MPU6050, MG996R servo | USB 5 V from the Pi or PC |
-| ESP-3 | ENV | U16 | two ADS1115, two MLX90614, five MQ cells, flame module, pump MOSFET | USB 5 V from the Pi or PC |
+| ESP-2 | MID | U10 | U4 L298N, two MPU6050, MG996R servo, pump MOSFET | USB 5 V from the Pi or PC |
+| ESP-3 | ENV | U16 | two ADS1115, two MLX90614, five MQ cells, flame module | USB 5 V from the Pi or PC |
 
 ## Power tree, 12 V side
 
@@ -277,6 +277,35 @@ addresses, one per motor:
 | ☐ | C9 | across V+ and GND at the servo | 1000 µF, striped leg to GND |
 | ☐ | drawing note | the EasyEDA sheet shows the servo on 5 V | use the 6 V buck, the MG996R stalls near 2.5 A |
 
+## ESP-2, water pump (2 A branch)
+
+The pump moved here from ESP-3. The gate wire now lands on U10 GPIO 25.
+
+| ☐ | From | Part | Value and type | To | Note |
+|---|---|---|---|---|---|
+| ☐ | 12 V rail after the master switch | fuse | 2 A blade | pump positive, red | pump branch only |
+| ☐ | pump negative, black | wire | 18 AWG black | IRLZ44N pin 2, drain | the switch is on the low side |
+| ☐ | IRLZ44N pin 3, source | wire | 18 AWG black | common ground point | same ground as U10 |
+| ☐ | U10 GPIO 25 | resistor | 100 Ω | IRLZ44N pin 1, gate | limits the gate pulse |
+| ☐ | IRLZ44N pin 1, gate | resistor | 10 kΩ | common ground point | pump stays off at boot |
+| ☐ | 1N5408 anode, no stripe | wire | 18 AWG | pump negative, black | catches the inductive kick |
+| ☐ | 1N5408 cathode, stripe | wire | 18 AWG | pump positive, red | to the fused 12 V side |
+| ☐ | 100 µF positive leg | capacitor | 100 µF, 25 V | pump positive, red | at the pump |
+| ☐ | 100 µF negative leg | capacitor | 100 µF, 25 V | common ground point | at the pump |
+| ☐ | pump jack centre pin | wire | 18 AWG red | fused 12 V | centre positive |
+| ☐ | pump jack sleeve | wire | 18 AWG black | MOSFET drain | switched negative |
+
+| ☐ | Pump fact | Value | Check before use |
+|---|---|---|---|
+| ☐ | model | RBD-1872, AD20P-1230C | read the label |
+| ☐ | rated current | 0.35 A, 3.6 W | if the label says 4 A, stop and resize the fuse |
+| ☐ | flow | 240 L/h | about 0.7 L in a 10 s burst |
+| ☐ | head | 3 m | keep the outlet above the water level |
+| ☐ | jack | 5.5 mm outside, 2.1 mm inside | centre positive |
+| ☐ | dry run | a few seconds only | prime it in a bucket first |
+| ☐ | GPIO 25 state at boot | LOW | pump off until a command arrives |
+| ☐ | firmware deadline | 10 s default, 60 s maximum | the pump stops even if the broker dies |
+
 ## ESP-3, environment board
 
 | ☐ | Net | U16 pin | Goes to | Note |
@@ -330,39 +359,12 @@ addresses, one per motor:
 | ☐ | D4 | open, or GPIO 39 later | pull up if left open |
 | ☐ | A3 | open for now, U18 A3 later | flame_ok stays 0 until this is wired |
 
-## ESP-3, water pump (2 A branch)
-
-| ☐ | From | Part | Value and type | To | Note |
-|---|---|---|---|---|---|
-| ☐ | 12 V rail after the master switch | fuse | 2 A blade | pump positive, red | pump branch only |
-| ☐ | pump negative, black | wire | 18 AWG black | IRLZ44N pin 2, drain | the switch is on the low side |
-| ☐ | IRLZ44N pin 3, source | wire | 18 AWG black | common ground point | same ground as U16 |
-| ☐ | U16 GPIO 25 | resistor | 100 Ω | IRLZ44N pin 1, gate | limits the gate pulse |
-| ☐ | IRLZ44N pin 1, gate | resistor | 10 kΩ | common ground point | pump stays off at boot |
-| ☐ | 1N5408 anode, no stripe | wire | 18 AWG | pump negative, black | catches the inductive kick |
-| ☐ | 1N5408 cathode, stripe | wire | 18 AWG | pump positive, red | to the fused 12 V side |
-| ☐ | 100 µF positive leg | capacitor | 100 µF, 25 V | pump positive, red | at the pump |
-| ☐ | 100 µF negative leg | capacitor | 100 µF, 25 V | common ground point | at the pump |
-| ☐ | pump jack centre pin | wire | 18 AWG red | fused 12 V | centre positive |
-| ☐ | pump jack sleeve | wire | 18 AWG black | MOSFET drain | switched negative |
-
-| ☐ | Pump fact | Value | Check before use |
-|---|---|---|---|
-| ☐ | model | RBD-1872, AD20P-1230C | read the label |
-| ☐ | rated current | 0.35 A, 3.6 W | if the label says 4 A, stop and resize the fuse |
-| ☐ | flow | 240 L/h | about 0.7 L in a 10 s burst |
-| ☐ | head | 3 m | keep the outlet above the water level |
-| ☐ | jack | 5.5 mm outside, 2.1 mm inside | centre positive |
-| ☐ | dry run | a few seconds only | prime it in a bucket first |
-| ☐ | GPIO 25 state at boot | LOW | pump off until a command arrives |
-| ☐ | firmware deadline | 10 s default, 60 s maximum | the pump stops even if the broker dies |
-
 ## Handover and bench order
 
 | ☐ | Step | Action | Expected result |
 |---|---|---|---|
 | ☐ | 1 | Wire motor 1 and the pump branch only | nothing else powered yet |
-| ☐ | 2 | Flash U3 and U16, open both serial logs | U3 lists INA at 0x41, 0x44, 0x45 and 0x40, U16 prints pump pin low |
+| ☐ | 2 | Flash U3 and U10, open both serial logs | U3 lists INA at 0x41, 0x44, 0x45 and 0x40, U10 prints pump pin low |
 | ☐ | 3 | Power U3 on USB, 12 V off | four INA226 answer on the main bus, four ADXL345 answer on mux channels 0 to 3 |
 | ☐ | 4 | Apply 12 V, motors idle | U1 5 V pin reads about 5 V, or 0 V means feed it 5 V, C7 stays cool |
 | ☐ | 5 | Command motor 1 at 25, 50, 75 percent | speed eases in over 12 s, wheel follows, current sign follows direction |
@@ -444,8 +446,8 @@ addresses, one per motor:
 | ☐ | File | What it decides |
 |---|---|---|
 | ☐ | firmware/ESP32-WROOM-32/config.h | motor pins, INA226 addresses and shunt, ADXL mux channels, probe pins, torque ramp |
-| ☐ | firmware/ESP32-WROOM-32-MID/config.h | middle motor pins, both IMU addresses, servo pin |
-| ☐ | firmware/ESP32-WROOM-32-ENV/config.h | ADS addresses, divider ratio, flame pins, pump pin and burst |
+| ☐ | firmware/ESP32-WROOM-32-MID/config.h | middle motor pins, both IMU addresses, servo pin, pump pin and burst |
+| ☐ | firmware/ESP32-WROOM-32-ENV/config.h | ADS addresses, divider ratio, flame pins |
 | ☐ | src/routes.rs | `/api/pump` request shape |
 | ☐ | README.md | parts list and topic payloads |
 | ☐ | BOM/CHANGES.md | what changed in the parts list |

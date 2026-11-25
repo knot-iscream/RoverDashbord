@@ -1,5 +1,19 @@
 # Changelog
 
+## 4.2.0a-dev / 4.2.0b-stable - 2026-11-25 - pump moves to MID
+
+- The water pump is now owned by ESP-2 (MID) on GPIO 25 instead of ESP-3.
+  The gate wire moves to the MID board; the fuse, diode, capacitor and jack
+  stay in the same pump branch. `rover/mid/command` accepts
+  `{"action":"pump","on":1,"seconds":10}` alongside motor commands, with the
+  same 10 s default, 60 s cap and firmware deadline. `pump:0/1` rides
+  `rover/mid/status` and the MID motor frames.
+- ESP-3 no longer has pump code or a pump field in its frames. `POST /api/pump`
+  now publishes to `rover/mid/command`. The control page reads pump state
+  from the MID WS frames.
+- Two builds from the same source: `4.2.0a-dev` (Cargo 4.2.0-dev.1) and
+  `4.2.0b-stable` (Cargo 4.2.0), built and committed in this session.
+
 ## 4.1.0a-dev / 4.1.0b-stable - 2026-11-23 - torque ramp, schematic addresses
 
 - All six motors now ease into a new speed over 12 s with a quadratic
@@ -12,8 +26,8 @@
   INA begin, recheck or reads. This reverses the v4.0 decision below.
 - Two builds from the same source: `4.1.0a-dev` and `4.1.0b-stable`. Cargo
   holds valid semver (`4.1.0-dev.1` and `4.1.0`) while the tags, zip names
-  and UI labels carry the a/b names. VBS still needs wiring on the real
-  board; the schematic export has all four VBUS pins open.
+  and UI labels carry the a/b names. The 23 Nov schematic export wires all
+  four VBUS pins to the fused 12 V rail, so that bench item is closed.
 
 ## v4.0-dev1 - 2026-11-21 - standalone dev build, no Raspberry Pi
 

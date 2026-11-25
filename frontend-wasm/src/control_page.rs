@@ -305,18 +305,23 @@ fn connect_ws(c: Ctx) {
             let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
                 return;
             };
-            // Pump state rides the ENV frames (telemetry every 1 s, status
-            // every 2 s). Trust the board, not the last click: a burst that
+            // Pump state rides the MID frames: status every 2 s, motor data
+            // every 250 ms. Trust the board, not the last click: a burst that
             // timed out on the firmware turns the button off by itself.
             let kind = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
-            if kind == "env_update" || kind == "env_status" {
-                if let Some(p) = v.get("pump").and_then(|x| x.as_u64()) {
-                    c.pump.set(p != 0);
+            if kind == "motor_status" {
+                if v.get("source").and_then(|x| x.as_str()) == Some("mid") {
+                    if let Some(p) = v.get("pump").and_then(|x| x.as_u64()) {
+                        c.pump.set(p != 0);
+                    }
                 }
                 return;
             }
             if kind != "motor_update" {
                 return;
+            }
+            if let Some(p) = v.get("pump").and_then(|x| x.as_u64()) {
+                c.pump.set(p != 0);
             }
             let Some(m) = v.get("motor").and_then(|x| x.as_u64()) else {
                 return;
