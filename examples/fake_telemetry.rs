@@ -10,7 +10,8 @@
 //! dashboard `--` gates.
 //!
 //! DELETE BEFORE HARDWARE DAY. Never ships, never commits to product.
-//! Broker: `MQTT_BROKER`/`MQTT_PORT` env, default `127.0.0.1:1883`.
+//! Broker: `MQTT_BROKER`/`MQTT_PORT` env, else `rover_config.json` (same
+//! file the app reads), else `127.0.0.1:1883`.
 //! Also fills the home gas panel and the Detailed sensor sections
 //! (`rover/env/telemetry` (1 Hz, gas cells wandering
 //! around the clean-air baseline, a flame burst every ~30s), `rover/env/status`
@@ -28,7 +29,7 @@
 //! Stop with Ctrl+C (or close the window).
 
 use rand::Rng;
-use rumqttc::{AsyncClient, MqttOptions, QoS};
+use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS};
 use serde_json::json;
 use std::time::Duration;
 
@@ -44,24 +45,95 @@ fn clamp(x: f64, lo: f64, hi: f64) -> f64 {
     x.max(lo).min(hi)
 }
 
+/// Broker from `MQTT_BROKER` / `MQTT_PORT`, else the app's
+/// `rover_config.json`, else localhost. The dashboard already reads that
+/// file, so a bare `cargo run --example fake_telemetry` lands on the same
+/// broker as the app without a second env var.
+fn configured_broker() -> (String, u16) {
+    let mut broker = "127.0.0.1".to_string();
+    let mut port = 1883;
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(p) = std::env::var("ROVER_CONFIG") {
+        candidates.push(std::path::PathBuf::from(p));
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd.join("rover_config.json"));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        let mut dir = exe.parent().map(|p| p.to_path_buf());
+        for _ in 0..4 {
+            let Some(d) = dir else { break };
+            candidates.push(d.join("rover_config.json"));
+            dir = d.parent().map(|p| p.to_path_buf());
+        }
+    }
+    if let Some(text) = candidates
+        .iter()
+        .find_map(|p| std::fs::read_to_string(p).ok())
+    {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+            if let Some(b) = v.get("mqtt_broker").and_then(|x| x.as_str()) {
+                if !b.trim().is_empty() {
+                    broker = b.trim().to_string();
+                }
+            }
+            if let Some(p) = v.get("mqtt_port").and_then(|x| x.as_u64()) {
+                if let Ok(p) = u16::try_from(p) {
+                    port = p;
+                }
+            }
+        }
+    }
+    if let Ok(b) = std::env::var("MQTT_BROKER") {
+        if !b.trim().is_empty() {
+            broker = b.trim().to_string();
+        }
+    }
+    if let Some(p) = std::env::var("MQTT_PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+    {
+        if p > 0 {
+            port = p;
+        }
+    }
+    (broker, port)
+}
+
 #[tokio::main]
 async fn main() {
     eprintln!("[fake] THROWAWAY publisher — delete before hardware day");
-    let broker = std::env::var("MQTT_BROKER").unwrap_or_else(|_| "127.0.0.1".into());
-    let port: u16 = std::env::var("MQTT_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(1883);
-    let mut opts = MqttOptions::new("fake-esp32-throwaway", broker, port);
+    let (broker, port) = configured_broker();
+    let mut opts = MqttOptions::new("fake-esp32-throwaway", broker.clone(), port);
     opts.set_keep_alive(Duration::from_secs(30));
     let (client, mut events) = AsyncClient::new(opts, 64);
+    // Wait for a real ConnAck. A blind sleep hid the usual failure (no broker
+    // on the configured host) behind a publisher that looked alive.
+    let mut connected = false;
+    for attempt in 1..=15 {
+        match events.poll().await {
+            Ok(Event::Incoming(Packet::ConnAck(_))) => {
+                eprintln!("[fake] connected to {broker}:{port}");
+                connected = true;
+                break;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                if attempt == 1 || attempt % 5 == 0 {
+                    eprintln!("[fake] broker {broker}:{port} unreachable ({e}); retrying");
+                }
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        }
+    }
+    if !connected {
+        eprintln!("[fake] no ConnAck after 30 s, publishing anyway — dashboard stays offline");
+    }
     tokio::spawn(async move {
         loop {
             let _ = events.poll().await;
         }
     });
-    // Wait for ConnAck before publishing.
-    tokio::time::sleep(Duration::from_secs(1)).await;
 
     let sweep = std::env::var("FAKE_SWEEP").is_ok_and(|v| v == "1");
     if sweep {
