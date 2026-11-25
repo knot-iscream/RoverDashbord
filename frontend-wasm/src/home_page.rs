@@ -245,6 +245,9 @@ struct HomeCtx {
     scan_open: RwSignal<bool>,
     scan_sel: RwSignal<String>,
     scan_cloud: RwSignal<serde_json::Value>,
+    scan_rename: RwSignal<bool>,
+    scan_confirm_delete: RwSignal<bool>,
+    scan_label_ref: NodeRef<leptos::html::Input>,
     /// Non-null while the 3D canvas shows a saved scan instead of live data.
     history_cloud: RwSignal<serde_json::Value>,
     history_title: RwSignal<String>,
@@ -860,6 +863,8 @@ fn set_notice_ttl(ctx: HomeCtx, msg: String, ms: u32) {
 fn select_scan(ctx: HomeCtx, id: String) {
     ctx.scan_sel.set(id.clone());
     ctx.scan_cloud.set(serde_json::Value::Null);
+    ctx.scan_rename.set(false);
+    ctx.scan_confirm_delete.set(false);
     wasm_bindgen_futures::spawn_local(async move {
         if let Some(v) = get_json(&format!("/api/scans/{id}/cloud")).await {
             if let Some(cloud) = v.get("cloud") {
@@ -903,6 +908,37 @@ fn fetch_scans(ctx: HomeCtx) {
             }
         }
     });
+}
+
+fn save_scan_label(ctx: HomeCtx) {
+    let id = ctx.scan_sel.get();
+    if id.is_empty() {
+        return;
+    }
+    let label = ctx
+        .scan_label_ref
+        .get()
+        .map(|el| el.value())
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    ctx.scan_rename.set(false);
+    wasm_bindgen_futures::spawn_local(async move {
+        let res = post_json(
+            &format!("/api/scans/{id}/label"),
+            serde_json::json!({"label": label}),
+        )
+        .await;
+        if res.is_none() {
+            ctx.lidar_notice
+                .set("Rename failed - is the app still connected?".into());
+        }
+        fetch_scans(ctx);
+    });
+}
+
+fn cancel_scan_label(ctx: HomeCtx) {
+    ctx.scan_rename.set(false);
 }
 
 /// Home WS loop: motor_update feeds live motors (latching each one),
@@ -1159,6 +1195,9 @@ pub fn HomePage() -> impl IntoView {
     let scan_open = RwSignal::new(false);
     let scan_sel = RwSignal::new(String::new());
     let scan_cloud = RwSignal::new(serde_json::Value::Null);
+    let scan_rename = RwSignal::new(false);
+    let scan_confirm_delete = RwSignal::new(false);
+    let scan_label_ref = NodeRef::<leptos::html::Input>::new();
     let history_cloud = RwSignal::new(serde_json::Value::Null);
     let history_title = RwSignal::new(String::new());
     let scan_canvas = NodeRef::<leptos::html::Canvas>::new();
@@ -1205,6 +1244,9 @@ pub fn HomePage() -> impl IntoView {
         scan_open,
         scan_sel,
         scan_cloud,
+        scan_rename,
+        scan_confirm_delete,
+        scan_label_ref,
         history_cloud,
         history_title,
         scan_canvas,
@@ -1458,6 +1500,8 @@ pub fn HomePage() -> impl IntoView {
     };
     let on_scan_close = move |_| {
         ctx.scan_open.set(false);
+        ctx.scan_rename.set(false);
+        ctx.scan_confirm_delete.set(false);
     };
     let on_history_view = move |_| {
         let cloud = ctx.scan_cloud.get();
@@ -1480,6 +1524,8 @@ pub fn HomePage() -> impl IntoView {
         ctx.history_title.set(format!("{label} - {points} pts"));
         ctx.history_cloud.set(cloud);
         ctx.scan_open.set(false);
+        ctx.scan_rename.set(false);
+        ctx.scan_confirm_delete.set(false);
         ctx.lidar_full.set(true);
         ctx.lidar_view.set(1);
         wasm_bindgen_futures::spawn_local(async move {
@@ -1535,24 +1581,15 @@ pub fn HomePage() -> impl IntoView {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        let Some(win) = web_sys::window() else {
-            return;
-        };
-        let Ok(Some(name)) = win.prompt_with_message_and_default("Room name", &current) else {
-            return;
-        };
-        let label = name.trim().to_string();
+        ctx.scan_confirm_delete.set(false);
+        ctx.scan_rename.set(true);
         wasm_bindgen_futures::spawn_local(async move {
-            let res = post_json(
-                &format!("/api/scans/{id}/label"),
-                serde_json::json!({"label": label}),
-            )
-            .await;
-            if res.is_none() {
-                ctx.lidar_notice
-                    .set("Rename failed - is the app still connected?".into());
+            gloo_timers::future::TimeoutFuture::new(60).await;
+            if let Some(el) = ctx.scan_label_ref.get() {
+                el.set_value(&current);
+                let _ = el.focus();
+                el.select();
             }
-            fetch_scans(ctx);
         });
     };
     let on_scan_delete = move |_| {
@@ -1560,15 +1597,20 @@ pub fn HomePage() -> impl IntoView {
         if id.is_empty() {
             return;
         }
-        let Some(win) = web_sys::window() else {
-            return;
-        };
-        if !win
-            .confirm_with_message(&format!("Delete scan {id}? This removes the Pi copy too."))
-            .unwrap_or(false)
-        {
+        if !ctx.scan_confirm_delete.get() {
+            // Two-step delete, because the Tauri WebView may suppress the
+            // native confirm dialog.
+            ctx.scan_rename.set(false);
+            ctx.scan_confirm_delete.set(true);
+            wasm_bindgen_futures::spawn_local(async move {
+                gloo_timers::future::TimeoutFuture::new(5000).await;
+                if ctx.scan_confirm_delete.get() {
+                    ctx.scan_confirm_delete.set(false);
+                }
+            });
             return;
         }
+        ctx.scan_confirm_delete.set(false);
         wasm_bindgen_futures::spawn_local(async move {
             let res = delete_json(&format!("/api/scans/{id}")).await;
             if res.is_none() {
@@ -1975,12 +2017,12 @@ pub fn HomePage() -> impl IntoView {
                                 children=move |scan| {
                                     let id = scan.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                     let date = scan_time(&scan);
-                                    let label = scan.get("label").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                     let partial = scan.get("partial").and_then(|v| v.as_bool()).unwrap_or(false);
                                     let sweeps = scan.get("sweeps").and_then(|v| v.as_u64()).unwrap_or(0);
                                     let points = scan.get("points").and_then(|v| v.as_u64()).unwrap_or(0);
                                     let class_id = id.clone();
                                     let click_id = id.clone();
+                                    let label_id = id.clone();
                                     view! {
                                         <div
                                             class={move || if ctx.scan_sel.get() == class_id { "history-row active" } else { "history-row" }}
@@ -1990,7 +2032,16 @@ pub fn HomePage() -> impl IntoView {
                                                 <span class="history-date">{date}</span>
                                                 {partial.then(|| view! { <span class="history-badge">"partial"</span> })}
                                             </div>
-                                            <div class="history-label">{if label.is_empty() { "Unnamed room".to_string() } else { label }}</div>
+                                            <div class="history-label">{move || {
+                                                let id = label_id.clone();
+                                                ctx.scans.get().iter()
+                                                    .find(|s| s.get("id").and_then(|v| v.as_str()) == Some(id.as_str()))
+                                                    .and_then(|s| s.get("label"))
+                                                    .and_then(|v| v.as_str())
+                                                    .filter(|s| !s.is_empty())
+                                                    .map(|s| s.to_string())
+                                                    .unwrap_or_else(|| "Unnamed room".to_string())
+                                            }}</div>
                                             <div class="history-stats">{format!("{sweeps} sweeps - {points} pts")}</div>
                                         </div>
                                     }
@@ -2020,11 +2071,30 @@ pub fn HomePage() -> impl IntoView {
                                 }
                             }}
                         </div>
+                        <Show when=move || ctx.scan_rename.get()>
+                            <div class="history-rename">
+                                <input
+                                    class="history-input"
+                                    type="text"
+                                    placeholder="Room name"
+                                    node_ref=ctx.scan_label_ref
+                                    on:keydown=move |ev: web_sys::KeyboardEvent| {
+                                        if ev.key() == "Enter" {
+                                            save_scan_label(ctx);
+                                        } else if ev.key() == "Escape" {
+                                            cancel_scan_label(ctx);
+                                        }
+                                    }
+                                />
+                                <button class="lidar-btn lidar-btn-accent" on:click=move |_| save_scan_label(ctx)>"Save"</button>
+                                <button class="lidar-btn" on:click=move |_| cancel_scan_label(ctx)>"Cancel"</button>
+                            </div>
+                        </Show>
                         <div class="history-actions">
                             <button class="lidar-btn lidar-btn-accent" on:click=on_history_view>"Open in 3D"</button>
                             <button class="lidar-btn" on:click=on_scan_download>"Download"</button>
                             <button class="lidar-btn" on:click=on_scan_rename>"Rename"</button>
-                            <button class="lidar-btn" on:click=on_scan_delete>"Delete"</button>
+                            <button class={move || if ctx.scan_confirm_delete.get() { "lidar-btn history-confirm" } else { "lidar-btn" }} on:click=on_scan_delete>{move || if ctx.scan_confirm_delete.get() { "Confirm delete" } else { "Delete" }}</button>
                         </div>
                     </div>
                 </div>

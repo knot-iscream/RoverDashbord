@@ -892,6 +892,30 @@ button { cursor: pointer; border: none; background: none; font-family: inherit; 
 }
 .history-meta { font-size: 11px; color: var(--gray-400); min-height: 16px; }
 .history-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.history-rename { display: flex; gap: 8px; align-items: center; }
+.history-input {
+  flex: 1;
+  min-width: 0;
+  background: #141418;
+  border: 1px solid rgba(255,255,255,0.18);
+  color: #fafafa;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.history-input:focus {
+  outline: none;
+  border-color: rgba(249,115,22,0.7);
+}
+.history-confirm {
+  color: #f87171;
+  border-color: rgba(248,113,113,0.55);
+  background: rgba(248,113,113,0.08);
+}
+.history-confirm:hover {
+  color: #fca5a5;
+  border-color: rgba(248,113,113,0.8);
+}
 @media (max-width: 760px) {
   .history-body { grid-template-columns: 1fr; }
   .history-list { max-height: 180px; }
