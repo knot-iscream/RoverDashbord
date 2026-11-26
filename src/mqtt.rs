@@ -89,6 +89,8 @@ pub struct Ctx {
     /// Rolling ENV + IMU logs behind the Detailed charts and the Excel
     /// export. Brief std::sync locks only; never held across an await.
     pub sensors: Arc<std::sync::Mutex<SensorLog>>,
+    /// Last manual duty per motor; republished by the hold task.
+    pub manual: Arc<std::sync::Mutex<crate::manual::ManualHold>>,
     pub device: Arc<tokio::sync::RwLock<DeviceState>>,
     pub bcast: tokio::sync::broadcast::Sender<Value>,
 }
@@ -188,6 +190,18 @@ pub async fn spawn_mqtt(ctx: Ctx, broker: &str, port: u16) -> MqttSlot {
             match eventloop.poll().await {
                 Ok(Event::Incoming(Packet::ConnAck(_))) => {
                     task_handle.connected.store(true, Ordering::SeqCst);
+                    // A reconnect must never resume an old manual duty. Clear
+                    // the hold and publish a zero before anything new arrives.
+                    task_ctx.manual.lock().unwrap().clear();
+                    let zero = "{\"motor\":0,\"speed\":0}".to_string();
+                    let _ = task_handle
+                        .client
+                        .publish("rover/motor/command", QoS::AtMostOnce, false, zero.clone())
+                        .await;
+                    let _ = task_handle
+                        .client
+                        .publish("rover/mid/command", QoS::AtMostOnce, false, zero)
+                        .await;
                     for t in SUB_TOPICS {
                         let _ = task_handle.client.subscribe(t, QoS::AtMostOnce).await;
                     }
@@ -568,6 +582,48 @@ pub async fn monitor_device(ctx: Ctx) {
         let changed = ctx.device.write().await.refresh();
         if changed {
             broadcast(&ctx, ctx.device.read().await.payload());
+        }
+    }
+}
+
+/// Republish the last manual duty while a dashboard is connected. The
+/// firmware stops the rover if this loop dies, the backend dies, or the
+/// broker drops. It never runs without a WS client, so closing the Control
+/// page also stops a held command.
+pub async fn manual_hold_loop(state: crate::AppState) {
+    let mut iv = tokio::time::interval(Duration::from_millis(200));
+    loop {
+        iv.tick().await;
+        if state.clients.load(Ordering::SeqCst) == 0 {
+            state.manual.lock().unwrap().clear();
+            continue;
+        }
+        let Some(speeds) = state.manual.lock().unwrap().snapshot() else {
+            continue;
+        };
+        let handle = state.mqtt.read().await.handle.clone();
+        if !handle.is_connected() {
+            continue;
+        }
+        for (i, speed) in speeds.iter().enumerate() {
+            if *speed == 0 {
+                continue;
+            }
+            let (topic, motor) = if i < 4 {
+                ("rover/motor/command", i as i64 + 1)
+            } else {
+                ("rover/mid/command", i as i64 - 3)
+            };
+            let _ = handle
+                .publish(
+                    topic,
+                    &json!({
+                        "motor": motor,
+                        "speed": speed,
+                        "arm_ms": crate::manual::MANUAL_ARM_MS,
+                    }),
+                )
+                .await;
         }
     }
 }

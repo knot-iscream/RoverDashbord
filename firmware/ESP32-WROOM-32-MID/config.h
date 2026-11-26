@@ -53,12 +53,12 @@
 // new speed target, with STOP immediate. The hold mount is the reason.
 #define TORQUE_RAMP_MS 12000UL
 
-// Autonomous commands: 1 s ramp plus a deadman. Manual commands keep the
-// 12 s ramp and no deadline.
-#define AUTO_TORQUE_RAMP_MS 1000UL
-#define AUTO_ARM_DEFAULT_MS 600UL
-#define AUTO_ARM_MIN_MS     200UL
-#define AUTO_ARM_MAX_MS     5000UL
+// Command deadman: any command that carries arm_ms must be refreshed within
+// that window or both motors stop. There is only the 12 s ramp, manual and
+// autonomous alike.
+#define CMD_ARM_DEFAULT_MS 600UL
+#define CMD_ARM_MIN_MS     200UL
+#define CMD_ARM_MAX_MS     5000UL
 
 // ============================================================
 // Water pump (RBD-1872, AD20P-1230C): 12 V, ~350 mA, 3.6 W.

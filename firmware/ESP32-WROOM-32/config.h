@@ -62,12 +62,13 @@
 // quickly for a 12 s ramp to be useful.
 #define TORQUE_RAMP_MS 12000UL
 
-// Autonomous commands: 1 s ramp and a command deadman. A manual command
-// keeps the 12 s ramp and no deadline, so the UI behaves exactly as before.
-#define AUTO_TORQUE_RAMP_MS 1000UL
-#define AUTO_ARM_DEFAULT_MS 600UL
-#define AUTO_ARM_MIN_MS     200UL
-#define AUTO_ARM_MAX_MS     5000UL
+// Command deadman: any command that carries arm_ms must be refreshed within
+// that window or every motor on the board stops. Manual and autonomous
+// commands share the same 12 s ramp, so a target change can never shock the
+// frame.
+#define CMD_ARM_DEFAULT_MS 600UL
+#define CMD_ARM_MIN_MS     200UL
+#define CMD_ARM_MAX_MS     5000UL
 
 // Calibration sweep profile: warm up, then sweep every speed % forward+reverse
 #define CALIB_WARMUP_MS    120000  // total warmup (split: 1min +255, 1min -255)

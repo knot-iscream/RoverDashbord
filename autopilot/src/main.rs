@@ -19,6 +19,7 @@ use autopilot::lease::{Lease, Mode};
 use autopilot::mission::{Action, Event as MissionEvent, Mission, State};
 use autopilot::pursuit;
 use autopilot::scan::{self, Bins};
+use autopilot::segment::Segment;
 use autopilot::vfh;
 
 const SUB_TOPICS: [&str; 11] = [
@@ -59,6 +60,8 @@ struct Runtime {
     hop_start_s: f64,
     hop_start_pose: Option<(f64, f64)>,
     return_path: Vec<(f64, f64)>,
+    return_target: Option<(f64, f64)>,
+    segment: Segment,
     person_until_s: f64,
     thermal: Thermal,
     heartbeat_seen: bool,
@@ -90,6 +93,8 @@ impl Runtime {
             hop_start_s: 0.0,
             hop_start_pose: None,
             return_path: Vec::new(),
+            return_target: None,
+            segment: Segment::new(),
             person_until_s: 0.0,
             thermal: Thermal::Ok,
             heartbeat_seen: false,
@@ -119,7 +124,7 @@ impl Runtime {
         for (motor, speed) in [(1, left), (3, left), (2, right), (4, right)] {
             self.publish(
                 "rover/motor/command",
-                json!({"motor": motor, "speed": speed, "auto": 1, "arm_ms": arm}),
+                json!({"motor": motor, "speed": speed, "arm_ms": arm}),
                 false,
             )
             .await;
@@ -127,7 +132,7 @@ impl Runtime {
         for (motor, speed) in [(1, left), (2, right)] {
             self.publish(
                 "rover/mid/command",
-                json!({"motor": motor, "speed": speed, "auto": 1, "arm_ms": arm}),
+                json!({"motor": motor, "speed": speed, "arm_ms": arm}),
                 false,
             )
             .await;
@@ -300,12 +305,16 @@ impl Runtime {
         while let Some(action) = queue.pop() {
             match action {
                 Action::Stop | Action::Hold | Action::Idle => {
+                    self.segment.clear();
+                    self.return_target = None;
                     self.publish_stop().await;
                     if action == Action::Idle {
                         self.lease.set_mode(Mode::Idle, now);
                     }
                 }
                 Action::DriveHop => {
+                    self.segment.clear();
+                    self.return_target = None;
                     self.hop_start_s = now;
                     self.hop_start_pose = self.pose.map(|p| (p.x, p.y));
                     if let Some(p) = self.pose {
@@ -313,6 +322,8 @@ impl Runtime {
                     }
                 }
                 Action::WaitScan => {
+                    self.segment.clear();
+                    self.return_target = None;
                     self.scan_baseline_sweeps = self.current_sweeps();
                     self.publish_stop().await;
                 }
@@ -321,6 +332,8 @@ impl Runtime {
                     queue.extend(next);
                 }
                 Action::ReturnHome => {
+                    self.segment.clear();
+                    self.return_target = None;
                     self.return_path = self.mission.return_path();
                     if self.return_path.is_empty() {
                         let next = self.mission.step(MissionEvent::ReturnBlocked, now);
@@ -412,12 +425,14 @@ impl Runtime {
 
     async fn drive_hop(&mut self, now: f64) {
         if self.person_until_s > now {
+            self.segment.clear();
             let actions = self.mission.step(MissionEvent::PersonSeen, now);
             self.publish_stop().await;
             self.run_actions(actions, now).await;
             return;
         }
         if self.fire.last.is_some() {
+            self.segment.clear();
             let actions = self.mission.step(MissionEvent::FireSeen, now);
             self.publish_stop().await;
             self.run_actions(actions, now).await;
@@ -429,6 +444,7 @@ impl Runtime {
         };
         let stale = self.last_scan_s.is_none_or(|t| now - t > SCAN_STALE_S);
         if stale {
+            self.segment.clear();
             self.publish_stop().await;
             if self.last_scan_s.is_some_and(|t| now - t > 1.0) {
                 let actions = self.mission.step(MissionEvent::ScanLost, now);
@@ -445,6 +461,7 @@ impl Runtime {
             _ => now - self.hop_start_s >= self.cfg.hop_seconds,
         };
         if arrived {
+            self.segment.clear();
             let actions = self.mission.step(MissionEvent::Arrived, now);
             self.publish_stop().await;
             self.run_actions(actions, now).await;
@@ -452,34 +469,54 @@ impl Runtime {
         }
 
         let front = bins.min_in_arc(0.0, 20.0);
-        if front.is_some_and(|r| r <= self.cfg.stop_distance_m) {
-            let gaps = vfh::find_gaps(bins, &self.cfg);
-            match vfh::choose_gap(&gaps, 0.0, None, &self.cfg) {
-                Some(gap) => {
-                    let (l, r) = vfh::banks_for_heading(gap.center_deg(), 0, &self.cfg);
-                    self.publish_motor_pair(l, r).await;
-                }
-                None => {
-                    let actions = self.mission.step(MissionEvent::ObstacleBlocked, now);
-                    self.publish_stop().await;
-                    self.run_actions(actions, now).await;
-                }
-            }
-            return;
-        }
+        let front_blocked = front.is_some_and(|r| r <= self.cfg.stop_distance_m);
+        let front_clear = front.is_none_or(|r| r > self.cfg.stop_distance_m + 0.10);
 
-        let gaps = vfh::find_gaps(bins, &self.cfg);
-        match vfh::choose_gap(&gaps, 0.0, None, &self.cfg) {
-            Some(gap) => {
-                let base = vfh::speed_for_clearance(gap.min_range_m, &self.cfg);
-                let (l, r) = vfh::banks_for_heading(gap.center_deg(), base, &self.cfg);
-                self.publish_motor_pair(l, r).await;
-            }
-            None => {
+        // One target per segment. Changing it while moving would restart
+        // the 12 s ramp, so a new target only happens from a stop.
+        if !self.segment.is_set() {
+            let gaps = vfh::find_gaps(bins, &self.cfg);
+            let Some(gap) = vfh::choose_gap(&gaps, 0.0, None, &self.cfg) else {
                 let actions = self.mission.step(MissionEvent::ObstacleBlocked, now);
                 self.publish_stop().await;
                 self.run_actions(actions, now).await;
-            }
+                return;
+            };
+            let base = if front_blocked {
+                0
+            } else {
+                vfh::speed_for_clearance(gap.min_range_m, &self.cfg)
+            };
+            let (l, r) = vfh::banks_for_heading(gap.center_deg(), base, &self.cfg);
+            self.segment.set(l, r, front_blocked, now);
+            tracing::info!(
+                "segment left={l} right={r} pivot={front_blocked} gap={:.0}deg",
+                gap.center_deg()
+            );
+        }
+
+        // A pivot segment ends when the front is clear. The mission then
+        // scans from a stop; the next hop drives into the opening.
+        if self.segment.pivot() && front_clear {
+            self.segment.clear();
+            let actions = self.mission.step(MissionEvent::Arrived, now);
+            self.publish_stop().await;
+            self.run_actions(actions, now).await;
+            return;
+        }
+
+        // A driving segment that sees a close front stops first. The next
+        // tick chooses a pivot target from zero.
+        if !self.segment.pivot() && front_blocked {
+            self.segment.clear();
+            self.publish_stop().await;
+            return;
+        }
+
+        if let Some((l, r)) = self.segment.target() {
+            self.publish_motor_pair(l, r).await;
+        } else {
+            self.publish_stop().await;
         }
     }
 
@@ -513,12 +550,14 @@ impl Runtime {
 
     async fn drive_return(&mut self, now: f64) {
         if self.last_scan_s.is_none_or(|t| now - t > 1.0) {
+            self.segment.clear();
             let actions = self.mission.step(MissionEvent::ScanLost, now);
             self.publish_stop().await;
             self.run_actions(actions, now).await;
             return;
         }
         if self.person_until_s > now || self.fire.last.is_some() {
+            self.segment.clear();
             let event = if self.fire.last.is_some() {
                 MissionEvent::FireSeen
             } else {
@@ -534,6 +573,7 @@ impl Runtime {
             return;
         };
         if self.return_path.is_empty() {
+            self.segment.clear();
             let actions = self.mission.step(MissionEvent::ReturnBlocked, now);
             self.publish_stop().await;
             self.run_actions(actions, now).await;
@@ -543,12 +583,14 @@ impl Runtime {
         self.return_path
             .retain(|p| distance((pose.x, pose.y), *p) > 0.25);
         let Some(last) = self.return_path.last().copied() else {
+            self.segment.clear();
             let actions = self.mission.step(MissionEvent::GoalReached, now);
             self.publish_stop().await;
             self.run_actions(actions, now).await;
             return;
         };
         if distance((pose.x, pose.y), last) <= self.cfg.goal_tolerance_m {
+            self.segment.clear();
             let actions = self.mission.step(MissionEvent::GoalReached, now);
             self.publish_stop().await;
             self.run_actions(actions, now).await;
@@ -559,14 +601,46 @@ impl Runtime {
                 .min_in_arc(0.0, 15.0)
                 .is_some_and(|r| r <= self.cfg.stop_distance_m)
             {
+                self.segment.clear();
                 let actions = self.mission.step(MissionEvent::ReturnBlocked, now);
                 self.publish_stop().await;
                 self.run_actions(actions, now).await;
                 return;
             }
         }
-        let speed_mps = self.cfg.max_mps * 0.5;
-        if let Some((l, r)) = pursuit::command(&pose, &self.return_path, speed_mps, &self.cfg) {
+
+        // One target per segment: a breadcrumb about 1 m ahead, then re-aim
+        // from a stop. The 12 s ramp makes continuous pursuit impossible.
+        if !self.segment.is_set() {
+            let target = self
+                .return_path
+                .iter()
+                .copied()
+                .find(|p| distance((pose.x, pose.y), *p) >= 1.0)
+                .unwrap_or(last);
+            self.return_target = Some(target);
+            let speed_mps = self.cfg.max_mps * 0.5;
+            match pursuit::command(&pose, &[target], speed_mps, &self.cfg) {
+                Some((l, r)) => self.segment.set(l, r, false, now),
+                None => {
+                    self.publish_stop().await;
+                    return;
+                }
+            }
+        }
+
+        if let Some(target) = self.return_target {
+            if distance((pose.x, pose.y), target) <= 0.30
+                || self.segment.age(now) >= self.cfg.hop_seconds
+            {
+                self.segment.clear();
+                self.return_target = None;
+                self.publish_stop().await;
+                return;
+            }
+        }
+
+        if let Some((l, r)) = self.segment.target() {
             self.publish_motor_pair(l, r).await;
         } else {
             self.publish_stop().await;
@@ -598,6 +672,11 @@ impl Runtime {
             "corner_age_s": self.last_corner_s.map(|t| (now - t).round()),
             "mid_age_s": self.last_mid_s.map(|t| (now - t).round()),
             "goal": self.goal.map(|g| json!({"x": g.0, "y": g.1})),
+            "segment": self.segment.target().map(|(l, r)| json!({
+                "left": l,
+                "right": r,
+                "pivot": self.segment.pivot(),
+            })),
         });
         self.publish("rover/autonomy/state", state, false).await;
 

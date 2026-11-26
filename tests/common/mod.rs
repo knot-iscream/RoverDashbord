@@ -46,6 +46,7 @@ pub struct Fixture {
     pub nav_grid: Arc<RwLock<Value>>,
     pub autonomy: Arc<RwLock<Value>>,
     pub mission: Arc<RwLock<Value>>,
+    pub manual: Arc<std::sync::Mutex<digital_twin_dashboard::manual::ManualHold>>,
     pub scans: Arc<RwLock<digital_twin_dashboard::scan_store::ScanStore>>,
     pub scan_sync_lock: Arc<tokio::sync::Mutex<()>>,
     pub o2: Arc<std::sync::Mutex<digital_twin_dashboard::o2_estimate::O2Estimator>>,
@@ -86,6 +87,9 @@ pub fn fixture(tag: &str) -> Fixture {
     let nav_grid = Arc::new(RwLock::new(Value::Null));
     let autonomy = Arc::new(RwLock::new(Value::Null));
     let mission = Arc::new(RwLock::new(Value::Null));
+    let manual = Arc::new(std::sync::Mutex::new(
+        digital_twin_dashboard::manual::ManualHold::default(),
+    ));
     let scans = Arc::new(RwLock::new(
         digital_twin_dashboard::scan_store::ScanStore::new(dir.join("scans")),
     ));
@@ -116,6 +120,7 @@ pub fn fixture(tag: &str) -> Fixture {
         nav_grid: nav_grid.clone(),
         autonomy: autonomy.clone(),
         mission: mission.clone(),
+        manual: manual.clone(),
         scans: scans.clone(),
         cfg: cfg.clone(),
         scan_sync_lock: scan_sync_lock.clone(),
@@ -143,6 +148,7 @@ pub fn fixture(tag: &str) -> Fixture {
         nav_grid,
         autonomy,
         mission,
+        manual,
         scans,
         scan_sync_lock,
         o2,
@@ -178,6 +184,7 @@ pub async fn test_state(tag: &str) -> (AppState, PathBuf) {
         nav_grid: f.nav_grid,
         autonomy: f.autonomy,
         mission: f.mission,
+        manual: f.manual,
         scans: f.scans,
         scan_sync_lock: f.scan_sync_lock,
         o2: f.o2,

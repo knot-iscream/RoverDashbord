@@ -212,6 +212,9 @@ pub async fn autonomy_mode(
             ))
         }
     };
+    // Any mode change drops the last manual duty. The next drive command
+    // sets it again, so a stale target can never survive an auto lease.
+    s.manual.lock().unwrap().clear();
     let sent = s
         .mqtt
         .read()
@@ -581,33 +584,31 @@ pub async fn motor_control(State(s): State<AppState>, Json(body): Json<Value>) -
     let motor_raw = body.get("motor").cloned().unwrap_or(json!(0));
     let motor = coerce_motor(body.get("motor"));
     let speed = coerce_i64(body.get("speed")).clamp(-255, 255);
+    s.manual.lock().unwrap().set(motor, speed as i32);
+
+    // A nonzero command carries the deadman arm; the hold task refreshes it.
+    // A zero is a plain stop and disarms.
+    let arm = (speed != 0).then_some(crate::manual::MANUAL_ARM_MS);
+    let cmd = |m: i64| match arm {
+        Some(arm) => json!({"motor": m, "speed": speed, "arm_ms": arm}),
+        None => json!({"motor": m, "speed": 0}),
+    };
+
     // Motors 5-6 live on ESP-2 MID (own namespace); 0 = all six.
     let guard = s.mqtt.read().await;
     let sent = if motor == 0 {
-        let a = guard
-            .handle
-            .publish("rover/motor/command", &json!({"motor": 0, "speed": speed}))
-            .await;
-        let b = guard
-            .handle
-            .publish("rover/mid/command", &json!({"motor": 0, "speed": speed}))
-            .await;
+        let a = guard.handle.publish("rover/motor/command", &cmd(0)).await;
+        let b = guard.handle.publish("rover/mid/command", &cmd(0)).await;
         a || b
     } else if motor == 5 || motor == 6 {
         guard
             .handle
-            .publish(
-                "rover/mid/command",
-                &json!({"motor": motor - 4, "speed": speed}),
-            )
+            .publish("rover/mid/command", &cmd(motor - 4))
             .await
     } else {
         guard
             .handle
-            .publish(
-                "rover/motor/command",
-                &json!({"motor": motor, "speed": speed}),
-            )
+            .publish("rover/motor/command", &cmd(motor))
             .await
     };
     if sent {
@@ -632,6 +633,7 @@ pub async fn motor_status(State(s): State<AppState>) -> Json<Value> {
 /// and the firmware caps at PUMP_MAX_MS on its own as well.
 pub async fn pump_control(State(s): State<AppState>, Json(body): Json<Value>) -> Json<Value> {
     take_manual(&s).await;
+    s.manual.lock().unwrap().clear();
     let on = body.get("on").and_then(|v| v.as_bool()).unwrap_or(false);
     let seconds = coerce_i64(body.get("seconds")).clamp(1, 60);
     let payload = if on {
@@ -639,13 +641,20 @@ pub async fn pump_control(State(s): State<AppState>, Json(body): Json<Value>) ->
     } else {
         json!({"action": "pump", "on": 0})
     };
-    let sent = s
-        .mqtt
-        .read()
-        .await
-        .handle
-        .publish("rover/mid/command", &payload)
-        .await;
+    let sent = {
+        let guard = s.mqtt.read().await;
+        // Water only from a stopped rover. The pump is manual and has its
+        // own firmware deadline, but the drive must not keep rolling.
+        let _ = guard
+            .handle
+            .publish("rover/motor/command", &json!({"motor": 0, "speed": 0}))
+            .await;
+        let _ = guard
+            .handle
+            .publish("rover/mid/command", &json!({"motor": 0, "speed": 0}))
+            .await;
+        guard.handle.publish("rover/mid/command", &payload).await
+    };
     if sent {
         Json(json!({"status": "ok", "on": on, "seconds": seconds, "sent": true}))
     } else {
@@ -760,6 +769,7 @@ pub async fn bench_start(State(s): State<AppState>) -> Response {
         return (StatusCode::CONFLICT, Json(s.bench.read().await.payload())).into_response();
     }
     take_manual(&s).await;
+    s.manual.lock().unwrap().clear();
     let started = crate::bench::start(s.ctx(), s.mqtt.clone(), s.bench.clone()).await;
     (StatusCode::ACCEPTED, Json(started.payload())).into_response()
 }
@@ -780,6 +790,7 @@ pub async fn set_baseline(
 
 pub async fn calibration_start(State(s): State<AppState>) -> Json<Value> {
     take_manual(&s).await;
+    s.manual.lock().unwrap().clear();
     let result = s.cal.write().await.start();
     let _ = s
         .mqtt

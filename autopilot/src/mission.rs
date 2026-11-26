@@ -86,7 +86,7 @@ pub struct Mission {
 }
 
 const MAX_CRUMBS: usize = 5000;
-const HOP_TIMEOUT_SLACK_S: f64 = 5.0;
+const HOP_TIMEOUT_SLACK_S: f64 = 10.0;
 const RETURN_TIMEOUT_S: f64 = 180.0;
 
 impl Mission {

@@ -32,7 +32,8 @@ pub struct AutoConfig {
     pub wheel_base_m: f64,
     /// Duty-to-speed scale. Measure it on the floor, do not trust the default.
     pub max_mps: f64,
-    /// One survey hop, measured along the path.
+    /// One survey hop, measured along the path. Short on purpose: the 12 s
+    /// ramp means a long hop barely reaches cruising speed.
     pub max_hop_m: f64,
     /// Fallback hop length when no pose is available.
     pub hop_seconds: f64,
@@ -66,8 +67,6 @@ pub struct AutoConfig {
     pub temp_warn_c: f64,
     /// Abort and return.
     pub temp_abort_c: f64,
-    /// Startup grace before the heartbeat is required.
-    pub hop_start_grace_s: f64,
 }
 
 impl Default for AutoConfig {
@@ -86,8 +85,8 @@ impl Default for AutoConfig {
             lookahead_m: 0.45,
             wheel_base_m: 0.45,
             max_mps: 0.45,
-            max_hop_m: 2.0,
-            hop_seconds: 8.0,
+            max_hop_m: 1.5,
+            hop_seconds: 15.0,
             max_stops: 5,
             max_mission_s: 600.0,
             heartbeat_timeout_s: 3.0,
@@ -103,7 +102,6 @@ impl Default for AutoConfig {
             flame_confirm_frames: 3,
             temp_warn_c: 45.0,
             temp_abort_c: 55.0,
-            hop_start_grace_s: 1.0,
         }
     }
 }

@@ -9,6 +9,7 @@ pub mod data;
 pub mod env_alarm;
 pub mod export;
 pub mod history;
+pub mod manual;
 pub mod mqtt;
 pub mod o2_estimate;
 pub mod routes;
@@ -73,6 +74,8 @@ pub struct AppState {
     pub autonomy: Arc<tokio::sync::RwLock<Value>>,
     /// Last mission state (retained by the autopilot).
     pub mission: Arc<tokio::sync::RwLock<Value>>,
+    /// Last manual duty per motor, republished with the command deadman.
+    pub manual: Arc<std::sync::Mutex<manual::ManualHold>>,
     /// Scan history archive on this laptop.
     pub scans: Arc<tokio::sync::RwLock<scan_store::ScanStore>>,
     /// Serializes Pi scan syncs.
@@ -113,6 +116,7 @@ impl AppState {
             nav_grid: self.nav_grid.clone(),
             autonomy: self.autonomy.clone(),
             mission: self.mission.clone(),
+            manual: self.manual.clone(),
             scans: self.scans.clone(),
             cfg: self.cfg.clone(),
             scan_sync_lock: self.scan_sync_lock.clone(),
@@ -338,6 +342,7 @@ pub async fn build_state() -> AppState {
     let nav_grid = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let autonomy = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let mission = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let manual = Arc::new(std::sync::Mutex::new(manual::ManualHold::default()));
     let scans = Arc::new(tokio::sync::RwLock::new(scan_store::ScanStore::new(
         config::base_dir().join("scans"),
     )));
@@ -364,6 +369,7 @@ pub async fn build_state() -> AppState {
         nav_grid: nav_grid.clone(),
         autonomy: autonomy.clone(),
         mission: mission.clone(),
+        manual: manual.clone(),
         scans: scans.clone(),
         cfg: cfg_lock.clone(),
         scan_sync_lock: scan_sync_lock.clone(),
@@ -392,6 +398,7 @@ pub async fn build_state() -> AppState {
         nav_grid,
         autonomy,
         mission,
+        manual,
         scans,
         scan_sync_lock,
         o2,
@@ -406,6 +413,9 @@ pub async fn build_state() -> AppState {
     tokio::spawn(mqtt::monitor_device(state.ctx()));
     // Operator heartbeat: the Pi autopilot goes home when it stops.
     tokio::spawn(mqtt::heartbeat_loop(state.clone()));
+    // Manual duty: republish while a dashboard is connected, so the
+    // firmware deadman stops a rover whose backend died.
+    tokio::spawn(mqtt::manual_hold_loop(state.clone()));
     // Pull scans the Pi saved while the app was closed, then keep checking.
     let sync_state = state.clone();
     tokio::spawn(async move {

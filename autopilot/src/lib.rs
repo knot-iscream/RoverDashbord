@@ -15,6 +15,7 @@ pub mod lease;
 pub mod mission;
 pub mod pursuit;
 pub mod scan;
+pub mod segment;
 pub mod vfh;
 
 pub use config::AutoConfig;
@@ -23,3 +24,4 @@ pub use geo::Pose;
 pub use grid::Grid;
 pub use lease::{Lease, Mode};
 pub use mission::{Action, Event, Mission, State};
+pub use segment::Segment;

@@ -919,6 +919,63 @@ async fn autonomy_feeds_are_public_and_mode_is_guarded() {
 }
 
 #[tokio::test]
+async fn manual_hold_stores_and_clears() {
+    let (state, dir) = common::test_state("api-manual-hold").await;
+    let _g = PathBufGuard(dir);
+    let probe = state.clone();
+    let r = digital_twin_dashboard::build_router(state);
+
+    let (s, v, _) = req(
+        r.clone(),
+        "POST",
+        "/api/motor/control",
+        Some(TEST_TOKEN),
+        Some(json!({"motor": 0, "speed": 120})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["sent"], false, "broker is dead in tests");
+    assert_eq!(probe.manual.lock().unwrap().snapshot(), Some([120; 6]));
+
+    let (s, _, _) = req(
+        r.clone(),
+        "POST",
+        "/api/motor/control",
+        Some(TEST_TOKEN),
+        Some(json!({"motor": 5, "speed": 40})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(
+        probe.manual.lock().unwrap().snapshot(),
+        Some([120, 120, 120, 120, 40, 120])
+    );
+
+    let (s, _, _) = req(
+        r.clone(),
+        "POST",
+        "/api/motor/control",
+        Some(TEST_TOKEN),
+        Some(json!({"motor": 0, "speed": 0})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(probe.manual.lock().unwrap().snapshot(), None);
+
+    probe.manual.lock().unwrap().set(2, 50);
+    let (s, _, _) = req(
+        r,
+        "POST",
+        "/api/autonomy/mode",
+        Some(TEST_TOKEN),
+        Some(json!({"mode": "stop"})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(probe.manual.lock().unwrap().snapshot(), None);
+}
+
+#[tokio::test]
 async fn history_empty_and_export_400() {
     let (r, _g) = app().await;
     let (s, v, _) = req(r, "GET", "/api/history/days", None, None).await;

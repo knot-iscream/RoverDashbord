@@ -21,9 +21,8 @@ class MotorDriver {
     unsigned long ramp_start[2];
     int written[2];           // last duty actually sent to the bridge
     bool ramp_enabled;
-    unsigned long ramp_ms;    // 12 s manual, 1 s autonomous
-    bool auto_armed;          // an autonomous command armed the deadman
-    unsigned long auto_deadline;
+    bool cmd_armed;           // the last command armed the deadman
+    unsigned long cmd_deadline;
 
     // Write one duty to the bridge. The caller supplies the ramped value;
     // this function never touches the target or the ramp state.
@@ -73,9 +72,8 @@ class MotorDriver {
       };
 
       ramp_enabled = true;
-      ramp_ms = TORQUE_RAMP_MS;
-      auto_armed = false;
-      auto_deadline = 0;
+      cmd_armed = false;
+      cmd_deadline = 0;
       for (int i = 0; i < 2; i++) {
         channels[i].ena = pins[i][0];
         channels[i].in1 = pins[i][1];
@@ -95,17 +93,17 @@ class MotorDriver {
       }
       stopAll();
       Serial.println("[MotorDriver] MID 1x L298N initialized (2 channels)");
-      Serial.printf("[MotorDriver] torque ramp %lu ms manual / %lu ms auto\n",
-                    (unsigned long)TORQUE_RAMP_MS, (unsigned long)AUTO_TORQUE_RAMP_MS);
+      Serial.printf("[MotorDriver] torque ramp %lu ms (quadratic ease-in)\n",
+                    (unsigned long)TORQUE_RAMP_MS);
     }
 
     // Call once per loop. Advances both ramps and writes the bridge.
     void update() {
-      if (auto_armed && (long)(millis() - auto_deadline) >= 0) {
-        auto_armed = false;
-        auto_deadline = 0;
+      if (cmd_armed && (long)(millis() - cmd_deadline) >= 0) {
+        cmd_armed = false;
+        cmd_deadline = 0;
         stopAll();
-        Serial.println("[Motor] AUTO DEADMAN - all stopped");
+        Serial.println("[Motor] CMD DEADMAN - all stopped");
         return;
       }
       if (!ramp_enabled) return;
@@ -113,7 +111,7 @@ class MotorDriver {
       for (int i = 0; i < 2; i++) {
         if ((int)applied[i] == target[i] && ramp_from[i] == target[i]) continue;
         unsigned long elapsed = now - ramp_start[i];
-        float p = (float)elapsed / (float)ramp_ms;
+        float p = (float)elapsed / (float)TORQUE_RAMP_MS;
         if (p >= 1.0f) {
           applied[i] = target[i];
           ramp_from[i] = target[i];
@@ -137,6 +135,8 @@ class MotorDriver {
         applyNow(idx, motor_speed);
         return;
       }
+      // A repeated hold tick must not restart the 12 s ramp.
+      if (motor_speed == target[idx]) return;
       target[idx] = motor_speed;
       ramp_from[idx] = applied[idx];
       ramp_start[idx] = millis();
@@ -156,25 +156,24 @@ class MotorDriver {
       return (int)applied[idx];
     }
 
-    void armAuto(unsigned long ms) {
-      if (ms < AUTO_ARM_MIN_MS) ms = AUTO_ARM_MIN_MS;
-      if (ms > AUTO_ARM_MAX_MS) ms = AUTO_ARM_MAX_MS;
-      auto_armed = true;
-      auto_deadline = millis() + ms;
+    void armCmd(unsigned long ms) {
+      if (ms < CMD_ARM_MIN_MS) ms = CMD_ARM_MIN_MS;
+      if (ms > CMD_ARM_MAX_MS) ms = CMD_ARM_MAX_MS;
+      cmd_armed = true;
+      cmd_deadline = millis() + ms;
     }
 
-    void disarmAuto() {
-      auto_armed = false;
-      auto_deadline = 0;
+    void disarmCmd() {
+      cmd_armed = false;
+      cmd_deadline = 0;
     }
 
     // Parse a JSON command:
-    //   {"motor":1,"speed":200}    -> mid motor 1 (backend motor 5)
-    //   {"motor":2,"speed":200}    -> mid motor 2 (backend motor 6)
-    //   {"motor":0,"speed":200}    -> both
-    //   {"speed":200}              -> both
-    //   {"motor":0,"speed":120,"auto":1,"arm_ms":600}
-    //       -> autonomous: 1 s ramp and a deadman
+    //   {"motor":1,"speed":200}                    -> mid motor 1 (motor 5)
+    //   {"motor":2,"speed":200}                    -> mid motor 2 (motor 6)
+    //   {"motor":0,"speed":200}                    -> both
+    //   {"speed":200}                              -> both
+    //   {"motor":0,"speed":120,"arm_ms":600}       -> deadman armed
     void applyCommand(const char* json) {
       StaticJsonDocument<128> doc;
       DeserializationError err = deserializeJson(doc, json);
@@ -186,23 +185,20 @@ class MotorDriver {
 
       int m = doc["motor"] | 0;          // 0 = all
       int s = doc["speed"] | 0;
-      int is_auto = doc["auto"] | 0;
-      long arm = doc["arm_ms"] | (long)AUTO_ARM_DEFAULT_MS;
+      long arm = doc["arm_ms"] | 0;
 
-      if (is_auto) {
-        ramp_ms = AUTO_TORQUE_RAMP_MS;
-        armAuto((unsigned long)arm);
+      if (arm > 0) {
+        armCmd((unsigned long)arm);
       } else {
-        ramp_ms = TORQUE_RAMP_MS;
-        disarmAuto();
+        disarmCmd();
       }
 
       if (m == 0) {
         runAll(s);
-        Serial.printf("[Motor] All -> %d%s\n", s, is_auto ? " (auto)" : "");
+        Serial.printf("[Motor] All -> %d\n", s);
       } else if (m >= 1 && m <= 2) {
         setMotor(m - 1, s);
-        Serial.printf("[Motor] %d -> %d%s\n", m, s, is_auto ? " (auto)" : "");
+        Serial.printf("[Motor] %d -> %d\n", m, s);
       } else {
         Serial.println("[Motor] Invalid motor index");
       }

@@ -18,12 +18,14 @@ The crate is split in two:
    than 5 s is ignored, and auto is refused for the first 2 s after boot, so
    a crash-restart cannot re-arm itself. Manual mode stops too when the
    heartbeat disappears.
-2. **Firmware deadman.** Every autonomous motor command carries
-   `"auto":1,"arm_ms":600`. The ESP32 stops all motors if the next command
-   does not arrive in time. Manual commands carry neither field and behave
-   exactly as before.
-3. **Short auto ramp.** Autonomous commands use a 1 s ramp. The 12 s manual
-   ramp would otherwise restart on every steering update.
+2. **Firmware command deadman.** Every command that carries `arm_ms` must
+   be refreshed within that window, or every motor on the board stops. The
+   autopilot sends `arm_ms:600` and republishes at 5 Hz. A plain zero has no
+   `arm_ms`, so STOP disarms and stops at once.
+3. **One 12 s ramp, always.** Manual and autonomous commands share the same
+   quadratic ramp. Auto does not get a shorter one: the frame is the limit.
+   The autopilot therefore latches one target per segment and does not
+   change it while moving. Emergency avoidance is a stop, not a swerve.
 4. **Local reflex first.** The gap finder runs on the 8 Hz scan. The camera
    detector can only add a stop (person in the centre third), never a steer.
 5. **Board and scan freshness.** Both motor boards must have spoken within
@@ -31,6 +33,17 @@ The crate is split in two:
    Loss of either goes to `Hold`, with the reason on the state topic.
 6. **No return path, no driving.** Link loss, gas alarm or thermal abort go
    to `Return`. If the breadcrumb list is empty, the rover holds instead.
+
+## Driving model
+
+The 12 s ramp makes continuous steering impossible. Each hop is one latched
+segment: the target is chosen once, republished unchanged, and the rover
+stops before the next target is picked. A pivot segment ends as soon as the
+front is clear. A driving segment that sees a close front stops, then pivots
+from zero. Hops are 1.5 m or 15 s, and the mission scans between them.
+
+This is slower than a continuous controller, on purpose. The ramp is what
+keeps the frame in one piece.
 
 ## State machine
 
@@ -76,8 +89,8 @@ without the mask patch still works.
 |---|---|---|
 | `rover/autonomy/state` | state, mode, reason, stops, front_m, fire, thermal | 2 Hz, not retained |
 | `rover/mission/state` | state, reason, stops, return_points | on transition, retained |
-| `rover/motor/command` | `{"motor":1..4,"speed":s,"auto":1,"arm_ms":600}` | 5 Hz in auto |
-| `rover/mid/command` | `{"motor":1..2,"speed":s,"auto":1,"arm_ms":600}` | 5 Hz in auto |
+| `rover/motor/command` | `{"motor":1..4,"speed":s,"arm_ms":600}` | 5 Hz while a segment is latched |
+| `rover/mid/command` | `{"motor":1..2,"speed":s,"arm_ms":600}` | 5 Hz while a segment is latched |
 
 Stop is a plain `{"motor":0,"speed":0}` on both boards, which also disarms
 the firmware deadline.
@@ -95,7 +108,8 @@ AUTOPILOT_CONFIG=/home/iscream-pi/rover-autopilot.json rover-autopilot
 
 Only the keys present in the file change; everything else keeps its default.
 The first bench values to revisit are `max_speed`, `stop_distance_m`,
-`max_mps`, `flame_bearing_deg` and `flame_level_floor_v`.
+`max_mps`, `max_hop_m`, `hop_seconds`, `flame_bearing_deg` and
+`flame_level_floor_v`.
 
 ## Run
 
@@ -122,9 +136,9 @@ cargo test -p rover-autopilot
 cargo clippy -p rover-autopilot --all-targets -- -D warnings
 ```
 
-The 53 tests cover the open field, wall ahead, left/right gaps, narrow slots,
+The 56 tests cover the open field, wall ahead, left/right gaps, narrow slots,
 RLE validation, inflation, A* around a wall, no path, corner cutting, path
-smoothing, pursuit signs, the full survey cycle, link-loss return, blocked
-return, takeover, pose jump, scan timeout, motor/scan freshness, mission time
-limit, flame bearing, weak analog rejection and consecutive-frame
-confirmation.
+smoothing, pursuit signs, the segment latch, the full survey cycle,
+link-loss return, blocked return, takeover, pose jump, scan timeout,
+motor/scan freshness, mission time limit, flame bearing, weak analog
+rejection and consecutive-frame confirmation.
