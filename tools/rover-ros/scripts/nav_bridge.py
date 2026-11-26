@@ -181,6 +181,7 @@ class Bridge:
         self.buffer = tf2_ros.Buffer()
         self.listener = tf2_ros.TransformListener(self.buffer)
         self.grid = None
+        self.last_build = 0.0
 
         rospy.Subscriber(MAP_TOPIC, OccupancyGrid, self.on_map, queue_size=1)
         rospy.Timer(rospy.Duration(1.0 / POSE_HZ), self.publish_pose)
@@ -226,6 +227,12 @@ class Bridge:
     def on_map(self, msg):
         if msg.info.width == 0 or msg.info.height == 0 or not msg.data:
             return
+        # The projected map can arrive at the cloud rate. Building the RLE
+        # grid is CPU work, so do it once per second and republish the cache.
+        now = time.monotonic()
+        if now - self.last_build < 1.0:
+            return
+        self.last_build = now
         grid = build_grid(
             msg.info.width,
             msg.info.height,
