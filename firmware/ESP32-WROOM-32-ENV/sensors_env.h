@@ -133,15 +133,28 @@ class FlameArray {
       Serial.println("[Flame] 5 direction lines ready");
     }
 
-    // 1..5 = active direction, 0 = no flame seen. The RBD-0423 comparator
-    // pulls the line LOW when that channel fires; FLAME_ACTIVE_LOW keeps the
-    // opposite module usable without another edit here.
-    int direction() {
+    // 5-bit mask of active channels: bit 0 = D1 ... bit 4 = D5.
+    int mask() {
       int fired = FLAME_ACTIVE_LOW ? LOW : HIGH;
+      int m = 0;
       for (int i = 0; i < FLAME_PIN_COUNT; i++) {
-        if (digitalRead(pins[i]) == fired) return i + 1;
+        if (digitalRead(pins[i]) == fired) m |= (1 << i);
+      }
+      return m;
+    }
+
+    static int firstFromMask(int m) {
+      for (int i = 0; i < FLAME_PIN_COUNT; i++) {
+        if (m & (1 << i)) return i + 1;
       }
       return 0;
+    }
+
+    // 1..5 = first active direction, 0 = no flame seen. Kept for the
+    // dashboard and the O2 estimate; the mask above is what localisation
+    // uses, because several channels can fire at once.
+    int direction() {
+      return firstFromMask(mask());
     }
 };
 
@@ -157,6 +170,7 @@ struct EnvSample {
   float gas[GAS_CHANNEL_COUNT] = {NAN, NAN, NAN, NAN, NAN};
   float flame_lvl = NAN;
   int flame_dir = 0;
+  int flame_mask = 0;      // bit 0 = D1 ... bit 4 = D5
   float heat_l = NAN, heat_r = NAN;
   float heat_l_amb = NAN, heat_r_amb = NAN;
 };

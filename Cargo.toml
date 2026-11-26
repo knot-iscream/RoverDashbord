@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "desktop", "frontend-wasm", "xtask"]
+members = [".", "autopilot", "desktop", "frontend-wasm", "xtask"]
 # Backend stays the default so `cargo run` / `cargo test` keep working unchanged.
 # frontend-wasm builds only via trunk (wasm target), xtask only via its alias.
 default-members = ["."]

@@ -87,6 +87,18 @@ async fn handle(socket: WebSocket, s: AppState) {
     if !scan_state.is_null() {
         send(&mut tx, &tagged("scan_state_update", scan_state)).await;
     }
+    let pose = s.pose.read().await.clone();
+    if !pose.is_null() {
+        send(&mut tx, &tagged("pose_update", pose)).await;
+    }
+    let autonomy = s.autonomy.read().await.clone();
+    if !autonomy.is_null() {
+        send(&mut tx, &tagged("autonomy_update", autonomy)).await;
+    }
+    let mission = s.mission.read().await.clone();
+    if !mission.is_null() {
+        send(&mut tx, &tagged("mission_update", mission)).await;
+    }
     send(&mut tx, &calibration_payload(&s.ctx()).await).await;
     send(&mut tx, &s.device.read().await.payload()).await;
 

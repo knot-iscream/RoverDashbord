@@ -65,6 +65,14 @@ pub struct AppState {
     pub lidar_service: Arc<tokio::sync::RwLock<Value>>,
     /// Auto-scan state from the Pi sweep loop.
     pub scan_state: Arc<tokio::sync::RwLock<Value>>,
+    /// Latest pose from the Pi ROS bridge (`rover/pose`).
+    pub pose: Arc<tokio::sync::RwLock<Value>>,
+    /// Occupancy grid from the ROS bridge (`rover/map/grid`).
+    pub nav_grid: Arc<tokio::sync::RwLock<Value>>,
+    /// Autonomy state from the Pi autopilot.
+    pub autonomy: Arc<tokio::sync::RwLock<Value>>,
+    /// Last mission state (retained by the autopilot).
+    pub mission: Arc<tokio::sync::RwLock<Value>>,
     /// Scan history archive on this laptop.
     pub scans: Arc<tokio::sync::RwLock<scan_store::ScanStore>>,
     /// Serializes Pi scan syncs.
@@ -101,6 +109,10 @@ impl AppState {
             lidar_display_cloud: self.lidar_display_cloud.clone(),
             lidar_service: self.lidar_service.clone(),
             scan_state: self.scan_state.clone(),
+            pose: self.pose.clone(),
+            nav_grid: self.nav_grid.clone(),
+            autonomy: self.autonomy.clone(),
+            mission: self.mission.clone(),
             scans: self.scans.clone(),
             cfg: self.cfg.clone(),
             scan_sync_lock: self.scan_sync_lock.clone(),
@@ -150,6 +162,9 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/lidar/auto", post(routes::lidar_auto))
         .route("/api/scans/sync", post(routes::scan_sync))
         .route("/api/scans/save", post(routes::scan_save))
+        .route("/api/autonomy/mode", post(routes::autonomy_mode))
+        .route("/api/nav/goal", post(routes::nav_goal))
+        .route("/api/nav/cancel", post(routes::nav_cancel))
         .route("/api/scans/:id", delete(routes::scan_delete))
         .route("/api/scans/:id/label", post(routes::scan_label))
         .route(
@@ -200,6 +215,9 @@ pub fn build_router(state: AppState) -> Router {
             get(routes::lidar_service_status),
         )
         .route("/api/lidar/scan_state", get(routes::scan_state_route))
+        .route("/api/pose", get(routes::pose))
+        .route("/api/autonomy", get(routes::autonomy))
+        .route("/api/nav/grid", get(routes::nav_grid))
         .route("/api/scans", get(routes::scans_list))
         .route("/api/scans/download_all", get(routes::scans_download_all))
         .route("/api/scans/:id", get(routes::scan_meta))
@@ -316,6 +334,10 @@ pub async fn build_state() -> AppState {
     let lidar_display_cloud = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let lidar_service = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let scan_state = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let pose = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let nav_grid = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let autonomy = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let mission = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let scans = Arc::new(tokio::sync::RwLock::new(scan_store::ScanStore::new(
         config::base_dir().join("scans"),
     )));
@@ -338,6 +360,10 @@ pub async fn build_state() -> AppState {
         lidar_display_cloud: lidar_display_cloud.clone(),
         lidar_service: lidar_service.clone(),
         scan_state: scan_state.clone(),
+        pose: pose.clone(),
+        nav_grid: nav_grid.clone(),
+        autonomy: autonomy.clone(),
+        mission: mission.clone(),
         scans: scans.clone(),
         cfg: cfg_lock.clone(),
         scan_sync_lock: scan_sync_lock.clone(),
@@ -362,6 +388,10 @@ pub async fn build_state() -> AppState {
         lidar_display_cloud,
         lidar_service,
         scan_state,
+        pose,
+        nav_grid,
+        autonomy,
+        mission,
         scans,
         scan_sync_lock,
         o2,
@@ -374,6 +404,8 @@ pub async fn build_state() -> AppState {
     };
     // Device presence monitor (broadcasts only on flip, like Python).
     tokio::spawn(mqtt::monitor_device(state.ctx()));
+    // Operator heartbeat: the Pi autopilot goes home when it stops.
+    tokio::spawn(mqtt::heartbeat_loop(state.clone()));
     // Pull scans the Pi saved while the app was closed, then keep checking.
     let sync_state = state.clone();
     tokio::spawn(async move {

@@ -145,6 +145,7 @@ class MQTTManager {
       for (int i = 0; i < GAS_CHANNEL_COUNT; i++) putNum(o, keys[i], s.gas[i]);
       putNum(o, "flame_lvl", s.flame_lvl);
       doc["flame_dir"] = s.flame_dir;
+      doc["flame_mask"] = s.flame_mask;
       putNum(o, "heat_l", s.heat_l);
       putNum(o, "heat_r", s.heat_r);
       putNum(o, "heat_l_amb", s.heat_l_amb);

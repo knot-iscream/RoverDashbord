@@ -824,6 +824,101 @@ async fn scan_missing_routes_and_sync_without_pi() {
 }
 
 #[tokio::test]
+async fn autonomy_feeds_are_public_and_mode_is_guarded() {
+    let (state, dir) = common::test_state("api-autonomy").await;
+    let _g = PathBufGuard(dir);
+    let r = digital_twin_dashboard::build_router(state);
+
+    for (path, key) in [
+        ("/api/pose", "pose"),
+        ("/api/autonomy", "autonomy"),
+        ("/api/nav/grid", "grid"),
+    ] {
+        let (s, v, _) = req(r.clone(), "GET", path, None, None).await;
+        assert_eq!(s, StatusCode::OK, "{path}");
+        assert!(v[key].is_null(), "{path} is null before the Pi speaks");
+    }
+
+    for path in ["/api/autonomy/mode", "/api/nav/goal", "/api/nav/cancel"] {
+        let body = if path.ends_with("goal") {
+            Some(json!({"x": 1.0, "y": 2.0}))
+        } else {
+            Some(json!({}))
+        };
+        let (s, _, _) = req(r.clone(), "POST", path, None, body).await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED, "{path}");
+    }
+
+    let (s, v, _) = req(
+        r.clone(),
+        "POST",
+        "/api/autonomy/mode",
+        Some(TEST_TOKEN),
+        Some(json!({"mode": "fly"})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert!(v["detail"].as_str().unwrap().contains("mode must be"));
+
+    // Broker is down in tests: the shape must stay honest.
+    let (s, v, _) = req(
+        r.clone(),
+        "POST",
+        "/api/autonomy/mode",
+        Some(TEST_TOKEN),
+        Some(json!({"mode": "auto"})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["status"], "error");
+    assert_eq!(v["sent"], false);
+    assert_eq!(v["mode"], "auto");
+
+    let (s, v, _) = req(
+        r.clone(),
+        "POST",
+        "/api/autonomy/mode",
+        Some(TEST_TOKEN),
+        Some(json!({"mode": "stop"})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["mode"], "idle", "stop publishes the idle lease");
+
+    let (s, v, _) = req(
+        r.clone(),
+        "POST",
+        "/api/nav/goal",
+        Some(TEST_TOKEN),
+        Some(json!({"x": 1.0, "y": 2.0})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["sent"], false);
+
+    let (s, _, _) = req(
+        r.clone(),
+        "POST",
+        "/api/nav/goal",
+        Some(TEST_TOKEN),
+        Some(json!({"x": 999.0, "y": 0.0})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+
+    let (s, v, _) = req(
+        r,
+        "POST",
+        "/api/nav/cancel",
+        Some(TEST_TOKEN),
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["action"], "cancel");
+}
+
+#[tokio::test]
 async fn history_empty_and_export_400() {
     let (r, _g) = app().await;
     let (s, v, _) = req(r, "GET", "/api/history/days", None, None).await;

@@ -525,6 +525,55 @@ async fn servo_frames_relay_as_commanded_angle_only() {
 }
 
 #[tokio::test]
+async fn autonomy_feeds_cache_and_never_touch_motor_history() {
+    let mut f = common::fixture("mqtt-autonomy");
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/pose",
+        json!({"x": 1.0, "y": 2.0, "yaw": 90.0}),
+    )
+    .await;
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/autonomy/state",
+        json!({"state": "hop", "stops": 1}),
+    )
+    .await;
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/mission/state",
+        json!({"state": "hop", "reason": "next hop"}),
+    )
+    .await;
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/map/grid",
+        json!({"resolution": 0.1, "width": 1, "height": 1, "origin": [0.0, 0.0], "rle": [[1, 1]]}),
+    )
+    .await;
+
+    let d = common::drain(&mut f.rx);
+    for kind in ["pose_update", "autonomy_update", "mission_update"] {
+        assert!(d.iter().any(|m| m["type"] == kind), "{kind} missing");
+    }
+    assert!(
+        d.iter().all(|m| m["type"] != "nav_grid_update"),
+        "the grid stays pull-only"
+    );
+    assert_eq!(f.pose.read().await["x"], 1.0);
+    assert_eq!(f.autonomy.read().await["state"], "hop");
+    assert_eq!(f.mission.read().await["reason"], "next hop");
+    assert_eq!(f.nav_grid.read().await["width"], 1);
+    assert!(
+        f.device.read().await.last_seen.is_none(),
+        "Pi feeds must not fake ESP presence"
+    );
+    assert!(f.data.read().await.latest.is_empty());
+    assert!(history_rows(&f).await.is_empty());
+    std::fs::remove_dir_all(&f.dir).ok();
+}
+
+#[tokio::test]
 async fn imu_frames_stored_and_never_motor_data() {
     let mut f = common::fixture("mqtt-imu");
     mqtt::on_mqtt_message(

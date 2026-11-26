@@ -42,6 +42,10 @@ pub struct Fixture {
     pub lidar_display_cloud: Arc<RwLock<Value>>,
     pub lidar_service: Arc<RwLock<Value>>,
     pub scan_state: Arc<RwLock<Value>>,
+    pub pose: Arc<RwLock<Value>>,
+    pub nav_grid: Arc<RwLock<Value>>,
+    pub autonomy: Arc<RwLock<Value>>,
+    pub mission: Arc<RwLock<Value>>,
     pub scans: Arc<RwLock<digital_twin_dashboard::scan_store::ScanStore>>,
     pub scan_sync_lock: Arc<tokio::sync::Mutex<()>>,
     pub o2: Arc<std::sync::Mutex<digital_twin_dashboard::o2_estimate::O2Estimator>>,
@@ -78,6 +82,10 @@ pub fn fixture(tag: &str) -> Fixture {
     let lidar_display_cloud = Arc::new(RwLock::new(Value::Null));
     let lidar_service = Arc::new(RwLock::new(Value::Null));
     let scan_state = Arc::new(RwLock::new(Value::Null));
+    let pose = Arc::new(RwLock::new(Value::Null));
+    let nav_grid = Arc::new(RwLock::new(Value::Null));
+    let autonomy = Arc::new(RwLock::new(Value::Null));
+    let mission = Arc::new(RwLock::new(Value::Null));
     let scans = Arc::new(RwLock::new(
         digital_twin_dashboard::scan_store::ScanStore::new(dir.join("scans")),
     ));
@@ -104,6 +112,10 @@ pub fn fixture(tag: &str) -> Fixture {
         lidar_display_cloud: lidar_display_cloud.clone(),
         lidar_service: lidar_service.clone(),
         scan_state: scan_state.clone(),
+        pose: pose.clone(),
+        nav_grid: nav_grid.clone(),
+        autonomy: autonomy.clone(),
+        mission: mission.clone(),
         scans: scans.clone(),
         cfg: cfg.clone(),
         scan_sync_lock: scan_sync_lock.clone(),
@@ -127,6 +139,10 @@ pub fn fixture(tag: &str) -> Fixture {
         lidar_display_cloud,
         lidar_service,
         scan_state,
+        pose,
+        nav_grid,
+        autonomy,
+        mission,
         scans,
         scan_sync_lock,
         o2,
@@ -158,6 +174,10 @@ pub async fn test_state(tag: &str) -> (AppState, PathBuf) {
         lidar_display_cloud: f.lidar_display_cloud,
         lidar_service: f.lidar_service,
         scan_state: f.scan_state,
+        pose: f.pose,
+        nav_grid: f.nav_grid,
+        autonomy: f.autonomy,
+        mission: f.mission,
         scans: f.scans,
         scan_sync_lock: f.scan_sync_lock,
         o2: f.o2,

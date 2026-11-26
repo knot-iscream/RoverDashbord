@@ -135,7 +135,8 @@ static void sampleAndPublish() {
   gv[4] = isnan(air_adc) ? NAN : air_adc * GAS_DIVIDER;
   s.gas[4] = gasResponse(gv[4], g_v0[4], GAS_VC);
 
-  s.flame_dir = flame.direction();
+  s.flame_mask = flame.mask();
+  s.flame_dir = FlameArray::firstFromMask(s.flame_mask);
   float fl = adsMix.read(7, ADS_PGA_4V);
   s.flame_lvl = isnan(fl) ? NAN : fl * FLAME_DIVIDER;
   // flame_ok = the module answers. The analog output is readable whenever
@@ -154,9 +155,10 @@ static void sampleAndPublish() {
 
   // Bench log: raw volts and temps so wiring problems are visible on USB.
   Serial.printf("[Env] V co=%.3f lpg=%.3f ch4=%.3f h2=%.3f air=%.3f | "
-                "flame dir=%d lvl=%.3fV | mlx L=%.1f/%.1f R=%.1f/%.1f C\n",
+                "flame dir=%d mask=%d lvl=%.3fV | mlx L=%.1f/%.1f R=%.1f/%.1f C\n",
                 gv[0], gv[1], gv[2], gv[3], gv[4],
                 s.flame_dir,
+                s.flame_mask,
                 isnan(s.flame_lvl) ? 0.0f : s.flame_lvl,
                 isnan(s.heat_l) ? 0.0f : s.heat_l,
                 isnan(s.heat_l_amb) ? 0.0f : s.heat_l_amb,

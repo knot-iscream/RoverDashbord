@@ -1,0 +1,130 @@
+# rover-autopilot
+
+Pi-side autonomy loop. It owns the motor commands only while the operator
+lease is `auto`; everything else keeps working when it dies.
+
+The crate is split in two:
+
+- `src/lib.rs` is pure logic: scan bins, sector gaps, occupancy grid, A*,
+  pursuit, mission FSM, operator lease, flame localisation. No async, no
+  hardware, all covered by unit tests.
+- `src/main.rs` is the MQTT shell: it keeps the latest feeds, runs a 5 Hz
+  tick, and publishes the motor commands.
+
+## Safety model
+
+1. **Operator lease.** `auto` requires a heartbeat from the laptop backend
+   (`rover/control/heartbeat`) at least every 3 s. A retained `auto` older
+   than 5 s is ignored, and auto is refused for the first 2 s after boot, so
+   a crash-restart cannot re-arm itself. Manual mode stops too when the
+   heartbeat disappears.
+2. **Firmware deadman.** Every autonomous motor command carries
+   `"auto":1,"arm_ms":600`. The ESP32 stops all motors if the next command
+   does not arrive in time. Manual commands carry neither field and behave
+   exactly as before.
+3. **Short auto ramp.** Autonomous commands use a 1 s ramp. The 12 s manual
+   ramp would otherwise restart on every steering update.
+4. **Local reflex first.** The gap finder runs on the 8 Hz scan. The camera
+   detector can only add a stop (person in the centre third), never a steer.
+5. **Board and scan freshness.** Both motor boards must have spoken within
+   3 s, and the scan must be under 1 s old, before any autonomous motion.
+   Loss of either goes to `Hold`, with the reason on the state topic.
+6. **No return path, no driving.** Link loss, gas alarm or thermal abort go
+   to `Return`. If the breadcrumb list is empty, the rover holds instead.
+
+## State machine
+
+```
+IDLE --start--> HOP --arrived--> SCAN --sweep done--> DECIDE
+DECIDE --under limits--> HOP
+DECIDE --stop/time limit--> RETURN --goal--> IDLE
+HOP/SCAN/DECIDE --heartbeat lost, gas, heat--> RETURN
+RETURN --route blocked / pose jump--> HOLD
+any --scan stale / motor board offline--> HOLD
+HOLD --resume--> DECIDE
+any --takeover--> MANUAL --release--> IDLE
+```
+
+`RETURN` follows the breadcrumbs recorded during `HOP`, reversed. The local
+reflex still checks every step. A blocked route stops the rover; it does not
+detour into unknown space.
+
+## MQTT contract
+
+### Subscribed
+
+| Topic | Shape | Use |
+|---|---|---|
+| `rover/lidar/scan` | `{"points":[[deg,mm,q],...]}` | 2 degree bins, front ±100 deg |
+| `rover/pose` | `{"x":..,"y":..,"yaw":..}` | map frame, hector TF bridge |
+| `rover/map/grid` | `{"resolution":..,"width":..,"height":..,"origin":[x,y],"rle":[[count,value],...]}` | 0 unknown, 1 free, 2 occupied |
+| `rover/scan/state` | `{"phase":"scanning","sweeps":N,...}` | scan cycle gate |
+| `rover/control/heartbeat` | `{"role":"operator","ts":ms}` | 3 s lease |
+| `rover/autonomy/mode` | `{"mode":"auto|manual|idle","ts":ms}` | retained lease request |
+| `rover/env/telemetry` | `{"flame_mask":5,"flame_lvl":0.8,"heat_l":..,"heat_r":..}` | fire mark, thermal abort |
+| `rover/perception/detections` | `{"items":[{"label":"person","p":0.8,"x":..,"w":..}]}` | centre-third person stop |
+| `rover/nav/goal` | `{"x":..,"y":..}` or `{"cancel":true}` | reserved for waypoints |
+| `rover/motor/status` | ESP status | corner board freshness |
+| `rover/mid/status` | ESP status | MID board freshness |
+
+`flame_dir` (1..5) is accepted when `flame_mask` is absent, so an ENV board
+without the mask patch still works.
+
+### Published
+
+| Topic | Shape | Rate |
+|---|---|---|
+| `rover/autonomy/state` | state, mode, reason, stops, front_m, fire, thermal | 2 Hz, not retained |
+| `rover/mission/state` | state, reason, stops, return_points | on transition, retained |
+| `rover/motor/command` | `{"motor":1..4,"speed":s,"auto":1,"arm_ms":600}` | 5 Hz in auto |
+| `rover/mid/command` | `{"motor":1..2,"speed":s,"auto":1,"arm_ms":600}` | 5 Hz in auto |
+
+Stop is a plain `{"motor":0,"speed":0}` on both boards, which also disarms
+the firmware deadline.
+
+Bank map: left = FL(1), RL(3), ML(5); right = FR(2), RR(4), MR(6). MID is
+addressed as 1/2 on its own topic and remapped by the backend to 5/6.
+
+## Configuration
+
+Defaults live in `src/config.rs`. Override them with a JSON file:
+
+```
+AUTOPILOT_CONFIG=/home/iscream-pi/rover-autopilot.json rover-autopilot
+```
+
+Only the keys present in the file change; everything else keeps its default.
+The first bench values to revisit are `max_speed`, `stop_distance_m`,
+`max_mps`, `flame_bearing_deg` and `flame_level_floor_v`.
+
+## Run
+
+```
+MQTT_BROKER=127.0.0.1 MQTT_PORT=1883 cargo run -p rover-autopilot --release
+```
+
+On the Pi it is meant to be a systemd unit next to `rover-cam` and
+`rover-lidar-agent`. It needs no ROS libraries: everything arrives over MQTT.
+
+## Not in this slice
+
+- `nav_bridge.py` (pose + grid publisher inside the ROS container)
+- perception service (YOLOX-Nano)
+- dashboard controls and overlays
+- waypoint following with the A* path (the planner is tested, the MQTT goal
+  wiring is reserved)
+- gas alarm feed (`rover/alarm/state`), once the backend publishes it
+
+## Tests
+
+```
+cargo test -p rover-autopilot
+cargo clippy -p rover-autopilot --all-targets -- -D warnings
+```
+
+The 53 tests cover the open field, wall ahead, left/right gaps, narrow slots,
+RLE validation, inflation, A* around a wall, no path, corner cutting, path
+smoothing, pursuit signs, the full survey cycle, link-loss return, blocked
+return, takeover, pose jump, scan timeout, motor/scan freshness, mission time
+limit, flame bearing, weak analog rejection and consecutive-frame
+confirmation.

@@ -22,7 +22,7 @@ pub const DEVICE_OFFLINE_TIMEOUT_S: i64 = 8;
 /// echoes are dropped by the `*/command` guard below, same as motor commands.
 /// `rover/lidar/servo` is the swing arm state: commanded angle and sweep
 /// flags, no measured angle because no encoder is fitted.
-const SUB_TOPICS: [&str; 12] = [
+const SUB_TOPICS: [&str; 16] = [
     "rover/motor/#",
     "rover/mid/#",
     "rover/calibration/status",
@@ -40,6 +40,12 @@ const SUB_TOPICS: [&str; 12] = [
     // Auto-scan state and one-shot "session saved" events.
     "rover/scan/state",
     "rover/scan/saved",
+    // Autonomy feeds: pose and 2D grid from the ROS bridge, state from the
+    // Pi autopilot. Read-only for this backend.
+    "rover/pose",
+    "rover/map/grid",
+    "rover/autonomy/state",
+    "rover/mission/state",
 ];
 
 /// The shared pieces the ingest loop needs. `AppState` (main.rs) builds one
@@ -63,6 +69,14 @@ pub struct Ctx {
     pub lidar_service: Arc<tokio::sync::RwLock<Value>>,
     /// Auto-scan state from the Pi sweep loop (retained).
     pub scan_state: Arc<tokio::sync::RwLock<Value>>,
+    /// Latest pose from the Pi (`rover/pose`, map frame).
+    pub pose: Arc<tokio::sync::RwLock<Value>>,
+    /// Occupancy grid from the ROS bridge for waypoint planning.
+    pub nav_grid: Arc<tokio::sync::RwLock<Value>>,
+    /// Autonomy state from the Pi autopilot.
+    pub autonomy: Arc<tokio::sync::RwLock<Value>>,
+    /// Last mission state (retained by the autopilot).
+    pub mission: Arc<tokio::sync::RwLock<Value>>,
     /// Scan history archive on this laptop.
     pub scans: Arc<tokio::sync::RwLock<crate::scan_store::ScanStore>>,
     /// Backend config, needed for the Pi HTTP token during scan sync.
@@ -196,11 +210,24 @@ pub async fn spawn_mqtt(ctx: Ctx, broker: &str, port: u16) -> MqttSlot {
     MqttSlot { handle, task }
 }
 
+/// Topics published by the Pi-side processes, not by an ESP32. They must not
+/// refresh the ESP presence flag, or the dashboard reports a dead board as
+/// online for as long as the autopilot keeps talking.
+fn is_pi_topic(topic: &str) -> bool {
+    topic.starts_with("rover/pose")
+        || topic.starts_with("rover/map/")
+        || topic.starts_with("rover/autonomy/")
+        || topic.starts_with("rover/mission/")
+        || topic.starts_with("rover/control/")
+        || topic.starts_with("rover/perception/")
+}
+
 /// 1:1 with `server.py::on_mqtt_message`.
 pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
     // Any rover message proves the ESP32 is alive — except our own echoes on
-    // `*/command` (we subscribe to `rover/motor/#` too).
-    if !topic.ends_with("/command") {
+    // `*/command` (we subscribe to `rover/motor/#` too) and the Pi-side
+    // autonomy feeds.
+    if !topic.ends_with("/command") && !is_pi_topic(topic) {
         let mut dev = ctx.device.write().await;
         let now_online = dev
             .last_seen
@@ -319,6 +346,29 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
     if topic.starts_with("rover/scan/state") {
         *ctx.scan_state.write().await = data.clone();
         broadcast(ctx, tagged("scan_state_update", data));
+        return;
+    }
+
+    // ── Autonomy feeds (Pi autopilot / ROS bridge) ──
+    if topic.starts_with("rover/pose") {
+        *ctx.pose.write().await = data.clone();
+        broadcast(ctx, tagged("pose_update", data));
+        return;
+    }
+    if topic.starts_with("rover/map/grid") {
+        // Cache only: the grid is tens of KB and no page needs it live at
+        // 1 Hz. `/api/nav/grid` serves it on demand.
+        *ctx.nav_grid.write().await = data;
+        return;
+    }
+    if topic.starts_with("rover/autonomy/state") {
+        *ctx.autonomy.write().await = data.clone();
+        broadcast(ctx, tagged("autonomy_update", data));
+        return;
+    }
+    if topic.starts_with("rover/mission/state") {
+        *ctx.mission.write().await = data.clone();
+        broadcast(ctx, tagged("mission_update", data));
         return;
     }
 
@@ -518,6 +568,28 @@ pub async fn monitor_device(ctx: Ctx) {
         let changed = ctx.device.write().await.refresh();
         if changed {
             broadcast(&ctx, ctx.device.read().await.payload());
+        }
+    }
+}
+
+/// Publish the operator heartbeat. The Pi autopilot treats a few seconds of
+/// silence as a hazard signal and returns home, so this runs for as long as
+/// the app is up, broker or not (the publish is skipped while offline).
+pub async fn heartbeat_loop(state: crate::AppState) {
+    let mut iv = tokio::time::interval(Duration::from_secs(1));
+    loop {
+        iv.tick().await;
+        let handle = state.mqtt.read().await.handle.clone();
+        if handle.is_connected() {
+            let _ = handle
+                .publish(
+                    "rover/control/heartbeat",
+                    &json!({
+                        "role": "operator",
+                        "ts": chrono::Utc::now().timestamp_millis(),
+                    }),
+                )
+                .await;
         }
     }
 }

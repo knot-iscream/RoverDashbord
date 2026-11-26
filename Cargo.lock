@@ -3890,6 +3890,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rover-autopilot"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rumqttc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "roverdash"
 version = "4.2.1"
 dependencies = [

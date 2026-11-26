@@ -168,6 +168,139 @@ pub async fn scan_state_route(State(s): State<AppState>) -> Json<Value> {
     Json(json!({"state": s.scan_state.read().await.clone()}))
 }
 
+/// Latest pose from the Pi ROS bridge (`rover/pose`).
+pub async fn pose(State(s): State<AppState>) -> Json<Value> {
+    Json(json!({"pose": s.pose.read().await.clone()}))
+}
+
+/// Autonomy state plus the last mission state.
+pub async fn autonomy(State(s): State<AppState>) -> Json<Value> {
+    Json(json!({
+        "autonomy": s.autonomy.read().await.clone(),
+        "mission": s.mission.read().await.clone(),
+    }))
+}
+
+/// Occupancy grid for waypoint planning and the map overlay.
+pub async fn nav_grid(State(s): State<AppState>) -> Json<Value> {
+    Json(json!({"grid": s.nav_grid.read().await.clone()}))
+}
+
+#[derive(Deserialize)]
+pub struct ModeBody {
+    pub mode: String,
+}
+
+/// Change the operator lease. `resume` is published as `auto`; the autopilot
+/// resumes from its hold state. `stop` is published as `idle`.
+pub async fn autonomy_mode(
+    State(s): State<AppState>,
+    Json(body): Json<ModeBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let mode = match body.mode.as_str() {
+        "auto" => "auto",
+        "manual" => "manual",
+        "stop" => "idle",
+        "resume" => "auto",
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "status": "error",
+                    "detail": "mode must be auto, manual, stop or resume"
+                })),
+            ))
+        }
+    };
+    let sent = s
+        .mqtt
+        .read()
+        .await
+        .handle
+        .publish_retained(
+            "rover/autonomy/mode",
+            &json!({
+                "mode": mode,
+                "request": body.mode,
+                "ts": chrono::Utc::now().timestamp_millis(),
+            }),
+        )
+        .await;
+    Ok(Json(json!({
+        "status": if sent { "ok" } else { "error" },
+        "mode": mode,
+        "request": body.mode,
+        "sent": sent,
+        "mqtt_connected": s.mqtt.read().await.handle.is_connected(),
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct GoalBody {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// Set a map-frame waypoint. Retained so a reconnecting autopilot sees it.
+pub async fn nav_goal(
+    State(s): State<AppState>,
+    Json(body): Json<GoalBody>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    if !body.x.is_finite() || !body.y.is_finite() || body.x.abs() > 100.0 || body.y.abs() > 100.0 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "status": "error",
+                "detail": "goal must be finite and within +/-100 m"
+            })),
+        ));
+    }
+    let sent = s
+        .mqtt
+        .read()
+        .await
+        .handle
+        .publish_retained(
+            "rover/nav/goal",
+            &json!({
+                "x": body.x,
+                "y": body.y,
+                "ts": chrono::Utc::now().timestamp_millis(),
+            }),
+        )
+        .await;
+    Ok(Json(json!({
+        "status": if sent { "ok" } else { "error" },
+        "x": body.x,
+        "y": body.y,
+        "sent": sent,
+        "mqtt_connected": s.mqtt.read().await.handle.is_connected(),
+    })))
+}
+
+/// Clear the waypoint. This does not stop the rover; STOP does that.
+pub async fn nav_cancel(State(s): State<AppState>) -> Json<Value> {
+    let sent = s
+        .mqtt
+        .read()
+        .await
+        .handle
+        .publish_retained(
+            "rover/nav/goal",
+            &json!({
+                "cancel": true,
+                "ts": chrono::Utc::now().timestamp_millis(),
+            }),
+        )
+        .await;
+    Json(json!({
+        "status": if sent { "ok" } else { "error" },
+        "action": "cancel",
+        "sent": sent,
+        "mqtt_connected": s.mqtt.read().await.handle.is_connected(),
+    }))
+}
+
 /// One entry per parked scan session, newest first.
 pub async fn scans_list(State(s): State<AppState>) -> Json<Value> {
     Json(json!({"scans": s.scans.read().await.list()}))
@@ -420,11 +553,31 @@ fn coerce_motor(v: Option<&Value>) -> i64 {
     v.and_then(|x| x.as_i64()).unwrap_or(0)
 }
 
+/// A human motor command takes the operator lease. Safe to call on every
+/// POST: the autopilot ignores a manual request it already holds.
+async fn take_manual(s: &AppState) {
+    let _ = s
+        .mqtt
+        .read()
+        .await
+        .handle
+        .publish_retained(
+            "rover/autonomy/mode",
+            &json!({
+                "mode": "manual",
+                "request": "manual",
+                "ts": chrono::Utc::now().timestamp_millis(),
+            }),
+        )
+        .await;
+}
+
 /// 1:1 with `api_motor_control`: clamp to [-255, 255]; publish when the
 /// broker is up, else the exact error shape (`"detail"`, not `"error"`).
 /// Note: on non-numeric `speed` Python raises (500); we coerce to 0 — the
 /// dashboard always sends ints.
 pub async fn motor_control(State(s): State<AppState>, Json(body): Json<Value>) -> Json<Value> {
+    take_manual(&s).await;
     let motor_raw = body.get("motor").cloned().unwrap_or(json!(0));
     let motor = coerce_motor(body.get("motor"));
     let speed = coerce_i64(body.get("speed")).clamp(-255, 255);
@@ -478,6 +631,7 @@ pub async fn motor_status(State(s): State<AppState>) -> Json<Value> {
 /// off: a malformed request must never start water. Seconds clamp to 1-60,
 /// and the firmware caps at PUMP_MAX_MS on its own as well.
 pub async fn pump_control(State(s): State<AppState>, Json(body): Json<Value>) -> Json<Value> {
+    take_manual(&s).await;
     let on = body.get("on").and_then(|v| v.as_bool()).unwrap_or(false);
     let seconds = coerce_i64(body.get("seconds")).clamp(1, 60);
     let payload = if on {
@@ -605,6 +759,7 @@ pub async fn bench_start(State(s): State<AppState>) -> Response {
     if crate::bench::is_running(&s.bench).await {
         return (StatusCode::CONFLICT, Json(s.bench.read().await.payload())).into_response();
     }
+    take_manual(&s).await;
     let started = crate::bench::start(s.ctx(), s.mqtt.clone(), s.bench.clone()).await;
     (StatusCode::ACCEPTED, Json(started.payload())).into_response()
 }
@@ -624,6 +779,7 @@ pub async fn set_baseline(
 }
 
 pub async fn calibration_start(State(s): State<AppState>) -> Json<Value> {
+    take_manual(&s).await;
     let result = s.cal.write().await.start();
     let _ = s
         .mqtt
