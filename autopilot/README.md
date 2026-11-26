@@ -83,6 +83,9 @@ detour into unknown space.
 `flame_dir` (1..5) is accepted when `flame_mask` is absent, so an ENV board
 without the mask patch still works.
 
+`rover/map/grid` is already inflated by 0.25 m on the Pi bridge. Do not call
+`Grid::inflate` again when the waypoint planner is wired.
+
 ### Published
 
 | Topic | Shape | Rate |

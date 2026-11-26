@@ -103,6 +103,24 @@ Build the image after editing the Dockerfile or any script:
 sudo docker build -t rover-ros:noetic /home/iscream-pi/rover-ros
 ```
 
+## Autonomy feeds
+
+`nav_bridge.py` publishes the pose and a rover-height 2D grid for the Pi
+autopilot:
+
+- `rover/pose` at 10 Hz from TF `map -> laser` (hector): `x`, `y`, `yaw`.
+- `rover/map/grid` at 1 Hz from `/nav/projected_map`: 0.10 m cells, 0.12 to
+  1.20 m height slice, occupied cells inflated 0.25 m, run-length encoded.
+
+The second `octomap_server` under `__ns:=/nav` exists only for that slice. The
+display node keeps the full cloud, floor included. If the Pi is short on CPU,
+stop the second node and waypoint mode will have no map; the local reflex and
+manual driving keep working.
+
+Grid values: 0 unknown, 1 free, 2 occupied. Row-major, x fastest, origin is
+the lower-left corner of cell (0,0). The autopilot must not inflate it a
+second time.
+
 ## Topics
 
 - `/scan` from rplidar_ros (about 8 Hz)
@@ -115,6 +133,8 @@ sudo docker build -t rover-ros:noetic /home/iscream-pi/rover-ros
 - `rover/lidar/service/status` is the retained agent state
 - `rover/scan/state` is the retained auto-scan state (armed, scanning, paused)
 - `rover/scan/saved` is the one-shot session-saved event
+- `/nav/projected_map` is the rover-height 2D map used by `nav_bridge.py`
+- `rover/pose` and `rover/map/grid` feed the Pi autopilot
 
 Set the tilt from the PC or the Pi:
 
