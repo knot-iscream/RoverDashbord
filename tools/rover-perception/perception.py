@@ -85,6 +85,8 @@ class NanoDet:
                 if n == nb:
                     pairs.append((c, b))
                     break
+        if not pairs:
+            return np.array([])
 
         boxes_mlvl = []
         scores_mlvl = []
