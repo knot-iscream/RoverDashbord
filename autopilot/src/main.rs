@@ -621,7 +621,10 @@ impl Runtime {
             self.return_target = Some(target);
             let speed_mps = self.cfg.max_mps * 0.5;
             match pursuit::command(&pose, &[target], speed_mps, &self.cfg) {
-                Some((l, r)) => self.segment.set(l, r, false, now),
+                Some((l, r)) => {
+                    let pivot = (l < 0 && r > 0) || (l > 0 && r < 0);
+                    self.segment.set(l, r, pivot, now)
+                }
                 None => {
                     self.publish_stop().await;
                     return;
