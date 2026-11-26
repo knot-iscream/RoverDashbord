@@ -74,6 +74,8 @@ pub struct AppState {
     pub autonomy: Arc<tokio::sync::RwLock<Value>>,
     /// Last mission state (retained by the autopilot).
     pub mission: Arc<tokio::sync::RwLock<Value>>,
+    /// Latest camera detections from the Pi perception service.
+    pub perception: Arc<tokio::sync::RwLock<Value>>,
     /// Last manual duty per motor, republished with the command deadman.
     pub manual: Arc<std::sync::Mutex<manual::ManualHold>>,
     /// Scan history archive on this laptop.
@@ -116,6 +118,7 @@ impl AppState {
             nav_grid: self.nav_grid.clone(),
             autonomy: self.autonomy.clone(),
             mission: self.mission.clone(),
+            perception: self.perception.clone(),
             manual: self.manual.clone(),
             scans: self.scans.clone(),
             cfg: self.cfg.clone(),
@@ -221,6 +224,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/lidar/scan_state", get(routes::scan_state_route))
         .route("/api/pose", get(routes::pose))
         .route("/api/autonomy", get(routes::autonomy))
+        .route("/api/perception", get(routes::perception))
         .route("/api/nav/grid", get(routes::nav_grid))
         .route("/api/scans", get(routes::scans_list))
         .route("/api/scans/download_all", get(routes::scans_download_all))
@@ -342,6 +346,7 @@ pub async fn build_state() -> AppState {
     let nav_grid = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let autonomy = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let mission = Arc::new(tokio::sync::RwLock::new(Value::Null));
+    let perception = Arc::new(tokio::sync::RwLock::new(Value::Null));
     let manual = Arc::new(std::sync::Mutex::new(manual::ManualHold::default()));
     let scans = Arc::new(tokio::sync::RwLock::new(scan_store::ScanStore::new(
         config::base_dir().join("scans"),
@@ -369,6 +374,7 @@ pub async fn build_state() -> AppState {
         nav_grid: nav_grid.clone(),
         autonomy: autonomy.clone(),
         mission: mission.clone(),
+        perception: perception.clone(),
         manual: manual.clone(),
         scans: scans.clone(),
         cfg: cfg_lock.clone(),
@@ -398,6 +404,7 @@ pub async fn build_state() -> AppState {
         nav_grid,
         autonomy,
         mission,
+        perception,
         manual,
         scans,
         scan_sync_lock,

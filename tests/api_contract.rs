@@ -976,6 +976,32 @@ async fn manual_hold_stores_and_clears() {
 }
 
 #[tokio::test]
+async fn perception_route_public_null_then_boxes() {
+    let (state, dir) = common::test_state("api-perception").await;
+    let _g = PathBufGuard(dir);
+    let r = digital_twin_dashboard::build_router(state.clone());
+
+    let (s, v, _) = req(r.clone(), "GET", "/api/perception", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(v["perception"].is_null(), "no frame yet -> null");
+
+    digital_twin_dashboard::mqtt::on_mqtt_message(
+        &state.ctx(),
+        "rover/perception/detections",
+        json!({"ok": 1, "w": 640, "h": 480,
+               "items": [{"c": 0, "label": "person", "p": 0.8,
+                          "x": 0.4, "y": 0.3, "w": 0.2, "h": 0.4}]}),
+    )
+    .await;
+
+    let (s, v, _) = req(r, "GET", "/api/perception", None, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["perception"]["ok"], 1);
+    assert_eq!(v["perception"]["items"][0]["label"], "person");
+    assert_eq!(v["perception"]["items"][0]["p"], 0.8);
+}
+
+#[tokio::test]
 async fn history_empty_and_export_400() {
     let (r, _g) = app().await;
     let (s, v, _) = req(r, "GET", "/api/history/days", None, None).await;

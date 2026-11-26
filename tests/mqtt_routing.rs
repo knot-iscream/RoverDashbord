@@ -551,9 +551,20 @@ async fn autonomy_feeds_cache_and_never_touch_motor_history() {
         json!({"resolution": 0.1, "width": 1, "height": 1, "origin": [0.0, 0.0], "rle": [[1, 1]]}),
     )
     .await;
+    mqtt::on_mqtt_message(
+        &f.ctx,
+        "rover/perception/detections",
+        json!({"ok": 1, "w": 640, "h": 480, "items": [{"label": "person", "p": 0.8}]}),
+    )
+    .await;
 
     let d = common::drain(&mut f.rx);
-    for kind in ["pose_update", "autonomy_update", "mission_update"] {
+    for kind in [
+        "pose_update",
+        "autonomy_update",
+        "mission_update",
+        "perception_update",
+    ] {
         assert!(d.iter().any(|m| m["type"] == kind), "{kind} missing");
     }
     assert!(
@@ -564,6 +575,7 @@ async fn autonomy_feeds_cache_and_never_touch_motor_history() {
     assert_eq!(f.autonomy.read().await["state"], "hop");
     assert_eq!(f.mission.read().await["reason"], "next hop");
     assert_eq!(f.nav_grid.read().await["width"], 1);
+    assert_eq!(f.perception.read().await["items"][0]["label"], "person");
     assert!(
         f.device.read().await.last_seen.is_none(),
         "Pi feeds must not fake ESP presence"

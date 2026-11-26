@@ -186,6 +186,11 @@ pub async fn nav_grid(State(s): State<AppState>) -> Json<Value> {
     Json(json!({"grid": s.nav_grid.read().await.clone()}))
 }
 
+/// Latest camera detections from the Pi perception service.
+pub async fn perception(State(s): State<AppState>) -> Json<Value> {
+    Json(json!({"perception": s.perception.read().await.clone()}))
+}
+
 #[derive(Deserialize)]
 pub struct ModeBody {
     pub mode: String,

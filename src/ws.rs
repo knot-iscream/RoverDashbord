@@ -99,6 +99,10 @@ async fn handle(socket: WebSocket, s: AppState) {
     if !mission.is_null() {
         send(&mut tx, &tagged("mission_update", mission)).await;
     }
+    let perception = s.perception.read().await.clone();
+    if !perception.is_null() {
+        send(&mut tx, &tagged("perception_update", perception)).await;
+    }
     send(&mut tx, &calibration_payload(&s.ctx()).await).await;
     send(&mut tx, &s.device.read().await.payload()).await;
 

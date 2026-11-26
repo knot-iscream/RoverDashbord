@@ -49,6 +49,10 @@ opencode.json
 # Wiring PDF generator: kept on this PC only, the PDF itself is tracked
 /tools/wiring_pdf.py
 
+# Perception model: fetch with tools/rover-perception/download_model.py
+/tools/rover-perception/models/*.onnx
+/tools/rover-perception/models/*.part
+
 # Generated results chapter PDF and its temporary build file
 /docs/RESULTS-DRAFT.pdf
 /docs/.RESULTS-DRAFT.build.html

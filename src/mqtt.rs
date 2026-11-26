@@ -22,7 +22,7 @@ pub const DEVICE_OFFLINE_TIMEOUT_S: i64 = 8;
 /// echoes are dropped by the `*/command` guard below, same as motor commands.
 /// `rover/lidar/servo` is the swing arm state: commanded angle and sweep
 /// flags, no measured angle because no encoder is fitted.
-const SUB_TOPICS: [&str; 16] = [
+const SUB_TOPICS: [&str; 17] = [
     "rover/motor/#",
     "rover/mid/#",
     "rover/calibration/status",
@@ -46,6 +46,8 @@ const SUB_TOPICS: [&str; 16] = [
     "rover/map/grid",
     "rover/autonomy/state",
     "rover/mission/state",
+    // Camera detector boxes from the Pi perception service.
+    "rover/perception/detections",
 ];
 
 /// The shared pieces the ingest loop needs. `AppState` (main.rs) builds one
@@ -77,6 +79,8 @@ pub struct Ctx {
     pub autonomy: Arc<tokio::sync::RwLock<Value>>,
     /// Last mission state (retained by the autopilot).
     pub mission: Arc<tokio::sync::RwLock<Value>>,
+    /// Latest camera detections from the Pi perception service.
+    pub perception: Arc<tokio::sync::RwLock<Value>>,
     /// Scan history archive on this laptop.
     pub scans: Arc<tokio::sync::RwLock<crate::scan_store::ScanStore>>,
     /// Backend config, needed for the Pi HTTP token during scan sync.
@@ -383,6 +387,11 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
     if topic.starts_with("rover/mission/state") {
         *ctx.mission.write().await = data.clone();
         broadcast(ctx, tagged("mission_update", data));
+        return;
+    }
+    if topic.starts_with("rover/perception/detections") {
+        *ctx.perception.write().await = data.clone();
+        broadcast(ctx, tagged("perception_update", data));
         return;
     }
 
