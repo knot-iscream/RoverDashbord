@@ -75,7 +75,7 @@ detour into unknown space.
 | `rover/control/heartbeat` | `{"role":"operator","ts":ms}` | 3 s lease |
 | `rover/autonomy/mode` | `{"mode":"auto|manual|idle","ts":ms}` | retained lease request |
 | `rover/env/telemetry` | `{"flame_mask":5,"flame_lvl":0.8,"heat_l":..,"heat_r":..}` | fire mark, thermal abort |
-| `rover/perception/detections` | `{"items":[{"label":"person","p":0.8,"x":..,"w":..}]}` | centre-third person stop |
+| `rover/perception/detections` | `{"items":[{"label":"person","p":0.8,"x":..,"w":..,"range_m":1.4}]}` | centre-third person stop; `range_m` optional and reported as `person_m` |
 | `rover/nav/goal` | `{"x":..,"y":..}` or `{"cancel":true}` | reserved for waypoints |
 | `rover/motor/status` | ESP status | corner board freshness |
 | `rover/mid/status` | ESP status | MID board freshness |
@@ -90,7 +90,7 @@ without the mask patch still works.
 
 | Topic | Shape | Rate |
 |---|---|---|
-| `rover/autonomy/state` | state, mode, reason, stops, front_m, fire, thermal | 2 Hz, not retained |
+| `rover/autonomy/state` | state, mode, reason, stops, front_m, person_m, fire, thermal | 2 Hz, not retained |
 | `rover/mission/state` | state, reason, stops, return_points | on transition, retained |
 | `rover/motor/command` | `{"motor":1..4,"speed":s,"arm_ms":600}` | 5 Hz while a segment is latched |
 | `rover/mid/command` | `{"motor":1..2,"speed":s,"arm_ms":600}` | 5 Hz while a segment is latched |
