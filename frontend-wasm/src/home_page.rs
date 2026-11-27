@@ -15,6 +15,7 @@ use wasm_bindgen::JsCast;
 use web_sys::Element;
 
 use crate::env_ui;
+use crate::map_view::MapView;
 use crate::perception_ui::DetectionOverlay;
 use crate::shell::app_shell;
 use crate::ws::{
@@ -1815,7 +1816,7 @@ pub fn HomePage() -> impl IntoView {
         if let Some(p) = placeholder.get() {
             p.set_attribute(
                 "style",
-                if mode == 1 {
+                if mode >= 1 {
                     "display:none;"
                 } else if !live {
                     "opacity:1;"
@@ -1989,6 +1990,7 @@ pub fn HomePage() -> impl IntoView {
                                         <div class="tab-group" id="cam-tabs">
                                             <button class={move || if cam.get() == 0 { "tab-btn active" } else { "tab-btn" }} data-cam="normal" on:click=move |_| on_cam(0)><span>"Normal"</span></button>
                                             <button class={move || if cam.get() == 1 { "tab-btn active" } else { "tab-btn" }} data-cam="lidar" on:click=move |_| on_cam(1)><span>"LiDAR"</span></button>
+                                            <button class={move || if cam.get() == 2 { "tab-btn active" } else { "tab-btn" }} data-cam="map" on:click=move |_| on_cam(2)><span>"Map"</span></button>
                                         </div>
                                     </div>
                                     <div class="camera-viewport" id="camera-viewport" node_ref=viewport>
@@ -2013,6 +2015,7 @@ pub fn HomePage() -> impl IntoView {
                                             on:pointerleave=on_pu
                                             on:wheel=on_wheel
                                         ></canvas>
+                                        <MapView cam=cam />
                                         <DetectionOverlay
                                             payload=ctx.perception
                                             show=Signal::derive(move || cam.get() == 0 && cam_live.get())
