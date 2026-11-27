@@ -234,6 +234,19 @@ pub async fn post_motor(motor: u8, speed: i32) {
     }
 }
 
+/// POST `/api/autonomy/mode {mode}`. `manual` takes the lease, `auto` hands
+/// it back, `stop` parks the autopilot. Fire and forget, same as the motors.
+pub async fn post_autonomy(mode: &str) {
+    let url = format!("{}/api/autonomy/mode", api_base());
+    let body = serde_json::json!({"mode": mode});
+    if let Ok(req) = gloo_net::http::Request::post(&url)
+        .header("Content-Type", "application/json")
+        .body(body.to_string())
+    {
+        let _ = req.send().await;
+    }
+}
+
 /// POST `/api/pump {on,seconds}`. The button only sends the request; the
 /// real on/off state comes back over the ENV frames, so the firmware
 /// deadline stays the source of truth.

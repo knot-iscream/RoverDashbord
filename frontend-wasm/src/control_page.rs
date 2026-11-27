@@ -17,10 +17,11 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{Event, HtmlInputElement, WebSocket};
 
+use crate::perception_ui::DetectionOverlay;
 use crate::shell::app_shell;
 use crate::ws::{
-    camera_age_ms, camera_url, fetch_device_online, non_reactive, now_ms, post_motor, post_pump,
-    ws_url,
+    camera_age_ms, camera_url, fetch_device_online, non_reactive, now_ms, post_autonomy, post_motor,
+    post_pump, ws_url,
 };
 
 const SHORT: [&str; 6] = ["FL", "FR", "RL", "RR", "ML", "MR"];
@@ -67,6 +68,11 @@ struct Ctx {
     cam_live: RwSignal<bool>,
     pump: RwSignal<bool>,
     tick: RwSignal<u64>,
+    /// Latest `rover/perception/detections` frame.
+    perception: RwSignal<serde_json::Value>,
+    /// Latest `rover/autonomy/state`, Null when the autopilot is not running.
+    auto: RwSignal<serde_json::Value>,
+    auto_seen: RwSignal<f64>,
 }
 
 fn dir_of(c: &Ctx) -> u8 {
@@ -132,6 +138,14 @@ fn drive_base(dir: u8, s: i32) -> [i32; 6] {
 /// Apply the invert map, remember the commanded values and fire one POST per
 /// motor. Fire-and-forget matches the existing test page.
 fn send_speeds(c: &Ctx, base: [i32; 6]) {
+    // Any real manual input takes the lease before the wheels get a command,
+    // so the autopilot cannot keep republishing its own pair over this one.
+    let moving = base.iter().any(|v| *v != 0);
+    if moving && c.auto.get().get("mode").and_then(|v| v.as_str()) == Some("auto") {
+        wasm_bindgen_futures::spawn_local(async {
+            post_autonomy("manual").await;
+        });
+    }
     let inv = c.invert.get();
     let mut out = [0i32; 6];
     for (i, v) in base.iter().enumerate() {
@@ -161,6 +175,11 @@ fn stop(c: &Ctx) {
     c.keys.set(0);
     c.pad.set(0);
     send_speeds(c, [0i32; 6]);
+    // STOP must also drop the autopilot to idle, otherwise its next 5 Hz
+    // republish would drive the rover again immediately.
+    wasm_bindgen_futures::spawn_local(async {
+        post_autonomy("stop").await;
+    });
 }
 
 /// One motor only. The drive pad fans out to all six; jog must not disturb a
@@ -310,6 +329,15 @@ fn connect_ws(c: Ctx) {
             // every 250 ms. Trust the board, not the last click: a burst that
             // timed out on the firmware turns the button off by itself.
             let kind = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
+            if kind == "perception_update" {
+                c.perception.set(v.clone());
+                return;
+            }
+            if kind == "autonomy_update" {
+                c.auto.set(v.clone());
+                c.auto_seen.set(now_ms());
+                return;
+            }
             if kind == "motor_status" {
                 if v.get("source").and_then(|x| x.as_str()) == Some("mid") {
                     if let Some(p) = v.get("pump").and_then(|x| x.as_u64()) {
@@ -370,6 +398,9 @@ pub fn ControlPage() -> impl IntoView {
         cam_live: RwSignal::new(false),
         pump: RwSignal::new(false),
         tick: RwSignal::new(0u64),
+        perception: RwSignal::new(serde_json::Value::Null),
+        auto: RwSignal::new(serde_json::Value::Null),
+        auto_seen: RwSignal::new(0.0f64),
     };
     let cam_img = NodeRef::<leptos::html::Img>::new();
 
@@ -507,6 +538,56 @@ pub fn ControlPage() -> impl IntoView {
     let on_thr_less = move |_: web_sys::MouseEvent| step_throttle(&c, -16);
     let on_thr_more = move |_: web_sys::MouseEvent| step_throttle(&c, 16);
     let on_stop = move |_: web_sys::MouseEvent| stop(&c);
+    let on_take_manual = move |_: web_sys::MouseEvent| {
+        wasm_bindgen_futures::spawn_local(async move {
+            post_autonomy("manual").await;
+        });
+    };
+    let on_hand_auto = move |_: web_sys::MouseEvent| {
+        wasm_bindgen_futures::spawn_local(async move {
+            post_autonomy("auto").await;
+        });
+    };
+    let auto_fresh = move || {
+        let _ = c.tick.get();
+        let seen = c.auto_seen.get();
+        seen > 0.0 && now_ms() - seen < 3000.0
+    };
+    let auto_mode = move || {
+        if !auto_fresh() {
+            return String::new();
+        }
+        c.auto
+            .get()
+            .get("mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    let auto_chip_cls = move || match auto_mode().as_str() {
+        "auto" => "ctl-auto-chip auto",
+        "manual" => "ctl-auto-chip manual",
+        _ => "ctl-auto-chip",
+    };
+    let auto_chip_txt = move || match auto_mode().as_str() {
+        "auto" => "AUTO",
+        "manual" => "MANUAL",
+        "idle" => "IDLE",
+        _ => "OFFLINE",
+    };
+    let auto_state_line = move || {
+        if !auto_fresh() {
+            return "Autopilot not running".to_string();
+        }
+        let v = c.auto.get();
+        let state = v.get("state").and_then(|x| x.as_str()).unwrap_or("--");
+        let reason = v.get("reason").and_then(|x| x.as_str()).unwrap_or("");
+        if reason.is_empty() {
+            state.to_string()
+        } else {
+            format!("{state} - {reason}")
+        }
+    };
     // Water: the click only sends the command. The button follows the ENV
     // frames, so it never claims "running" when the broker is down and it
     // turns itself off when the firmware burst ends.
@@ -577,6 +658,18 @@ pub fn ControlPage() -> impl IntoView {
                             "No device online. Commands reach the broker but nothing will move until a board is connected."
                         </div>
 
+                        <div class="ctl-auto">
+                            <div class="ctl-auto-left">
+                                <span class="ctl-auto-title">"AUTONOMY"</span>
+                                <span class={move || auto_chip_cls()}>{move || auto_chip_txt()}</span>
+                                <span class="ctl-auto-state">{auto_state_line}</span>
+                            </div>
+                            <div class="ctl-auto-right">
+                                <button class="ctl-auto-btn" on:click=on_take_manual>"TAKE MANUAL"</button>
+                                <button class="ctl-auto-btn accent" on:click=on_hand_auto>"HAND TO AUTOPILOT"</button>
+                            </div>
+                        </div>
+
                         <div class="ctl-cockpit">
                             <div class="ctl-mirror">
                                 <div class="ctl-mirror-head">
@@ -595,6 +688,10 @@ pub fn ControlPage() -> impl IntoView {
                                     <div class="ctl-mirror-off" style={move || if c.cam_live.get() { "display:none" } else { "display:flex" }}>
                                         "CAMERA OFFLINE"
                                     </div>
+                                    <DetectionOverlay
+                                        payload=c.perception
+                                        show=Signal::derive(move || c.cam_live.get())
+                                    />
                                 </div>
                             </div>
 

@@ -6,6 +6,7 @@ mod calibration_page;
 mod control_page;
 mod env_ui;
 mod home_page;
+mod perception_ui;
 mod shell;
 mod test_page;
 mod ws;

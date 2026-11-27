@@ -15,6 +15,7 @@ use wasm_bindgen::JsCast;
 use web_sys::Element;
 
 use crate::env_ui;
+use crate::perception_ui::DetectionOverlay;
 use crate::shell::app_shell;
 use crate::ws::{
     camera_age_ms, camera_url, delete_json, fetch_device_online, get_json, non_reactive, now_ms,
@@ -40,6 +41,30 @@ fn temp_color(temp: f64) -> String {
     let t = temp.clamp(20.0, 60.0);
     let hue = ((1.0 - (t - 20.0) / 40.0) * 240.0).round() as i64;
     format!("hsl({hue}, 100%, 50%)")
+}
+
+fn auto_text(v: &serde_json::Value, key: &str) -> String {
+    v.get(key)
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("--")
+        .to_string()
+}
+
+fn auto_metres(v: &serde_json::Value, key: &str) -> String {
+    v.get(key)
+        .and_then(|x| x.as_f64())
+        .map(|n| format!("{n:.2} m"))
+        .unwrap_or_else(|| "--".to_string())
+}
+
+fn auto_stops(v: &serde_json::Value) -> String {
+    if v.is_null() {
+        return "--".to_string();
+    }
+    let stops = v.get("stops").and_then(|x| x.as_u64()).unwrap_or(0);
+    let max = v.get("max_stops").and_then(|x| x.as_u64()).unwrap_or(0);
+    format!("{stops}/{max}")
 }
 
 fn q(hud: NodeRef<leptos::html::Div>, sel: &str) -> Option<Element> {
@@ -267,6 +292,12 @@ struct HomeCtx {
     env_msg: RwSignal<serde_json::Value>,
     env_seen: RwSignal<f64>,
     env_stale: RwSignal<bool>,
+    /// Camera detector boxes from `rover/perception/detections`.
+    perception: RwSignal<serde_json::Value>,
+    /// Latest `rover/autonomy/state`, Null when the autopilot is not running.
+    auto: RwSignal<serde_json::Value>,
+    auto_seen: RwSignal<f64>,
+    auto_stale: RwSignal<bool>,
     /// Latest RPLIDAR A1 revolution and its freshness. Null until the first
     /// full turn, same rule as the other feeds.
     lidar_msg: RwSignal<serde_json::Value>,
@@ -1078,6 +1109,14 @@ fn connect_home_ws(ctx: HomeCtx) {
                         ctx.device_online.set(online);
                     }
                 }
+                "perception_update" => {
+                    ctx.perception.set(v.clone());
+                }
+                "autonomy_update" => {
+                    ctx.auto.set(v.clone());
+                    ctx.auto_seen.set(now_ms());
+                    ctx.auto_stale.set(false);
+                }
                 "env_update" => {
                     ctx.env_msg.set(v.clone());
                     ctx.env_seen.set(now_ms());
@@ -1229,6 +1268,10 @@ pub fn HomePage() -> impl IntoView {
     let env_msg = RwSignal::new(serde_json::Value::Null);
     let env_seen = RwSignal::new(0.0f64);
     let env_stale = RwSignal::new(true);
+    let perception = RwSignal::new(serde_json::Value::Null);
+    let auto = RwSignal::new(serde_json::Value::Null);
+    let auto_seen = RwSignal::new(0.0f64);
+    let auto_stale = RwSignal::new(true);
     let lidar_msg = RwSignal::new(serde_json::Value::Null);
     let lidar_seen = RwSignal::new(0.0f64);
     let lidar_stale = RwSignal::new(true);
@@ -1278,6 +1321,10 @@ pub fn HomePage() -> impl IntoView {
         env_msg,
         env_seen,
         env_stale,
+        perception,
+        auto,
+        auto_seen,
+        auto_stale,
         lidar_msg,
         lidar_seen,
         lidar_stale,
@@ -1311,6 +1358,29 @@ pub fn HomePage() -> impl IntoView {
         hud,
         lidar_canvas,
         lidar_canvas_big,
+    };
+
+    let auto_mode = move || {
+        if ctx.auto_stale.get() {
+            return String::new();
+        }
+        ctx.auto
+            .get()
+            .get("mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    let auto_chip_cls = move || match auto_mode().as_str() {
+        "auto" => "ctl-auto-chip auto",
+        "manual" => "ctl-auto-chip manual",
+        _ => "ctl-auto-chip",
+    };
+    let auto_chip_txt = move || match auto_mode().as_str() {
+        "auto" => "AUTO",
+        "manual" => "MANUAL",
+        "idle" => "IDLE",
+        _ => "OFFLINE",
     };
 
     // -- setup: WS, polls, overlay ticker (refs post-mount) --
@@ -1426,6 +1496,8 @@ pub fn HomePage() -> impl IntoView {
                 let seen = c.env_seen.get();
                 c.env_stale
                     .set(seen == 0.0 || now_ms() - seen > env_ui::FRESH_MS);
+                let aseen = c.auto_seen.get();
+                c.auto_stale.set(aseen == 0.0 || now_ms() - aseen > 3000.0);
             });
             _iv.forget();
             // A1 scan is stale after 5 s (sensor turns ~5.5 times per second).
@@ -1920,6 +1992,10 @@ pub fn HomePage() -> impl IntoView {
                                             on:pointerleave=on_pu
                                             on:wheel=on_wheel
                                         ></canvas>
+                                        <DetectionOverlay
+                                            payload=ctx.perception
+                                            show=Signal::derive(move || cam.get() == 0 && cam_live.get())
+                                        />
                                         <div class="camera-placeholder" id="cam-placeholder" node_ref=placeholder>
                                             <div class="cam-dot-wrap">
                                                 <span class="cam-dot"></span>
@@ -1975,6 +2051,31 @@ pub fn HomePage() -> impl IntoView {
                                             </svg>
                                             <p class="arm-label">"3D arm visualization coming soon"</p>
                                             <p style="font-size:9px;color:var(--gray-600);margin-top:4px;">"Will display real-time joint angles"</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="panel panel-pad">
+                                    <div class="panel-head">
+                                        <h2 class="panel-title-muted">"Autonomy"</h2>
+                                        <span class={move || auto_chip_cls()}>{move || auto_chip_txt()}</span>
+                                    </div>
+                                    <div class="auto-rows">
+                                        <div class="auto-row">
+                                            <span>"State"</span>
+                                            <b>{move || if ctx.auto_stale.get() { "--".to_string() } else { auto_text(&ctx.auto.get(), "state") }}</b>
+                                        </div>
+                                        <div class="auto-row">
+                                            <span>"Reason"</span>
+                                            <b>{move || if ctx.auto_stale.get() { "--".to_string() } else { auto_text(&ctx.auto.get(), "reason") }}</b>
+                                        </div>
+                                        <div class="auto-row">
+                                            <span>"Front"</span>
+                                            <b>{move || if ctx.auto_stale.get() { "--".to_string() } else { auto_metres(&ctx.auto.get(), "front_m") }}</b>
+                                        </div>
+                                        <div class="auto-row">
+                                            <span>"Stops"</span>
+                                            <b>{move || if ctx.auto_stale.get() { "--".to_string() } else { auto_stops(&ctx.auto.get()) }}</b>
                                         </div>
                                     </div>
                                 </div>
