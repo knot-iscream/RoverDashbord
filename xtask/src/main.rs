@@ -6,7 +6,7 @@
 
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -76,11 +76,13 @@ fn json_field(body: &str, key: &str) -> Option<String> {
 }
 
 fn port_open(host: &str, port: u16) -> bool {
-    let addr: SocketAddr = match format!("{host}:{port}").parse() {
-        Ok(a) => a,
-        Err(_) => return false,
+    // Resolve hostnames too, so `iscream.local:1883` works, not just IPs.
+    let Ok(addrs) = (host, port).to_socket_addrs() else {
+        return false;
     };
-    TcpStream::connect_timeout(&addr, Duration::from_secs(1)).is_ok()
+    addrs
+        .into_iter()
+        .any(|addr| TcpStream::connect_timeout(&addr, Duration::from_secs(1)).is_ok())
 }
 
 /// `cargo` on PATH, else the per-user install (same fallback as the bats).
@@ -257,9 +259,15 @@ fn cmd_doctor() -> i32 {
 
     println!();
     println!("--- Rust backend on port 8000 ---");
+    let mut broker = "127.0.0.1:1883".to_string();
     match http_get("127.0.0.1", 8000, HEALTH_PATH, 5) {
         Ok((200, body)) => {
             println!("{body}");
+            if let Some(b) = json_field(&body, "mqtt_broker") {
+                if !b.is_empty() {
+                    broker = b;
+                }
+            }
             let mqtt = json_field(&body, "mqtt_connected").as_deref() == Some("true");
             let dev = json_field(&body, "device_online").as_deref() == Some("true");
             if !mqtt {
@@ -267,7 +275,7 @@ fn cmd_doctor() -> i32 {
             }
             if !dev {
                 println!(
-                    "device_online is false: ESP32 is not publishing - check rover power and WiFi."
+                    "device_online is false: check rover power and the USB cable, then the serial bridge (WiFi only in the DEV build)."
                 );
             }
         }
@@ -277,13 +285,19 @@ fn cmd_doctor() -> i32 {
         }
     }
 
+    let (broker_host, broker_port) = broker
+        .rsplit_once(':')
+        .and_then(|(h, p)| p.parse::<u16>().ok().map(|p| (h.to_string(), p)))
+        .unwrap_or_else(|| (broker.clone(), 1883));
     println!();
-    println!("--- MQTT broker on port 1883 ---");
-    if port_open("127.0.0.1", 1883) {
-        println!("[OK] Something is listening on 1883.");
+    println!("--- MQTT broker {broker_host}:{broker_port} ---");
+    if port_open(&broker_host, broker_port) {
+        println!("[OK] Something is listening on {broker_host}:{broker_port}.");
     } else {
-        println!("[X] Nothing listening on port 1883.");
-        println!("cargo launch starts Mosquitto for you - run it. Service install needs admin.");
+        println!("[X] Nothing listening on {broker_host}:{broker_port}.");
+        println!(
+            "For the Pi host, start mosquitto there; cargo launch only starts a local broker."
+        );
     }
 
     println!();
@@ -301,7 +315,7 @@ fn cmd_doctor() -> i32 {
         Ok((200, body)) => {
             println!("{body}");
             println!();
-            println!("online true means the rover is publishing. online false means check rover power and WiFi.");
+            println!("online true means the rover is publishing. online false means check rover power, the USB cable and the serial bridge.");
         }
         _ => println!("No device status - backend may be down."),
     }
