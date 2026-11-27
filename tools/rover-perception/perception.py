@@ -341,6 +341,8 @@ def run_service(args):
     last_log = 0.0
     last_err = 0.0
     fps_ema = 0.0
+    last_items = []
+    last_seen = 0.0
 
     while not stop["flag"]:
         try:
@@ -384,24 +386,33 @@ def run_service(args):
                 it["range_m"] = round(rng, 2)
                 it["bearing_deg"] = round(bearing, 1)
 
+        # The detector drops a real object for a frame or two at 4 fps, which
+        # makes the boxes blink. Hold the last non-empty list briefly; the
+        # autopilot already holds a person stop for 1.5 s.
+        held = False
+        if items:
+            last_items = items
+            last_seen = now
+        elif last_items and (time.monotonic() - last_seen) <= args.hold:
+            items = last_items
+            held = True
+
         if dt > 0.0:
             fps = 1.0 / dt
             fps_ema = fps if fps_ema == 0.0 else 0.8 * fps_ema + 0.2 * fps
 
-        client.publish(
-            DET_TOPIC,
-            json.dumps(
-                {
-                    "ok": 1,
-                    "w": int(frame.shape[1]),
-                    "h": int(frame.shape[0]),
-                    "ms": round(ms, 1),
-                    "fps": round(fps_ema, 1),
-                    "items": items,
-                    "ts": round(time.time(), 2),
-                }
-            ),
-        )
+        payload = {
+            "ok": 1,
+            "w": int(frame.shape[1]),
+            "h": int(frame.shape[0]),
+            "ms": round(ms, 1),
+            "fps": round(fps_ema, 1),
+            "items": items,
+            "ts": round(time.time(), 2),
+        }
+        if held:
+            payload["held"] = True
+        client.publish(DET_TOPIC, json.dumps(payload))
         if now - last_log >= 10.0:
             last_log = now
             logging.info(
@@ -460,6 +471,12 @@ def main():
         type=float,
         default=float(os.environ.get("PERCEPTION_SCAN_STALE", "1.0")),
         help="drop the scan cache after this many seconds without a frame",
+    )
+    parser.add_argument(
+        "--hold",
+        type=float,
+        default=float(os.environ.get("PERCEPTION_HOLD", "0.6")),
+        help="seconds to keep the last non-empty box list",
     )
     args = parser.parse_args()
 

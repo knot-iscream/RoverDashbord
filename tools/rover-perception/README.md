@@ -62,6 +62,7 @@ Environment variables, all optional:
 | `PERCEPTION_CAM_YAW` | `0.0` | lidar angle at the image centre, degrees; positive = left |
 | `PERCEPTION_RANGE_WINDOW` | `2.5` | scan window around a box bearing, degrees |
 | `PERCEPTION_SCAN_STALE` | `1.0` | drop the scan cache after this many seconds |
+| `PERCEPTION_HOLD` | `0.6` | keep the last non-empty boxes for this long |
 | `MQTT_BROKER` | `127.0.0.1` | broker host |
 | `MQTT_PORT` | `1883` | broker port |
 
@@ -94,6 +95,10 @@ simply absent and the box is still published. `PERCEPTION_CAM_YAW` is the
 one-time calibration: the lidar angle that lands on the image centre. Set it
 by putting an object on the camera centreline and reading its angle from the
 scan. Positive angles are to the left.
+
+`held:true` marks a payload that repeats the last non-empty box list because
+the current frame found nothing. It bridges the 4 fps flicker, and the boxes
+carry the last fused range with them.
 
 ## Performance
 
