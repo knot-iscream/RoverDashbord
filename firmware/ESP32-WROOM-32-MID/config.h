@@ -101,8 +101,8 @@
 #define SERVO_PIN 27
 #define SERVO_MIN_DEG (-35.0f)        // HARD limit (clamped in code too)
 #define SERVO_MAX_DEG 35.0f           // HARD limit (clamped in code too)
-#define SERVO_SWEEP_MIN_DEG (-30.0f)  // default sweep range
-#define SERVO_SWEEP_MAX_DEG 30.0f
+#define SERVO_SWEEP_MIN_DEG (-25.0f)  // trained winner: 0.5 deg, 200/200, +/-25
+#define SERVO_SWEEP_MAX_DEG 25.0f
 #define SERVO_STEP_DEG 0.5f           // proven bench profile
 #define SERVO_SETTLE_MS 200
 #define SERVO_DWELL_MS 200
@@ -111,8 +111,11 @@
 #define SERVO_PWM_FREQ 50
 #define SERVO_PWM_RES 16
 // Commanded moves ramp in small steps instead of slewing at full speed.
-#define SERVO_RAMP_STEP_DEG 2.0f
-#define SERVO_RAMP_MS 60
+// 0.5 deg / 80 ms is about 6 deg/s. The old 2 deg / 60 ms (33 deg/s) was
+// fine without the camera on the bracket, but it snaps now that it carries
+// the OV5647. The trained sweep profile above keeps its own 0.5 deg steps.
+#define SERVO_RAMP_STEP_DEG 0.5f
+#define SERVO_RAMP_MS 80
 
 // No angle encoder fitted. These two flags stay in the payload so the
 // backend and the dashboard contract do not change; they are always 0.
