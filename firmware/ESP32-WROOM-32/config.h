@@ -128,6 +128,13 @@
 #define INA226_MAX_A     0.8f
 
 // ============================================================
+// Transport
+// ============================================================
+// Wired-first: 1 = USB serial JSON to the Pi bridge, no WiFi or MQTT.
+// 0 = the WiFi MQTT fallback, used by the friend's DEV zip.
+#define SERIAL_BRIDGE 1
+
+// ============================================================
 // MQTT topics
 // ============================================================
 #define MQTT_CALIB_CMD_TOPIC    "rover/calibration/command"

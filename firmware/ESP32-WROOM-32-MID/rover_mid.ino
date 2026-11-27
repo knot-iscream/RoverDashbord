@@ -148,20 +148,25 @@ void setup() {
   bracket.begin();
   if (bracket.isOk()) bracket.zero();
 
+#if !SERIAL_BRIDGE
   if (!portalEnsureWiFi()) {
     Serial.println("[Setup] No WiFi yet - rebooting to retry portal");
     delay(1000);
     ESP.restart();
   }
+#endif
 
   mqtt.begin(portalSSID(), portalPass(), portalBroker(), portalPort(),
              MQTT_TOPIC_PREFIX);
+#if !SERIAL_BRIDGE
   mqtt.connectMQTT();
   mqtt.subscribe(MQTT_MOTOR_CMD_TOPIC);
+#endif
   mqtt.setMotorCommandHandler(onMotorCommand);
   mqtt.setLidarCommandHandler(onLidarCommand);
   mqtt.setTiltDegHandler(onTiltDeg);
   mqtt.setTiltZeroHandler(onTiltZero);
+  mqtt.serialHello("mid");
 
   Serial.println("[Setup] MID + body IMU + bracket + lidar servo ready");
 }

@@ -119,6 +119,13 @@
 #define SERVO_ENCODER_FITTED 0
 
 // ============================================================
+// Transport
+// ============================================================
+// Wired-first: 1 = USB serial JSON to the Pi bridge, no WiFi or MQTT.
+// 0 = the WiFi MQTT fallback.
+#define SERIAL_BRIDGE 1
+
+// ============================================================
 // MQTT topics (own namespace — never rover/motor/*)
 // ============================================================
 #define MQTT_CALIB_CMD_TOPIC    "rover/mid/command"

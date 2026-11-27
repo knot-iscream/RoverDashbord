@@ -65,6 +65,10 @@ Get-ChildItem -Path (Join-Path $devDir 'firmware') -Filter config.h -Recurse | F
       $lines[$i] = '#define MQTT_BROKER "' + $pcIp + '"  // ' + $marker
       $changed = $true
     }
+    if ($lines[$i] -match '^\s*#define\s+SERIAL_BRIDGE\s+1') {
+      $lines[$i] = '#define SERIAL_BRIDGE 0'
+      $changed = $true
+    }
   }
   if ($changed) {
     [System.IO.File]::WriteAllLines($_.FullName, $lines, (New-Object System.Text.UTF8Encoding($false)))
@@ -74,7 +78,7 @@ Get-ChildItem -Path (Join-Path $devDir 'firmware') -Filter config.h -Recurse | F
 if ($patched -eq 0) {
   Write-Host 'WARNING: no config.h files were patched. Did the DEV folder copy fail?'
 } else {
-  Write-Host "Broker address written into $patched dev sketches."
+  Write-Host "DEV config written into $patched sketches (WiFi path, SERIAL_BRIDGE 0)."
 }
 
 # 4. Start the app. Boards join the baked WiFi and land on the broker above.

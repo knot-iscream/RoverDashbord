@@ -488,9 +488,12 @@ fn dev_config(src: &str, ssid: &str, pass: &str) -> Result<String, String> {
         "MQTT_BROKER",
         &format!("#define MQTT_BROKER \"DEV_PC_IP\"  // {BROKER_MARKER}"),
     );
+    // Product firmware is USB serial. The friend's DEV zip has no Pi, so it
+    // keeps the WiFi MQTT path.
+    let (o, d) = rewrite_define(&o, "SERIAL_BRIDGE", "#define SERIAL_BRIDGE 0");
     out = o;
-    if !(a && b && c) {
-        return Err("a WiFi/MQTT define was missing from a dev config.h".into());
+    if !(a && b && c && d) {
+        return Err("a WiFi/MQTT/transport define was missing from a dev config.h".into());
     }
     Ok(out)
 }
@@ -815,6 +818,7 @@ mod tests {
             "#define WIFI_PASSWORD \"Your_Password\"\n",
             "#define MQTT_BROKER \"192.168.0.96\"\n",
             "#define MQTT_PORT 1883\n",
+            "#define SERIAL_BRIDGE 1\n",
         );
         let out = dev_config(src, "Net", "pw").unwrap();
         assert!(out.contains("#define DEV_WIFI_PRELOAD 1"));
@@ -822,6 +826,7 @@ mod tests {
         assert!(out.contains("#define WIFI_PASSWORD \"pw\""));
         assert!(out.contains("#define MQTT_BROKER \"DEV_PC_IP\"  // ROVER_DEV_BROKER"));
         assert!(out.contains("#define MQTT_PORT 1883"));
+        assert!(out.contains("#define SERIAL_BRIDGE 0"));
         assert!(!out.contains("Your_SSID"));
     }
 

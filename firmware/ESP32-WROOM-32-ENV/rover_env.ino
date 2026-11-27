@@ -181,16 +181,21 @@ void setup() {
   loadBaseline();
   boot_ms = millis();
 
+#if !SERIAL_BRIDGE
   if (!portalEnsureWiFi()) {
     Serial.println("[Setup] No WiFi yet - rebooting to retry portal");
     delay(1000);
     ESP.restart();
   }
+#endif
 
   mqtt.begin(portalSSID(), portalPass(), portalBroker(), portalPort(),
              MQTT_TOPIC_PREFIX);
+#if !SERIAL_BRIDGE
   mqtt.connectMQTT();
+#endif
   mqtt.setCommandHandler(onEnvCommand);
+  mqtt.serialHello("env");
 
   Serial.println("[Setup] ENV ready");
 }

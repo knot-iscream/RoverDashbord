@@ -144,20 +144,25 @@ void setup() {
   // with a captive portal (join from phone, save, connects, continues).
   // Blocks here during first-time setup. Returns false only on portal
   // timeout with no save -> reboot and retry (portal reopens).
+#if !SERIAL_BRIDGE
   if (!portalEnsureWiFi()) {
     Serial.println("[Setup] No WiFi yet - rebooting to retry portal");
     delay(1000);
     ESP.restart();
   }
+#endif
 
   // Runtime credentials from portal/NVS (static lifetime, safe for MQTT).
   mqtt.begin(portalSSID(), portalPass(), portalBroker(), portalPort(),
              MQTT_TOPIC_PREFIX);
+#if !SERIAL_BRIDGE
   mqtt.connectMQTT();
   mqtt.subscribe(MQTT_CALIB_CMD_TOPIC);
   mqtt.subscribe(MQTT_MOTOR_CMD_TOPIC);
+#endif
   mqtt.setCommandHandler(onCalibrationCommand);
   mqtt.setMotorCommandHandler(onMotorCommand);
+  mqtt.serialHello("corner");
 
   Serial.println("[Setup] Ready");
 }

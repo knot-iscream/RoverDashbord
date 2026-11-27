@@ -24,6 +24,8 @@ class MQTTManager {
     void (*_lidar_cmd_handler)(const char* json) = nullptr;
     void (*_tilt_deg_handler)(const char* json) = nullptr;
     void (*_tilt_zero_handler)() = nullptr;
+    char _serial_line[512];
+    size_t _serial_len = 0;
 
   public:
     MQTTManager() : mqtt_client(wifi_client) {
@@ -39,10 +41,14 @@ class MQTTManager {
       port = mqtt_port;
       topic_prefix = topic_pref;
 
+#if SERIAL_BRIDGE
+      Serial.println("[Bridge] serial mode, WiFi and MQTT skipped");
+#else
       connectWiFi();
       mqtt_client.setServer(broker, port);
       mqtt_client.setKeepAlive(30);
       mqtt_client.setCallback(mqttCallback);
+#endif
     }
 
     void connectWiFi() {
@@ -74,6 +80,9 @@ class MQTTManager {
     }
 
     bool connectMQTT() {
+#if SERIAL_BRIDGE
+      return true;
+#else
       if (!mqtt_client.connected()) {
         String client_id = "rover-esp32-" + String(random(0xFFFF), HEX);
         Serial.print("[MQTT] Connecting as ");
@@ -96,21 +105,104 @@ class MQTTManager {
         }
       }
       return true;
+#endif
     }
 
     void loop() {
+#if SERIAL_BRIDGE
+      serialUpdate();
+      return;
+#else
       if (!mqtt_client.connected()) {
         connectMQTT();
       }
       mqtt_client.loop();
+#endif
     }
 
     void subscribe(const char* topic) {
+#if SERIAL_BRIDGE
+      (void)topic;
+#else
       if (mqtt_client.connected()) {
         mqtt_client.subscribe(topic);
         Serial.print("[MQTT] Subscribed to ");
         Serial.println(topic);
       }
+#endif
+    }
+
+    bool transportReady() {
+#if SERIAL_BRIDGE
+      return true;
+#else
+      return mqtt_client.connected();
+#endif
+    }
+
+    void publishRaw(const char* topic, const char* buffer) {
+#if SERIAL_BRIDGE
+      Serial.printf("{\"topic\":\"%s\",\"payload\":%s}\n", topic, buffer);
+#else
+      mqtt_client.publish(topic, buffer);
+#endif
+    }
+
+    void serialHello(const char* node) {
+#if SERIAL_BRIDGE
+      Serial.printf(
+          "{\"topic\":\"rover/node/hello\",\"payload\":{\"node\":\"%s\",\"proto\":1}}\n",
+          node);
+#else
+      (void)node;
+#endif
+    }
+
+    // Read JSON envelopes from USB. One line per message, ignored if it is
+    // not an object (the sketch's debug lines start with '[').
+    void serialUpdate() {
+#if SERIAL_BRIDGE
+      while (Serial.available()) {
+        char c = (char)Serial.read();
+        if (c == '\n') {
+          _serial_line[_serial_len] = '\0';
+          if (_serial_len > 0) handleSerialLine(_serial_line);
+          _serial_len = 0;
+        } else if (c != '\r') {
+          if (_serial_len < sizeof(_serial_line) - 1) {
+            _serial_line[_serial_len++] = c;
+          } else {
+            _serial_len = 0;
+          }
+        }
+      }
+#endif
+    }
+
+    void handleSerialLine(const char* line) {
+#if SERIAL_BRIDGE
+      if (line[0] != '{') return;
+      StaticJsonDocument<512> doc;
+      if (deserializeJson(doc, line)) return;
+      const char* topic = doc["topic"] | "";
+      JsonObject payload = doc["payload"];
+      char buf[384];
+      serializeJson(payload, buf, sizeof(buf));
+      if (strcmp(topic, MQTT_MOTOR_CMD_TOPIC) == 0 && _motor_cmd_handler) {
+        _motor_cmd_handler(buf);
+      } else if (strcmp(topic, MQTT_CALIB_CMD_TOPIC) == 0 && _cmd_handler) {
+        const char* action = payload["action"] | "";
+        if (action[0]) _cmd_handler(action);
+      } else if (strcmp(topic, MQTT_LIDAR_CMD_TOPIC) == 0 && _lidar_cmd_handler) {
+        _lidar_cmd_handler(buf);
+      } else if (strcmp(topic, MQTT_TILT_DEG_TOPIC) == 0 && _tilt_deg_handler) {
+        _tilt_deg_handler(buf);
+      } else if (strcmp(topic, MQTT_TILT_ZERO_TOPIC) == 0 && _tilt_zero_handler) {
+        _tilt_zero_handler();
+      }
+#else
+      (void)line;
+#endif
     }
 
     void setCommandHandler(void (*handler)(const char* action)) {
@@ -136,7 +228,7 @@ class MQTTManager {
     void publishCalibrationStatus(int warmup_pct, const char* state,
                                   int speed_pct, int dir,
                                   int step_remaining_s, int cycle) {
-      if (!mqtt_client.connected()) return;
+      if (!transportReady()) return;
 
       StaticJsonDocument<128> doc;
       doc["state"] = state;
@@ -147,12 +239,12 @@ class MQTTManager {
       doc["cycle"] = cycle;
 
       char buffer[128];
-      size_t n = serializeJson(doc, buffer);
-      mqtt_client.publish(MQTT_CALIB_STATUS_TOPIC, buffer, n);
+      serializeJson(doc, buffer);
+      publishRaw(MQTT_CALIB_STATUS_TOPIC, buffer);
     }
 
     void publishMotorStatus(bool calibrating, int* speeds, bool pump_on) {
-      if (!mqtt_client.connected()) return;
+      if (!transportReady()) return;
 
       StaticJsonDocument<160> doc;
       doc["state"] = calibrating ? "calibrating" : "running";
@@ -162,8 +254,8 @@ class MQTTManager {
       for (int i = 0; i < 2; i++) arr.add(speeds[i]);
 
       char buffer[160];
-      size_t n = serializeJson(doc, buffer);
-      mqtt_client.publish(MQTT_MOTOR_STATUS_TOPIC, buffer, n);
+      serializeJson(doc, buffer);
+      publishRaw(MQTT_MOTOR_STATUS_TOPIC, buffer);
     }
 
     void publishMotorData(int motor_id, bool vibration, bool vibration_valid,
@@ -176,7 +268,7 @@ class MQTTManager {
       if (now - last_publish < 250) return;
       last_publish = now;
 
-      if (!mqtt_client.connected()) return;
+      if (!transportReady()) return;
 
       StaticJsonDocument<384> doc;
       doc["motor"] = motor_id;
@@ -200,14 +292,9 @@ class MQTTManager {
       snprintf(topic, sizeof(topic), "%s/%d", topic_prefix, motor_id);
 
       char buffer[384];
-      size_t n = serializeJson(doc, buffer);
+      serializeJson(doc, buffer);
 
-      if (mqtt_client.publish(topic, buffer, n)) {
-        Serial.print("[MQTT] Published to ");
-        Serial.print(topic);
-        Serial.print(": ");
-        Serial.println(buffer);
-      }
+      publishRaw(topic, buffer);
     }
 
   public:
@@ -216,7 +303,7 @@ class MQTTManager {
     // for the Pi phase, not a compass.
     void publishImu(bool imu_ok, float ax, float ay, float az, float gz,
                     float yaw, float pitch, float roll) {
-      if (!mqtt_client.connected()) return;
+      if (!transportReady()) return;
       StaticJsonDocument<256> doc;
       doc["imu_ok"] = imu_ok ? 1 : 0;
       if (imu_ok) {
@@ -229,8 +316,8 @@ class MQTTManager {
         doc["roll"] = roll;
       }
       char buffer[256];
-      size_t n = serializeJson(doc, buffer);
-      mqtt_client.publish(MQTT_IMU_TOPIC, buffer, n);
+      serializeJson(doc, buffer);
+      publishRaw(MQTT_IMU_TOPIC, buffer);
     }
 
     // ---- Lidar swing servo state (rover/lidar/servo) ----
@@ -239,7 +326,7 @@ class MQTTManager {
     // payload so the backend and dashboard contract do not change.
     void publishLidarServo(bool servo_ok, float angle, bool settled,
                            bool sweeping, int step, int steps) {
-      if (!mqtt_client.connected()) return;
+      if (!transportReady()) return;
       StaticJsonDocument<256> doc;
       doc["servo_ok"] = servo_ok ? 1 : 0;
       doc["angle"] = angle;
@@ -250,14 +337,14 @@ class MQTTManager {
       doc["step"] = step;
       doc["steps"] = steps;
       char buffer[256];
-      size_t n = serializeJson(doc, buffer);
-      mqtt_client.publish(MQTT_LIDAR_SERVO_TOPIC, buffer, n);
+      serializeJson(doc, buffer);
+      publishRaw(MQTT_LIDAR_SERVO_TOPIC, buffer);
     }
 
     // ---- Bracket tilt measurement (rover/lidar/tilt_measured) ----
     void publishTiltMeasured(bool tilt_ok, float angle, float raw, float zero,
                              float cmd, bool settled) {
-      if (!mqtt_client.connected()) return;
+      if (!transportReady()) return;
       StaticJsonDocument<192> doc;
       doc["angle"] = angle;
       doc["raw"] = raw;
@@ -266,8 +353,8 @@ class MQTTManager {
       doc["settled"] = settled ? 1 : 0;
       doc["ok"] = tilt_ok ? 1 : 0;
       char buffer[192];
-      size_t n = serializeJson(doc, buffer);
-      mqtt_client.publish(MQTT_TILT_MEASURED_TOPIC, buffer, n);
+      serializeJson(doc, buffer);
+      publishRaw(MQTT_TILT_MEASURED_TOPIC, buffer);
     }
 
   private:

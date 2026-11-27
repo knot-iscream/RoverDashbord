@@ -77,6 +77,13 @@
 #define BURNIN_FLUSH_MS 300000    // persist powered-time every 5 min
 
 // ============================================================
+// Transport
+// ============================================================
+// Wired-first: 1 = USB serial JSON to the Pi bridge, no WiFi or MQTT.
+// 0 = the WiFi MQTT fallback, used by the friend's DEV zip.
+#define SERIAL_BRIDGE 1
+
+// ============================================================
 // MQTT topics
 // ============================================================
 #define MQTT_ENV_TOPIC        "rover/env/telemetry"

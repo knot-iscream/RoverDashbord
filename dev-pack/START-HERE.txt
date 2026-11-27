@@ -5,6 +5,12 @@ A portable copy of the stable 4.0 app with everything it needs already inside:
 the dashboard, the MQTT broker, and the Arduino source for the three ESP32
 boards. The Pi is not part of this build.
 
+STEP 0 - this DEV build is the WiFi exception
+The product rover talks to the Raspberry Pi over USB serial, so its firmware
+has SERIAL_BRIDGE 1. This DEV build sets SERIAL_BRIDGE 0 in the three copies
+below because there is no Pi here. Do not copy these config.h files back into
+the product tree.
+
 STEP 1 - start the app (on the Windows PC)
 Double-click DEV-START.bat. It asks for admin rights once to open port 1883 in
 Windows Firewall, reads this PC's WiFi address, writes it into the three
