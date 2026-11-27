@@ -33,11 +33,10 @@ struct HomeMotor {
     current: f64,
 }
 
-fn rnd() -> f64 {
-    js_sys::Math::random()
-}
-
 fn temp_color(temp: f64) -> String {
+    if !temp.is_finite() {
+        return "var(--gray-500)".to_string();
+    }
     let t = temp.clamp(20.0, 60.0);
     let hue = ((1.0 - (t - 20.0) / 40.0) * 240.0).round() as i64;
     format!("hsl({hue}, 100%, 50%)")
@@ -54,6 +53,15 @@ fn update_part(hud: NodeRef<leptos::html::Div>, part: &str, health_pct: f64, tem
     let Some(el) = q(hud, &format!("[data-part=\"{part}\"]")) else {
         return;
     };
+    if !health_pct.is_finite() || !temp.is_finite() {
+        // No live sample: leave the outline, drop the fill so a stale demo
+        // bar cannot read as a healthy or damaged wheel.
+        el.set_attribute("fill", "rgba(255,255,255,0.04)").ok();
+        if part.starts_with("wheel") {
+            el.set_attribute("width", "0").ok();
+        }
+        return;
+    }
     let color = temp_color(temp);
     match part {
         p if p.starts_with("wheel") => {
@@ -94,19 +102,28 @@ fn update_part(hud: NodeRef<leptos::html::Div>, part: &str, health_pct: f64, tem
 }
 
 /// Rebuild the damage queue + panel status. Returns (dot_class, dot_text).
-fn damage_state(motors: &[HomeMotor; 4]) -> (String, String, Vec<String>) {
+/// Motors with no live sample are skipped. The old random-walk demo made an
+/// absent corner board look like a failing one, which is worse than "no data".
+fn damage_state(motors: &[HomeMotor; 4], live: &[bool; 4]) -> (String, String, Vec<String>) {
     let mut texts = vec![];
+    let mut sampled = 0;
     for (i, m) in motors.iter().enumerate() {
-        let label = LABELS[i];
-        if m.health < 50.0 {
-            texts.push(format!(
-                "{label} motor critical ({}%)",
-                m.health.round() as i64
-            ));
-        } else if m.health < 80.0 {
-            texts.push(format!("{label} motor worn ({}%)", m.health.round() as i64));
+        if !live[i] {
+            continue;
         }
-        if m.temp > 50.0 {
+        sampled += 1;
+        let label = LABELS[i];
+        if m.health.is_finite() {
+            if m.health < 50.0 {
+                texts.push(format!(
+                    "{label} motor critical ({}%)",
+                    m.health.round() as i64
+                ));
+            } else if m.health < 80.0 {
+                texts.push(format!("{label} motor worn ({}%)", m.health.round() as i64));
+            }
+        }
+        if m.temp.is_finite() && m.temp > 50.0 {
             texts.push(format!(
                 "{label} overheating ({}\u{b0}C)",
                 m.temp.round() as i64
@@ -116,32 +133,51 @@ fn damage_state(motors: &[HomeMotor; 4]) -> (String, String, Vec<String>) {
             texts.push(format!("{label} abnormal vibration"));
         }
     }
-    let mut min_v = 99.0;
-    for m in motors.iter() {
-        if m.voltage < min_v {
+    if sampled == 0 {
+        return (
+            "status-dot dot-dim".to_string(),
+            "No corner telemetry".to_string(),
+            vec!["No corner telemetry".to_string()],
+        );
+    }
+    let mut min_v = f64::INFINITY;
+    for (i, m) in motors.iter().enumerate() {
+        if live[i] && m.voltage.is_finite() && m.voltage < min_v {
             min_v = m.voltage;
         }
     }
-    if min_v < 11.0 {
-        texts.push(format!("Battery critical ({min_v:.1}V)"));
-    } else if min_v < 12.0 {
-        texts.push(format!("Battery low ({min_v:.1}V)"));
+    if min_v.is_finite() {
+        if min_v < 11.0 {
+            texts.push(format!("Battery critical ({min_v:.1}V)"));
+        } else if min_v < 12.0 {
+            texts.push(format!("Battery low ({min_v:.1}V)"));
+        }
     }
     if texts.is_empty() {
         texts.push("All systems nominal".to_string());
     }
     let mut worst = 0;
-    for m in motors.iter() {
-        if m.health < 50.0 || m.temp > 50.0 || m.vibration {
+    for (i, m) in motors.iter().enumerate() {
+        if !live[i] {
+            continue;
+        }
+        let bad = (m.health.is_finite() && m.health < 50.0)
+            || (m.temp.is_finite() && m.temp > 50.0)
+            || m.vibration;
+        let warn = (m.health.is_finite() && m.health < 80.0)
+            || (m.temp.is_finite() && m.temp > 40.0);
+        if bad {
             worst = 2;
-        } else if worst < 1 && (m.health < 80.0 || m.temp > 40.0) {
+        } else if worst < 1 && warn {
             worst = 1;
         }
     }
-    if min_v < 11.0 {
-        worst = 2;
-    } else if worst < 1 && min_v < 12.0 {
-        worst = 1;
+    if min_v.is_finite() {
+        if min_v < 11.0 {
+            worst = 2;
+        } else if worst < 1 && min_v < 12.0 {
+            worst = 1;
+        }
     }
     let (cls, txt) = match worst {
         0 => ("status-dot dot-green pulse", "All systems nominal"),
@@ -155,47 +191,67 @@ fn damage_state(motors: &[HomeMotor; 4]) -> (String, String, Vec<String>) {
 fn paint_hud(
     hud: NodeRef<leptos::html::Div>,
     motors: &[HomeMotor; 4],
+    live: &[bool; 4],
     dot_cls: RwSignal<String>,
     dot_txt: RwSignal<String>,
     queue: RwSignal<Vec<String>>,
 ) {
-    let avg_h: f64 = motors.iter().map(|m| m.health).sum::<f64>() / 4.0;
-    let avg_t: f64 = motors.iter().map(|m| m.temp).sum::<f64>() / 4.0;
+    let sampled: Vec<&HomeMotor> = motors
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| live[*i])
+        .map(|(_, m)| m)
+        .collect();
+    let avg_h = if sampled.is_empty() {
+        f64::NAN
+    } else {
+        sampled.iter().map(|m| m.health).sum::<f64>() / sampled.len() as f64
+    };
+    let avg_t = if sampled.is_empty() {
+        f64::NAN
+    } else {
+        sampled.iter().map(|m| m.temp).sum::<f64>() / sampled.len() as f64
+    };
     update_part(hud, "chassis", avg_h, avg_t);
     for (i, m) in motors.iter().enumerate() {
+        let key = LABELS[i].to_lowercase();
+        if !live[i] {
+            update_part(hud, PARTS[i], f64::NAN, f64::NAN);
+            if let Some(el) = q(hud, &format!("#temp-{key}")) {
+                el.set_text_content(Some("--"));
+                el.set_attribute("fill", "var(--gray-500)").ok();
+            }
+            if let Some(el) = q(hud, &format!("#health-{key}")) {
+                el.set_text_content(Some("--"));
+                el.set_attribute("fill", "var(--gray-500)").ok();
+            }
+            continue;
+        }
         update_part(hud, PARTS[i], m.health, m.temp);
         let color = temp_color(m.temp);
-        let key = LABELS[i].to_lowercase();
         if let Some(el) = q(hud, &format!("#temp-{key}")) {
-            el.set_text_content(Some(&format!("{}\u{b0}C", m.temp.round() as i64)));
+            let text = if m.temp.is_finite() {
+                format!("{}\u{b0}C", m.temp.round() as i64)
+            } else {
+                "--".to_string()
+            };
+            el.set_text_content(Some(&text));
             el.set_attribute("fill", &color).ok();
         }
         if let Some(el) = q(hud, &format!("#health-{key}")) {
-            el.set_text_content(Some(&format!("{}%", m.health.round() as i64)));
+            let text = if m.health.is_finite() {
+                format!("{}%", m.health.round() as i64)
+            } else {
+                "--".to_string()
+            };
+            el.set_text_content(Some(&text));
             el.set_attribute("fill", &color).ok();
         }
     }
-    let (cls, txt, texts) = damage_state(motors);
+    let (cls, txt, texts) = damage_state(motors, live);
     dot_cls.set(cls);
     dot_txt.set(txt);
     queue.set(texts);
-}
-
-/// `simulateData` random walk verbatim (fallback only, pre-live).
-fn sim_step(m: &mut HomeMotor) {
-    m.health = (m.health + (rnd() - 0.5) * 0.8).clamp(10.0, 100.0);
-    m.temp = (m.temp + (rnd() - 0.5) * 1.5).clamp(30.0, 65.0);
-    m.voltage = (m.voltage + (rnd() - 0.5) * 0.15).clamp(10.5, 14.0);
-    m.current = (m.current + (rnd() - 0.5) * 0.1).clamp(0.0, 3.0);
-    if rnd() < 0.02 {
-        m.vibration = true;
-    }
-    if rnd() < 0.01 {
-        m.vibration = false;
-    }
-    if m.health < 50.0 && rnd() < 0.03 {
-        m.vibration = true;
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -263,6 +319,7 @@ fn repaint(ctx: &HomeCtx) {
     paint_hud(
         ctx.hud,
         &ctx.motors.get(),
+        &ctx.live.get(),
         ctx.dot_cls,
         ctx.dot_txt,
         ctx.queue,
@@ -1256,7 +1313,7 @@ pub fn HomePage() -> impl IntoView {
         lidar_canvas_big,
     };
 
-    // -- setup: WS, polls, sim fallback, overlay ticker (refs post-mount) --
+    // -- setup: WS, polls, overlay ticker (refs post-mount) --
     {
         connect_home_ws(ctx);
         wasm_bindgen_futures::spawn_local(async move {
@@ -1339,23 +1396,8 @@ pub fn HomePage() -> impl IntoView {
                 });
             });
             _iv.forget();
-            // Sim fallback every 600ms: only motors with no live sample yet.
-            let c = ctx;
-            let _iv = gloo_timers::callback::Interval::new(600, move || {
-                let _nz = non_reactive();
-                let live = c.live.get();
-                if live.iter().any(|l| !l) {
-                    c.motors.update(|arr| {
-                        for (i, m) in arr.iter_mut().enumerate() {
-                            if !live[i] {
-                                sim_step(m);
-                            }
-                        }
-                    });
-                    repaint(&c);
-                }
-            });
-            _iv.forget();
+            // No demo random walk: a motor reads "--" until its own frame
+            // arrives, so an absent corner board cannot fake a fault.
             // Damage-text rotation every 2s (shift/push verbatim).
             let c = ctx;
             let _iv = gloo_timers::callback::Interval::new(2000, move || {
