@@ -582,11 +582,15 @@ pub fn ControlPage() -> impl IntoView {
         let v = c.auto.get();
         let state = v.get("state").and_then(|x| x.as_str()).unwrap_or("--");
         let reason = v.get("reason").and_then(|x| x.as_str()).unwrap_or("");
-        if reason.is_empty() {
+        let mut line = if reason.is_empty() {
             state.to_string()
         } else {
             format!("{state} - {reason}")
+        };
+        if let Some(range) = v.get("person_m").and_then(|x| x.as_f64()) {
+            line.push_str(&format!(" - person {range:.1} m"));
         }
+        line
     };
     // Water: the click only sends the command. The button follows the ENV
     // frames, so it never claims "running" when the broker is down and it

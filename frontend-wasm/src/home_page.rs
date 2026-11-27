@@ -2095,6 +2095,10 @@ pub fn HomePage() -> impl IntoView {
                                             <b>{move || if ctx.auto_stale.get() { "--".to_string() } else { auto_metres(&ctx.auto.get(), "front_m") }}</b>
                                         </div>
                                         <div class="auto-row">
+                                            <span>"Person"</span>
+                                            <b>{move || if ctx.auto_stale.get() { "--".to_string() } else { auto_metres(&ctx.auto.get(), "person_m") }}</b>
+                                        </div>
+                                        <div class="auto-row">
                                             <span>"Stops"</span>
                                             <b>{move || if ctx.auto_stale.get() { "--".to_string() } else { auto_stops(&ctx.auto.get()) }}</b>
                                         </div>
