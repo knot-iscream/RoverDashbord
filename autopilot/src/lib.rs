@@ -13,6 +13,7 @@ pub mod geo;
 pub mod grid;
 pub mod lease;
 pub mod mission;
+pub mod nav;
 pub mod pursuit;
 pub mod scan;
 pub mod segment;
