@@ -69,7 +69,8 @@ rosrun octomap_server octomap_server_node \
 
 # Navigation map: a second OctoMap with a rover-height slice, so the ceiling
 # is not a wall for the global planner. The display node above keeps the full
-# cloud, floor included.
+# cloud, floor included. Z is the lidar frame: the level ring is at 0, the
+# floor around -0.25, so -0.18 drops the floor but keeps the ring.
 rosrun octomap_server octomap_server_node __ns:=/nav \
   _frame_id:=map \
   _resolution:=0.05 \
@@ -78,7 +79,7 @@ rosrun octomap_server octomap_server_node __ns:=/nav \
   _sensor_model/hit:=0.7 \
   _sensor_model/miss:=0.4 \
   _sensor_model/max_range:=10.0 \
-  _occupancy_min_z:=0.12 \
+  _occupancy_min_z:=-0.18 \
   _occupancy_max_z:=1.20 \
   cloud_in:=/lidar_filtered &
 

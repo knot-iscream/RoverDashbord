@@ -109,8 +109,9 @@ sudo docker build -t rover-ros:noetic /home/iscream-pi/rover-ros
 autopilot:
 
 - `rover/pose` at 10 Hz from TF `map -> laser` (hector): `x`, `y`, `yaw`.
-- `rover/map/grid` at 1 Hz from `/nav/projected_map`: 0.10 m cells, 0.12 to
-  1.20 m height slice, occupied cells inflated 0.25 m, run-length encoded.
+- `rover/map/grid` at 1 Hz from `/nav/projected_map`: 0.10 m cells, -0.18 to
+  1.20 m in the lidar frame (the level ring is at 0, the floor near -0.25, the
+  ceiling above 1.20), occupied cells inflated 0.25 m, run-length encoded.
 
 The second `octomap_server` under `__ns:=/nav` exists only for that slice. The
 display node keeps the full cloud, floor included. If the Pi is short on CPU,

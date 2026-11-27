@@ -2,8 +2,9 @@
 """Publish the rover pose and a rover-height 2D grid over MQTT.
 
 Pose comes from TF ``map -> laser`` (hector). The grid comes from the second
-octomap_server in the ``/nav`` namespace, which slices the map at
-0.12..1.20 m so the ceiling is not a wall. The display octomap is untouched.
+octomap_server in the ``/nav`` namespace, sliced at -0.18..1.20 m in the lidar
+frame: the level ring is at 0, the floor around -0.25, so the lower bound
+drops the floor but keeps the ring. The display octomap is untouched.
 
 Wire shapes:
   rover/pose      {"ok":1,"x":..,"y":..,"yaw":..,"stamp":..}
