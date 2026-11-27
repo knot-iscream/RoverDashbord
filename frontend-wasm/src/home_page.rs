@@ -191,8 +191,8 @@ fn damage_state(motors: &[HomeMotor; 4], live: &[bool; 4]) -> (String, String, V
         let bad = (m.health.is_finite() && m.health < 50.0)
             || (m.temp.is_finite() && m.temp > 50.0)
             || m.vibration;
-        let warn = (m.health.is_finite() && m.health < 80.0)
-            || (m.temp.is_finite() && m.temp > 40.0);
+        let warn =
+            (m.health.is_finite() && m.health < 80.0) || (m.temp.is_finite() && m.temp > 40.0);
         if bad {
             worst = 2;
         } else if worst < 1 && warn {

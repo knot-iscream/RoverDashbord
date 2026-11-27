@@ -22,10 +22,7 @@ fn box_style(x: f64, y: f64, w: f64, h: f64) -> String {
 /// camera-live flag (and the NORMAL tab on Home). Boxes below 35% confidence
 /// are skipped; the COCO model produces low-confidence noise on room objects.
 #[component]
-pub fn DetectionOverlay(
-    payload: RwSignal<Value>,
-    show: Signal<bool>,
-) -> impl IntoView {
+pub fn DetectionOverlay(payload: RwSignal<Value>, show: Signal<bool>) -> impl IntoView {
     view! {
         <div class="cam-overlay">
             {move || {

@@ -20,8 +20,8 @@ use web_sys::{Event, HtmlInputElement, WebSocket};
 use crate::perception_ui::DetectionOverlay;
 use crate::shell::app_shell;
 use crate::ws::{
-    camera_age_ms, camera_url, fetch_device_online, non_reactive, now_ms, post_autonomy, post_motor,
-    post_pump, ws_url,
+    camera_age_ms, camera_url, fetch_device_online, non_reactive, now_ms, post_autonomy,
+    post_motor, post_pump, ws_url,
 };
 
 const SHORT: [&str; 6] = ["FL", "FR", "RL", "RR", "ML", "MR"];
