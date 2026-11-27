@@ -97,6 +97,9 @@ pub struct Ctx {
     pub manual: Arc<std::sync::Mutex<crate::manual::ManualHold>>,
     pub device: Arc<tokio::sync::RwLock<DeviceState>>,
     pub bcast: tokio::sync::broadcast::Sender<Value>,
+    /// Set once by `spawn_mqtt`; lets the ingest publish derived topics
+    /// (currently the gas alarm verdict) without a second client.
+    pub client: Arc<std::sync::OnceLock<AsyncClient>>,
 }
 
 /// ESP32 presence. `last_seen` = wall-clock UTC (payload shows `...Z` like Python).
@@ -182,6 +185,8 @@ pub async fn spawn_mqtt(ctx: Ctx, broker: &str, port: u16) -> MqttSlot {
     // budget was raised. rumqttc's small default triggers a reconnect loop.
     opts.set_max_packet_size(16 * 1024 * 1024, 16 * 1024 * 1024);
     let (client, mut eventloop) = AsyncClient::new(opts, 256);
+    // The ingest publishes the gas alarm verdict on this same client.
+    let _ = ctx.client.set(client.clone());
     let handle = MqttHandle {
         client: client.clone(),
         connected: Arc::new(AtomicBool::new(false)),
@@ -323,7 +328,25 @@ pub async fn on_mqtt_message(ctx: &Ctx, topic: &str, mut data: Value) {
         let data = crate::o2_estimate::apply(&ctx.o2, data);
         *ctx.env.write().await = data.clone();
         ctx.sensors.lock().unwrap().push_env(data.clone());
-        broadcast(ctx, env_update_payload(data));
+        broadcast(ctx, env_update_payload(data.clone()));
+        // Derived alarm topic for the Pi autopilot. The verdict is already
+        // computed for the UI; publish the same one instead of a second copy.
+        let alarms = crate::env_alarm::evaluate(&data);
+        if let Some(client) = ctx.client.get() {
+            let payload = json!({
+                "level": alarms.get("level").cloned().unwrap_or(json!("unknown")),
+                "items": alarms.get("items").cloned().unwrap_or(json!([])),
+                "ts": Utc::now().timestamp_millis(),
+            });
+            let _ = client
+                .publish(
+                    "rover/alarm/state",
+                    QoS::AtMostOnce,
+                    false,
+                    payload.to_string(),
+                )
+                .await;
+        }
         return;
     }
 

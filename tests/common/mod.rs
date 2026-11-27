@@ -131,6 +131,7 @@ pub fn fixture(tag: &str) -> Fixture {
         sensors: sensors.clone(),
         device: device.clone(),
         bcast: bcast.clone(),
+        client: Arc::new(std::sync::OnceLock::new()),
     };
     let _ = bcast;
     Fixture {

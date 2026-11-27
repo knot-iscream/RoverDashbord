@@ -33,6 +33,11 @@ The crate is split in two:
    Loss of either goes to `Hold`, with the reason on the state topic.
 6. **No return path, no driving.** Link loss, gas alarm or thermal abort go
    to `Return`. If the breadcrumb list is empty, the rover holds instead.
+7. **Gas alarm.** The backend publishes `rover/alarm/state` from the same
+   verdict the dashboard shows. An `alarm` level clears any waypoint and
+   stops: the survey returns home, goal mode holds in place.
+8. **Stale goals are ignored.** A retained goal older than 5 s cannot re-arm
+   navigation after a restart, same rule as the auto mode.
 
 ## Driving model
 
@@ -41,6 +46,12 @@ segment: the target is chosen once, republished unchanged, and the rover
 stops before the next target is picked. A pivot segment ends as soon as the
 front is clear. A driving segment that sees a close front stops, then pivots
 from zero. Hops are 1.5 m or 15 s, and the mission scans between them.
+
+A waypoint goal takes precedence over the survey. The goal is planned with
+the same A* on the nav grid (already inflated by the bridge) and followed by
+pure pursuit, re-latching one segment every 1.5 s so the ramp can progress.
+The route is replanned every 2 s. A close front, person, fire or gas alarm
+stops it. Arrival within `goal_tolerance_m` clears the goal and stops.
 
 This is slower than a continuous controller, on purpose. The ramp is what
 keeps the frame in one piece.
@@ -76,21 +87,22 @@ detour into unknown space.
 | `rover/autonomy/mode` | `{"mode":"auto|manual|idle","ts":ms}` | retained lease request |
 | `rover/env/telemetry` | `{"flame_mask":5,"flame_lvl":0.8,"heat_l":..,"heat_r":..}` | fire mark, thermal abort |
 | `rover/perception/detections` | `{"items":[{"label":"person","p":0.8,"x":..,"w":..,"range_m":1.4}]}` | centre-third person stop; `range_m` optional and reported as `person_m` |
-| `rover/nav/goal` | `{"x":..,"y":..}` or `{"cancel":true}` | reserved for waypoints |
+| `rover/alarm/state` | `{"level":"ok|warn|alarm|unknown","items":[..],"ts":ms}` | gas alarm: clears the goal, returns or holds |
+| `rover/nav/goal` | `{"x":..,"y":..,"ts":ms}` or `{"cancel":true}` | waypoint target, retained; older than 5 s is ignored |
 | `rover/motor/status` | ESP status | corner board freshness |
 | `rover/mid/status` | ESP status | MID board freshness |
 
 `flame_dir` (1..5) is accepted when `flame_mask` is absent, so an ENV board
 without the mask patch still works.
 
-`rover/map/grid` is already inflated by 0.25 m on the Pi bridge. Do not call
-`Grid::inflate` again when the waypoint planner is wired.
+`rover/map/grid` is already inflated by 0.25 m on the Pi bridge, so the
+waypoint planner does not inflate it again.
 
 ### Published
 
 | Topic | Shape | Rate |
 |---|---|---|
-| `rover/autonomy/state` | state, mode, reason, stops, front_m, person_m, fire, thermal | 2 Hz, not retained |
+| `rover/autonomy/state` | state, mode, reason, stops, front_m, person_m, alarm, goal, path_len, nav, fire, thermal | 2 Hz, not retained |
 | `rover/mission/state` | state, reason, stops, return_points | on transition, retained |
 | `rover/motor/command` | `{"motor":1..4,"speed":s,"arm_ms":600}` | 5 Hz while a segment is latched |
 | `rover/mid/command` | `{"motor":1..2,"speed":s,"arm_ms":600}` | 5 Hz while a segment is latched |
@@ -123,14 +135,13 @@ MQTT_BROKER=127.0.0.1 MQTT_PORT=1883 cargo run -p rover-autopilot --release
 On the Pi it is meant to be a systemd unit next to `rover-cam` and
 `rover-lidar-agent`. It needs no ROS libraries: everything arrives over MQTT.
 
-## Not in this slice
+## Related services
 
-- `nav_bridge.py` (pose + grid publisher inside the ROS container)
-- perception service (YOLOX-Nano)
-- dashboard controls and overlays
-- waypoint following with the A* path (the planner is tested, the MQTT goal
-  wiring is reserved)
-- gas alarm feed (`rover/alarm/state`), once the backend publishes it
+- `nav_bridge.py` publishes pose and the nav grid from the ROS container.
+- `rover-perception` publishes the detector boxes with lidar-fused ranges.
+- `rover-serial-bridge` carries ESP commands and telemetry over USB.
+- The laptop backend publishes the operator heartbeat and the gas alarm
+  verdict (`rover/alarm/state`).
 
 ## Tests
 

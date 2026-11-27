@@ -127,6 +127,7 @@ impl AppState {
             sensors: self.sensors.clone(),
             device: self.device.clone(),
             bcast: self.bcast.clone(),
+            client: Arc::new(std::sync::OnceLock::new()),
         }
     }
 }
@@ -383,6 +384,7 @@ pub async fn build_state() -> AppState {
         sensors: sensors.clone(),
         device: device.clone(),
         bcast: bcast.clone(),
+        client: Arc::new(std::sync::OnceLock::new()),
     };
     // MQTT client (auto-reconnects; resubscribes on every ConnAck).
     let slot = mqtt::spawn_mqtt(ctx, &broker, broker_port).await;

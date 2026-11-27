@@ -11,6 +11,7 @@ use rumqttc::{AsyncClient, Event, MqttOptions, Packet, QoS};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
+use autopilot::astar;
 use autopilot::config::AutoConfig;
 use autopilot::fire::{thermal_state, FireTracker, FlameReading, Thermal};
 use autopilot::geo::{distance, Pose};
@@ -22,7 +23,7 @@ use autopilot::scan::{self, Bins};
 use autopilot::segment::Segment;
 use autopilot::vfh;
 
-const SUB_TOPICS: [&str; 11] = [
+const SUB_TOPICS: [&str; 12] = [
     "rover/lidar/scan",
     "rover/pose",
     "rover/map/grid",
@@ -30,6 +31,7 @@ const SUB_TOPICS: [&str; 11] = [
     "rover/autonomy/mode",
     "rover/control/heartbeat",
     "rover/env/telemetry",
+    "rover/alarm/state",
     "rover/perception/detections",
     "rover/nav/goal",
     "rover/motor/status",
@@ -56,6 +58,13 @@ struct Runtime {
     scan_state: Option<Value>,
     scan_baseline_sweeps: u64,
     goal: Option<(f64, f64)>,
+    /// Smoothed A* route to `goal`, empty when there is no plan.
+    nav_path: Vec<(f64, f64)>,
+    nav_plan_s: f64,
+    nav_cmd_s: f64,
+    nav_reason: String,
+    /// Last `rover/alarm/state` level, for the state topic and the UI.
+    alarm_level: String,
 
     hop_start_s: f64,
     hop_start_pose: Option<(f64, f64)>,
@@ -93,6 +102,11 @@ impl Runtime {
             scan_state: None,
             scan_baseline_sweeps: 0,
             goal: None,
+            nav_path: Vec::new(),
+            nav_plan_s: 0.0,
+            nav_cmd_s: 0.0,
+            nav_reason: String::new(),
+            alarm_level: String::new(),
             hop_start_s: 0.0,
             hop_start_pose: None,
             return_path: Vec::new(),
@@ -217,6 +231,27 @@ impl Runtime {
                     self.run_actions(actions, now).await;
                 }
             }
+            "rover/alarm/state" => {
+                let level = data.get("level").and_then(|v| v.as_str()).unwrap_or("");
+                self.alarm_level = level.to_string();
+                if level == "alarm" {
+                    tracing::warn!("gas alarm level {level}, stopping");
+                    // A high gas reading clears any waypoint and stops. In a
+                    // survey it returns home through the FSM; in goal mode it
+                    // holds in place because there is no survey to return to.
+                    self.goal = None;
+                    self.nav_path.clear();
+                    if self.lease.mode == Mode::Auto {
+                        if self.mission.active() {
+                            let actions = self.mission.step(MissionEvent::GasAlarm, now);
+                            self.run_actions(actions, now).await;
+                        } else {
+                            self.lease.set_mode(Mode::Hold, now);
+                            self.publish_stop().await;
+                        }
+                    }
+                }
+            }
             "rover/perception/detections" => {
                 if let Some(range) = person_range_in_path(&data) {
                     self.person_until_s = now + PERSON_HOLD_S;
@@ -226,11 +261,35 @@ impl Runtime {
             "rover/nav/goal" => {
                 if data.get("cancel").and_then(|v| v.as_bool()) == Some(true) {
                     self.goal = None;
+                    self.nav_path.clear();
+                    self.segment.clear();
+                    self.nav_reason = "cancelled".into();
+                    self.publish_stop().await;
                 } else if let (Some(x), Some(y)) = (
                     data.get("x").and_then(|v| v.as_f64()),
                     data.get("y").and_then(|v| v.as_f64()),
                 ) {
-                    self.goal = Some((x, y));
+                    // Retained goals survive a restart. A goal older than 5 s
+                    // must not re-arm navigation by itself, same rule as the
+                    // auto mode.
+                    let stale = data.get("ts").and_then(|v| v.as_i64()).is_some_and(|ms| {
+                        let age = chrono::Utc::now().timestamp_millis() - ms;
+                        !(-60_000..=5_000).contains(&age)
+                    });
+                    if stale {
+                        tracing::warn!("stale goal ignored");
+                    } else {
+                        // A goal replaces the fixed-hop survey: stop it first
+                        // so neither controller publishes motor commands.
+                        if self.mission.active() {
+                            let actions = self.mission.step(MissionEvent::Stop, now);
+                            self.run_actions(actions, now).await;
+                        }
+                        self.goal = Some((x, y));
+                        self.nav_path.clear();
+                        self.nav_cmd_s = 0.0;
+                        self.replan_goal(now);
+                    }
                 }
             }
             "rover/motor/status" => self.last_corner_s = Some(now),
@@ -272,7 +331,11 @@ impl Runtime {
                 }
                 self.lease.heartbeat(now);
                 self.lease.set_mode(Mode::Auto, now);
-                let actions = if self.mission.state == State::Hold {
+                let actions = if self.goal.is_some() {
+                    // Waypoint mode: drive_goal owns the motors, do not
+                    // start the fixed-hop survey on top of it.
+                    vec![]
+                } else if self.mission.state == State::Hold {
                     self.mission.step(MissionEvent::Resume, now)
                 } else if !self.mission.active() {
                     self.mission.step(MissionEvent::Start, now)
@@ -288,12 +351,16 @@ impl Runtime {
                 if self.lease.mode == Mode::Manual && self.mission.state == State::Manual {
                     return;
                 }
+                self.goal = None;
+                self.nav_path.clear();
                 self.lease.set_mode(Mode::Manual, now);
                 let actions = self.mission.step(MissionEvent::Takeover, now);
                 self.publish_stop().await;
                 self.run_actions(actions, now).await;
             }
             Mode::Idle => {
+                self.goal = None;
+                self.nav_path.clear();
                 self.lease.set_mode(Mode::Idle, now);
                 let actions = self.mission.step(MissionEvent::Stop, now);
                 self.run_actions(actions, now).await;
@@ -391,6 +458,18 @@ impl Runtime {
             self.publish_stop().await;
         }
 
+        // Waypoint mode takes precedence over the fixed-hop survey. The
+        // survey is stopped when the goal arrives, so only one controller
+        // publishes motor commands.
+        if self.goal.is_some() && self.lease.mode == Mode::Auto {
+            self.drive_goal(now).await;
+            if now - self.last_state_pub_s >= 0.5 {
+                self.last_state_pub_s = now;
+                self.publish_state(now).await;
+            }
+            return;
+        }
+
         // Both motor boards must be alive before any autonomous motion.
         if self.mission.active() && !self.boards_ready(now) {
             let actions = self.mission.step(MissionEvent::MotorLinkLost, now);
@@ -426,6 +505,119 @@ impl Runtime {
     fn boards_ready(&self, now: f64) -> bool {
         self.last_corner_s.is_some_and(|t| now - t < 3.0)
             && self.last_mid_s.is_some_and(|t| now - t < 3.0)
+    }
+
+    /// Plan from the current pose to the stored goal on the latest nav grid.
+    /// Called when a goal arrives and every 2 s while driving, so a growing
+    /// map can open a better route.
+    fn replan_goal(&mut self, now: f64) {
+        let Some(goal) = self.goal else { return };
+        let Some(pose) = self.pose else { return };
+        let Some(grid) = self.grid.as_ref() else {
+            return;
+        };
+        match astar::plan(grid, (pose.x, pose.y), goal) {
+            Ok(path) => {
+                self.nav_path = astar::smooth(grid, &path);
+                self.nav_plan_s = now;
+                self.nav_reason = format!("path {} pts", self.nav_path.len());
+                tracing::info!(
+                    "goal ({:.2},{:.2}) planned, {} points",
+                    goal.0,
+                    goal.1,
+                    self.nav_path.len()
+                );
+            }
+            Err(e) => {
+                self.nav_path.clear();
+                self.nav_reason = format!("no path: {e}");
+                tracing::warn!("goal ({:.2},{:.2}) plan failed: {e}", goal.0, goal.1);
+            }
+        }
+    }
+
+    /// Waypoint controller: A* route plus pure pursuit, latched in segments
+    /// so the firmware's 12 s torque ramp can actually progress.
+    async fn drive_goal(&mut self, now: f64) {
+        if !self.boards_ready(now) {
+            self.segment.clear();
+            self.publish_stop().await;
+            self.nav_reason = "boards not ready".into();
+            return;
+        }
+        if self.person_until_s > now {
+            self.segment.clear();
+            self.publish_stop().await;
+            self.nav_reason = "person".into();
+            return;
+        }
+        if self.fire.last.is_some() {
+            self.segment.clear();
+            self.publish_stop().await;
+            self.nav_reason = "fire".into();
+            return;
+        }
+        let Some(goal) = self.goal else {
+            self.publish_stop().await;
+            return;
+        };
+        let Some(pose) = self.pose else {
+            self.publish_stop().await;
+            return;
+        };
+        if distance((pose.x, pose.y), goal) <= self.cfg.goal_tolerance_m {
+            self.goal = None;
+            self.nav_path.clear();
+            self.segment.clear();
+            self.publish_stop().await;
+            self.nav_reason = "reached".into();
+            tracing::info!("goal reached");
+            return;
+        }
+        if self.last_scan_s.is_none_or(|t| now - t > SCAN_STALE_S) {
+            self.segment.clear();
+            self.publish_stop().await;
+            self.nav_reason = "scan stale".into();
+            return;
+        }
+        if self.nav_path.is_empty() || now - self.nav_plan_s > 2.0 {
+            self.replan_goal(now);
+        }
+        if self.nav_path.is_empty() {
+            self.segment.clear();
+            self.publish_stop().await;
+            return;
+        }
+        let front = self.bins.as_ref().and_then(|b| b.min_in_arc(0.0, 20.0));
+        if front.is_some_and(|r| r <= self.cfg.stop_distance_m) {
+            self.segment.clear();
+            self.nav_path.clear();
+            self.publish_stop().await;
+            self.nav_reason = "obstacle".into();
+            return;
+        }
+        let speed = match front {
+            Some(r) if r < self.cfg.slow_distance_m => self.cfg.max_mps * 0.5,
+            _ => self.cfg.max_mps,
+        };
+        let Some((l, r)) = pursuit::command(&pose, &self.nav_path, speed, &self.cfg) else {
+            self.segment.clear();
+            self.publish_stop().await;
+            return;
+        };
+        // Re-latch at most every 1.5 s. Changing the duty restarts the ramp,
+        // so a per-tick update would never build speed.
+        if !self.segment.is_set() || now - self.nav_cmd_s >= 1.5 {
+            self.segment.set(l, r, false, now);
+            self.nav_cmd_s = now;
+            self.nav_reason = format!("driving {} pts", self.nav_path.len());
+            tracing::info!("goal segment left={l} right={r}");
+        }
+        if let Some((l, r)) = self.segment.target() {
+            self.publish_motor_pair(l, r).await;
+        } else {
+            self.publish_stop().await;
+        }
     }
 
     async fn drive_hop(&mut self, now: f64) {
@@ -685,6 +877,9 @@ impl Runtime {
             "corner_age_s": self.last_corner_s.map(|t| (now - t).round()),
             "mid_age_s": self.last_mid_s.map(|t| (now - t).round()),
             "goal": self.goal.map(|g| json!({"x": g.0, "y": g.1})),
+            "path_len": self.nav_path.len(),
+            "nav": self.nav_reason.clone(),
+            "alarm": self.alarm_level.clone(),
             "segment": self.segment.target().map(|(l, r)| json!({
                 "left": l,
                 "right": r,
