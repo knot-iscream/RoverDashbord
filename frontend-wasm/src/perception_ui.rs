@@ -55,11 +55,13 @@ pub fn DetectionOverlay(
                         } else {
                             "det-box"
                         };
+                        let text = match it.get("range_m").and_then(|v| v.as_f64()) {
+                            Some(range) => format!("{label} {range:.1} m {:.0}%", conf * 100.0),
+                            None => format!("{label} {:.0}%", conf * 100.0),
+                        };
                         Some(view! {
                             <div class=cls style=box_style(x, y, w, h)>
-                                <span class="det-label">
-                                    {format!("{label} {:.0}%", conf * 100.0)}
-                                </span>
+                                <span class="det-label">{text}</span>
                             </div>
                         })
                     })

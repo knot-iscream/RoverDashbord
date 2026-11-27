@@ -15,6 +15,7 @@ import math
 import os
 import signal
 import sys
+import threading
 import time
 import urllib.request
 
@@ -260,6 +261,46 @@ class MjpegReader:
                 self.buf = self.buf[-2:]
 
 
+class ScanCache:
+    """Latest `/scan` from the ROS bridge, for range-per-detection.
+
+    `scan_to_mqtt.py` publishes `[angle_deg, range_mm, quality]` in the laser
+    frame, so no trig is needed here. The inference loop and the paho callback
+    run on different threads; the lock is only around the swap.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._points = []
+        self._stamp = 0.0
+
+    def update(self, payload):
+        pts = []
+        for p in payload.get("points", []):
+            try:
+                angle = float(p[0])
+                rng = float(p[1]) / 1000.0
+            except (TypeError, ValueError, IndexError):
+                continue
+            if rng > 0.05:
+                pts.append((angle, rng))
+        with self._lock:
+            self._points = pts
+            self._stamp = time.monotonic()
+
+    def range_at(self, bearing_deg, window_deg, max_age_s):
+        with self._lock:
+            if time.monotonic() - self._stamp > max_age_s or not self._points:
+                return None
+            pts = self._points
+        best = None
+        for angle, rng in pts:
+            diff = abs((angle - bearing_deg + 180.0) % 360.0 - 180.0)
+            if diff <= window_deg and (best is None or rng < best):
+                best = rng
+        return best
+
+
 def run_service(args):
     import paho.mqtt.client as mqtt
 
@@ -273,7 +314,17 @@ def run_service(args):
     client = mqtt.Client(
         mqtt.CallbackAPIVersion.VERSION2, client_id="rover-perception"
     )
+    scan = ScanCache()
+
+    def on_scan(_client, _userdata, msg):
+        try:
+            scan.update(json.loads(msg.payload.decode("utf-8")))
+        except ValueError:
+            pass
+
+    client.on_message = on_scan
     client.connect(args.broker, args.port, 30)
+    client.subscribe("rover/lidar/scan", qos=0)
     client.loop_start()
     logging.info("perception: %s -> %s", args.stream, DET_TOPIC)
 
@@ -318,6 +369,20 @@ def run_service(args):
         except Exception as e:
             logging.exception("inference failed: %s", e)
             continue
+
+        # Range per box: camera bearing x lidar distance. A box that has no
+        # scan return in its window stays range-less and the UI shows only
+        # the confidence.
+        for it in items:
+            try:
+                centre = float(it["x"]) + float(it["w"]) / 2.0
+            except (KeyError, TypeError, ValueError):
+                continue
+            bearing = args.cam_yaw - (centre - 0.5) * args.cam_hfov
+            rng = scan.range_at(bearing, args.range_window, args.scan_stale)
+            if rng is not None:
+                it["range_m"] = round(rng, 2)
+                it["bearing_deg"] = round(bearing, 1)
 
         if dt > 0.0:
             fps = 1.0 / dt
@@ -372,6 +437,30 @@ def main():
     )
     parser.add_argument("--broker", default=os.environ.get("MQTT_BROKER", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("MQTT_PORT", "1883")))
+    parser.add_argument(
+        "--cam-hfov",
+        type=float,
+        default=float(os.environ.get("PERCEPTION_CAM_HFOV", "53.5")),
+        help="camera horizontal field of view, degrees (OV5647 v1 is 53.5)",
+    )
+    parser.add_argument(
+        "--cam-yaw",
+        type=float,
+        default=float(os.environ.get("PERCEPTION_CAM_YAW", "0.0")),
+        help="lidar angle at the image centre, degrees; positive = left",
+    )
+    parser.add_argument(
+        "--range-window",
+        type=float,
+        default=float(os.environ.get("PERCEPTION_RANGE_WINDOW", "2.5")),
+        help="half width of the scan window around a box bearing, degrees",
+    )
+    parser.add_argument(
+        "--scan-stale",
+        type=float,
+        default=float(os.environ.get("PERCEPTION_SCAN_STALE", "1.0")),
+        help="drop the scan cache after this many seconds without a frame",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(

@@ -63,6 +63,9 @@ struct Runtime {
     return_target: Option<(f64, f64)>,
     segment: Segment,
     person_until_s: f64,
+    /// Closest in-path person range from the perception/lidar fusion, if the
+    /// frame carried one. Only reported while the person hold is active.
+    person_m: Option<f64>,
     thermal: Thermal,
     heartbeat_seen: bool,
     last_corner_s: Option<f64>,
@@ -96,6 +99,7 @@ impl Runtime {
             return_target: None,
             segment: Segment::new(),
             person_until_s: 0.0,
+            person_m: None,
             thermal: Thermal::Ok,
             heartbeat_seen: false,
             last_corner_s: None,
@@ -214,8 +218,9 @@ impl Runtime {
                 }
             }
             "rover/perception/detections" => {
-                if person_in_path(&data) {
+                if let Some(range) = person_range_in_path(&data) {
                     self.person_until_s = now + PERSON_HOLD_S;
+                    self.person_m = range;
                 }
             }
             "rover/nav/goal" => {
@@ -664,6 +669,11 @@ impl Runtime {
             "scan_age_s": scan_age.map(|v| (v * 100.0).round() / 100.0),
             "pose": self.pose.map(|p| json!({"x": p.x, "y": p.y, "yaw": p.yaw_deg})),
             "fire": self.fire.last,
+            "person_m": if self.person_until_s > now {
+                self.person_m
+            } else {
+                None
+            },
             "thermal": match self.thermal {
                 Thermal::Ok => "ok",
                 Thermal::Warn => "warn",
@@ -732,11 +742,14 @@ fn parse_flame(data: &Value) -> FlameReading {
 
 /// Person box in the centre third of the frame. The detector publishes
 /// normalised boxes; missing fields are ignored rather than guessed.
-fn person_in_path(data: &Value) -> bool {
-    let Some(items) = data.get("items").and_then(|v| v.as_array()) else {
-        return false;
-    };
-    items.iter().any(|it| {
+/// Person inside the middle third of the frame. The return carries the
+/// fusion range when the perception service found a lidar point on that
+/// bearing: `Some(Some(m))`, or `Some(None)` when the lidar was off.
+fn person_range_in_path(data: &Value) -> Option<Option<f64>> {
+    let items = data.get("items").and_then(|v| v.as_array())?;
+    let mut found = false;
+    let mut closest: Option<f64> = None;
+    for it in items {
         let label = it.get("label").and_then(|v| v.as_str()).unwrap_or("");
         let class = it.get("c").and_then(|v| v.as_i64()).unwrap_or(-1);
         let p = it.get("p").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -744,8 +757,21 @@ fn person_in_path(data: &Value) -> bool {
         let w = it.get("w").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let is_person = label == "person" || class == 0;
         let centre = x + w / 2.0;
-        is_person && p >= 0.5 && (0.33..=0.67).contains(&centre)
-    })
+        if !(is_person && p >= 0.5 && (0.33..=0.67).contains(&centre)) {
+            continue;
+        }
+        found = true;
+        if let Some(r) = it.get("range_m").and_then(|v| v.as_f64()) {
+            if r.is_finite() && closest.is_none_or(|c| r < c) {
+                closest = Some(r);
+            }
+        }
+    }
+    if found {
+        Some(closest)
+    } else {
+        None
+    }
 }
 
 #[tokio::main]
@@ -814,5 +840,36 @@ async fn main() {
                 rt.on_tick().await;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::person_range_in_path;
+    use serde_json::json;
+
+    #[test]
+    fn person_in_path_uses_the_closest_fused_range() {
+        let data = json!({"items": [
+            {"c": 0, "label": "person", "p": 0.8, "x": 0.40, "w": 0.20, "range_m": 1.4},
+            {"c": 0, "label": "person", "p": 0.9, "x": 0.45, "w": 0.10, "range_m": 2.1},
+        ]});
+        assert_eq!(person_range_in_path(&data), Some(Some(1.4)));
+    }
+
+    #[test]
+    fn person_in_path_without_a_range_still_stops() {
+        let data = json!({"items": [
+            {"c": 0, "label": "person", "p": 0.8, "x": 0.40, "w": 0.20},
+        ]});
+        assert_eq!(person_range_in_path(&data), Some(None));
+    }
+
+    #[test]
+    fn person_outside_the_middle_third_is_ignored() {
+        let data = json!({"items": [
+            {"c": 0, "label": "person", "p": 0.9, "x": 0.02, "w": 0.10, "range_m": 1.0},
+        ]});
+        assert_eq!(person_range_in_path(&data), None);
     }
 }

@@ -58,6 +58,10 @@ Environment variables, all optional:
 | `PERCEPTION_INTERVAL` | `0.20` | minimum seconds between inferences |
 | `PERCEPTION_CONF` | `0.35` | confidence floor |
 | `PERCEPTION_MAX_ITEMS` | `12` | boxes per payload |
+| `PERCEPTION_CAM_HFOV` | `53.5` | camera horizontal FOV, degrees (OV5647 v1) |
+| `PERCEPTION_CAM_YAW` | `0.0` | lidar angle at the image centre, degrees; positive = left |
+| `PERCEPTION_RANGE_WINDOW` | `2.5` | scan window around a box bearing, degrees |
+| `PERCEPTION_SCAN_STALE` | `1.0` | drop the scan cache after this many seconds |
 | `MQTT_BROKER` | `127.0.0.1` | broker host |
 | `MQTT_PORT` | `1883` | broker port |
 
@@ -72,7 +76,8 @@ Environment variables, all optional:
   "fps": 5.0,
   "items": [
     {"c": 0, "label": "person", "p": 0.72,
-     "x": 0.41, "y": 0.30, "w": 0.18, "h": 0.40}
+     "x": 0.41, "y": 0.30, "w": 0.18, "h": 0.40,
+     "range_m": 1.42, "bearing_deg": -3.2}
   ]
 }
 ```
@@ -80,6 +85,15 @@ Environment variables, all optional:
 Boxes are normalised to the frame, origin top-left. `ok:0` with
 `reason:"stream"` means the camera stream failed; the page should clear the
 boxes.
+
+`range_m` and `bearing_deg` are optional. The service subscribes to
+`rover/lidar/scan` and, for each box, takes the closest return within
+`PERCEPTION_RANGE_WINDOW` degrees of the box centre. When the lidar container
+is off, or the return is older than `PERCEPTION_SCAN_STALE`, the fields are
+simply absent and the box is still published. `PERCEPTION_CAM_YAW` is the
+one-time calibration: the lidar angle that lands on the image centre. Set it
+by putting an object on the camera centreline and reading its angle from the
+scan. Positive angles are to the left.
 
 ## Performance
 
