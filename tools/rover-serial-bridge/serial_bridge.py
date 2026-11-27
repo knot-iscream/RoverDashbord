@@ -152,11 +152,21 @@ def main():
                 return
         print("[bridge] no port for %s" % node, flush=True)
 
+    def on_connect(_client, _userdata, _flags, reason_code, _properties=None):
+        # paho reconnects on its own after a broker restart, but the old
+        # subscriptions are gone. Without this the bridge keeps publishing
+        # telemetry while silently ignoring every command.
+        if reason_code != 0:
+            print("[bridge] mqtt connect failed: %s" % reason_code, flush=True)
+            return
+        for topic in COMMAND_NODES:
+            _client.subscribe(topic)
+        print("[bridge] mqtt connected, %d command topics" % len(COMMAND_NODES), flush=True)
+
     client.on_message = on_message
+    client.on_connect = on_connect
     client.connect(MQTT_BROKER, MQTT_PORT, 30)
     client.loop_start()
-    for topic in COMMAND_NODES:
-        client.subscribe(topic)
     for p in ports:
         p.start()
 
