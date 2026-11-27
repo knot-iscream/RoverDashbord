@@ -24,6 +24,8 @@ use crate::ws::{
 
 const LABELS: [&str; 4] = ["FL", "FR", "RL", "RR"];
 const PARTS: [&str; 4] = ["wheelFL", "wheelFR", "wheelRL", "wheelRR"];
+/// A corner with no frame for this long drops back to "--".
+const CORNER_STALE_MS: f64 = 3000.0;
 
 #[derive(Debug, Clone, Copy)]
 struct HomeMotor {
@@ -283,6 +285,9 @@ fn paint_hud(
 struct HomeCtx {
     motors: RwSignal<[HomeMotor; 4]>,
     live: RwSignal<[bool; 4]>,
+    /// Wall-clock ms of the last frame per corner. A board that stops
+    /// reporting is dropped back to "--" after CORNER_STALE_MS.
+    last_rx: RwSignal<[f64; 4]>,
     device_online: RwSignal<bool>,
     dot_cls: RwSignal<String>,
     dot_txt: RwSignal<String>,
@@ -1102,6 +1107,7 @@ fn connect_home_ws(ctx: HomeCtx) {
                         mo.vibration = vib_on;
                     });
                     ctx.live.update(|arr| arr[idx] = true);
+                    ctx.last_rx.update(|arr| arr[idx] = now_ms());
                     repaint(&ctx);
                 }
                 "device_status" => {
@@ -1259,6 +1265,7 @@ pub fn HomePage() -> impl IntoView {
         },
     ]);
     let live = RwSignal::new([false; 4]);
+    let last_rx = RwSignal::new([0.0f64; 4]);
     let device_online = RwSignal::new(false);
     let dot_cls = RwSignal::new("status-dot".to_string());
     let dot_txt = RwSignal::new("All systems nominal".to_string());
@@ -1314,6 +1321,7 @@ pub fn HomePage() -> impl IntoView {
     let ctx = HomeCtx {
         motors,
         live,
+        last_rx,
         device_online,
         dot_cls,
         dot_txt,
@@ -1498,6 +1506,19 @@ pub fn HomePage() -> impl IntoView {
                     .set(seen == 0.0 || now_ms() - seen > env_ui::FRESH_MS);
                 let aseen = c.auto_seen.get();
                 c.auto_stale.set(aseen == 0.0 || now_ms() - aseen > 3000.0);
+                let now = now_ms();
+                let rx = c.last_rx.get();
+                let live = c.live.get();
+                let mut flags = [false; 4];
+                let mut changed = false;
+                for i in 0..4 {
+                    flags[i] = rx[i] > 0.0 && now - rx[i] < CORNER_STALE_MS;
+                    changed |= flags[i] != live[i];
+                }
+                if changed {
+                    c.live.set(flags);
+                    repaint(&c);
+                }
             });
             _iv.forget();
             // A1 scan is stale after 5 s (sensor turns ~5.5 times per second).
